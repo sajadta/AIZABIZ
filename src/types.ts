@@ -160,6 +160,14 @@ export interface Position {
   trailingStopLoss?: number;
   mode: ExecutionMode;
   openedAt: string;
+  isOption?: boolean;
+  netPnl?: number;
+  taxes?: {
+    brokerage: number;
+    stt: number;
+    gst: number;
+    totalCharges: number;
+  };
 }
 
 export interface Holding {
@@ -192,9 +200,16 @@ export interface CandlestickPattern {
   candleIndex: number;
 }
 
+export type TradeMode = 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH';
+
 export interface BotConfig {
   enabled: boolean;
   mode: ExecutionMode;
+  tradeMode: TradeMode;
+  minOptionProfitAmount: number;
+  maxOptionLossCount: number;
+  maxStockLossCount: number;
+  maxStockProfitCount: number;
   selectedStrategy: StrategyKey;
   minConfidence: number; // e.g., 85
   maxCapitalPerTrade: number;

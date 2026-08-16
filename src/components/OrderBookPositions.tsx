@@ -124,6 +124,11 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                         <span className="text-sm font-extrabold text-white">
                           {pos.symbol}
                         </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                          pos.isOption ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                        }`}>
+                          {pos.isOption ? 'OPTION' : 'EQUITY'}
+                        </span>
                         <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                           {pos.productType}
                         </span>
@@ -136,18 +141,24 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                         <span>Avg: ₹{pos.buyPrice}</span>
                         <span>LTP: <strong className="text-slate-200">₹{pos.currentLTP}</strong></span>
                         {pos.stopLoss && <span>SL: ₹{pos.stopLoss}</span>}
-                        {pos.target && <span>Target: ₹{pos.target}</span>}
                       </div>
+                      
+                      {pos.taxes && (
+                        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500 mt-1.5">
+                          <span>Brokerage/Tax: ₹{pos.taxes.totalCharges}</span>
+                          <span className={pos.pnl >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}>
+                            Gross P&L: ₹{pos.pnl}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3">
                       {/* PnL Display */}
                       <div className="text-right font-mono">
-                        <div className={`text-sm font-extrabold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {isProfit ? `+₹${pos.pnl.toFixed(2)}` : `-₹${Math.abs(pos.pnl).toFixed(2)}`}
-                        </div>
-                        <div className={`text-[10px] font-semibold ${isProfit ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {isProfit ? '+' : ''}{pos.pnlPercent}%
+                        <div className="text-[10px] text-slate-400 font-semibold mb-0.5">NET P&L</div>
+                        <div className={`text-sm font-extrabold ${pos.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pos.netPnl >= 0 ? `+₹${pos.netPnl?.toFixed(2)}` : `-₹${Math.abs(pos.netPnl || 0).toFixed(2)}`}
                         </div>
                       </div>
 

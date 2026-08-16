@@ -382,7 +382,7 @@ export default function App() {
   const safeQuotes = Array.isArray(quotes) ? quotes : [];
   const safeSignals = Array.isArray(signals) ? signals : [];
 
-  const totalPnL = safePositions.reduce((acc, pos) => acc + (pos.pnl || 0), 0);
+  const totalPnL = safePositions.reduce((acc, pos) => acc + (pos.netPnl || pos.pnl || 0), 0);
 
   // Selected Stock Quote
   const currentQuote = safeQuotes.find((q) => q.symbol === selectedSymbol);

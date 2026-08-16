@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
+import zlib from 'zlib';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 
@@ -66,6 +67,45 @@ const REAL_NSE_SYMBOLS = [
 
 // Live Quote Cache with dynamic high-frequency tick volatility
 let liveQuotesCache: Record<string, any> = {};
+
+let dynamicLotSizes: Record<string, number> = {
+  'NIFTY': 75,
+  'BANKNIFTY': 15,
+  'FINNIFTY': 25,
+  'MIDCPNIFTY': 50,
+  'SENSEX': 10,
+  'BANKEX': 15,
+};
+
+async function fetchDynamicLotSizes() {
+  try {
+    const response = await fetch('https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz');
+    if (!response.ok) return;
+    const buffer = await response.arrayBuffer();
+    const csvData = zlib.gunzipSync(Buffer.from(buffer)).toString('utf8');
+    
+    const lines = csvData.split('\n');
+    for (const line of lines) {
+      if (line.includes('"OPTIDX"')) {
+        const parts = line.split('","');
+        if (parts.length > 8) {
+          const underlying = parts[3]?.replace(/"/g, '');
+          const lotSize = parseInt(parts[8]?.replace(/"/g, ''), 10);
+          if (underlying && !isNaN(lotSize)) {
+            dynamicLotSizes[underlying] = lotSize;
+          }
+        }
+      }
+    }
+    console.log('[Upstox Sync] Successfully fetched LIVE dynamic lot sizes:', dynamicLotSizes);
+  } catch (error) {
+    console.error('[Upstox Sync] Error fetching dynamic lot sizes, using fallbacks.', error);
+  }
+}
+// Run immediately on server start
+fetchDynamicLotSizes();
+// Re-sync every day
+setInterval(fetchDynamicLotSizes, 24 * 60 * 60 * 1000);
 
 function initializeQuotes() {
   const now = new Date();
@@ -626,9 +666,20 @@ app.get('/api/upstox/optionchain', handleOptionChain);
 app.get('/api/trading/option-chain', handleOptionChain);
 
 // 7. Bot Engine State, Signals & Logs
+let dailyStats = {
+  optionLossCount: 0,
+  stockLossCount: 0,
+  stockProfitCount: 0,
+};
+
 let botConfig = {
   enabled: false,
   mode: 'PAPER_TRADING',
+  tradeMode: 'BOTH' as 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH',
+  minOptionProfitAmount: 300,
+  maxOptionLossCount: 4,
+  maxStockLossCount: 3,
+  maxStockProfitCount: 10,
   selectedStrategy: 'PROFIT_MAX_100_PERCENT_MATRIX',
   minConfidence: 85,
   maxCapitalPerTrade: 50000,
@@ -840,8 +891,13 @@ app.get('/api/bot/config', (req: Request, res: Response) => {
 
 app.post('/api/bot/config', (req: Request, res: Response) => {
   botConfig = { ...botConfig, ...req.body };
+  
+  if (req.body.dailyLossLocked === false) {
+     dailyStats = { optionLossCount: 0, stockLossCount: 0, stockProfitCount: 0 };
+  }
+  
   botLogsStore.unshift({
-    id: `log_cfg_${Date.now()}`,
+    id: `log_cfg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     timestamp: new Date().toLocaleTimeString('en-IN'),
     type: 'INFO',
     message: `Bot configuration updated. Status: ${botConfig.enabled ? 'RUNNING' : 'STOPPED'} (${botConfig.mode}) | Telegram: ${botConfig.telegramAlertsEnabled ? 'ENABLED' : 'DISABLED'}`,
@@ -914,7 +970,7 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
         ordersStore.unshift(newOrder);
         updatePositionStore(newOrder);
         botLogsStore.unshift({
-          id: `log_ord_${Date.now()}`,
+          id: `log_ord_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
           timestamp: new Date().toLocaleTimeString('en-IN'),
           type: 'EXECUTION',
           message: `Live Upstox Order Placed: ${transactionType} ${quantity} ${symbol} @ ₹${execPrice}`,
@@ -953,7 +1009,7 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
   updatePositionStore(newOrder);
 
   botLogsStore.unshift({
-    id: `log_ord_${Date.now()}`,
+    id: `log_ord_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     timestamp: new Date().toLocaleTimeString('en-IN'),
     type: 'EXECUTION',
     message: `Order Executed: ${transactionType} ${quantity} ${symbol} @ ₹${execPrice} (${newOrder.mode})`,
@@ -1027,7 +1083,24 @@ const getUpdatedPositions = () => {
     const pnl = Number(((currentLTP - pos.buyPrice) * pos.quantity).toFixed(2));
     const pnlPercent = Number((((currentLTP - pos.buyPrice) / pos.buyPrice) * 100).toFixed(2));
     
-    // Dynamic Trailing Stop-Loss calculation: when price advances, trail SL upward!
+    // Brokerage & Tax Estimation (Upstox Intraday/Options Rates)
+    const isOption = pos.symbol.includes('CE') || pos.symbol.includes('PE');
+    const buyValue = pos.buyPrice * pos.quantity;
+    const sellValue = currentLTP * pos.quantity; // Estimated sell value if squared off now
+    const totalTurnover = buyValue + sellValue;
+
+    let brokerageBuy = isOption ? 20 : Math.min(20, buyValue * 0.05 / 100);
+    let brokerageSell = isOption ? 20 : Math.min(20, sellValue * 0.05 / 100);
+    let stt = isOption ? (sellValue * 0.125 / 100) : (sellValue * 0.025 / 100);
+    let exch = isOption ? (totalTurnover * 0.05 / 100) : (totalTurnover * 0.00345 / 100);
+    let stamp = buyValue * 0.003 / 100;
+    let sebi = totalTurnover * 0.0001 / 100;
+    let gst = (brokerageBuy + brokerageSell + exch + sebi) * 18 / 100;
+    
+    const totalCharges = Number((brokerageBuy + brokerageSell + stt + exch + sebi + gst + stamp).toFixed(2));
+    const netPnl = Number((pnl - totalCharges).toFixed(2));
+    
+    // Dynamic Trailing Stop-Loss calculation
     let trailingStopLoss = pos.trailingStopLoss || Number((pos.buyPrice * (1 - (botConfig.stopLossPercent || 1.5) / 100)).toFixed(2));
     if (botConfig.trailingStopLoss && currentLTP > pos.buyPrice) {
       const stepPct = (botConfig.trailingStepPercent || 0.5) / 100;
@@ -1043,6 +1116,14 @@ const getUpdatedPositions = () => {
       pnl,
       pnlPercent,
       trailingStopLoss,
+      taxes: {
+        brokerage: Number((brokerageBuy + brokerageSell).toFixed(2)),
+        stt: Number(stt.toFixed(2)),
+        gst: Number(gst.toFixed(2)),
+        totalCharges,
+      },
+      netPnl,
+      isOption,
     };
   });
   return positionsStore;
@@ -1079,7 +1160,7 @@ const handleSquareOffSingle = (req: Request, res: Response) => {
       notes: 'Position Square-Off',
     });
     botLogsStore.unshift({
-      id: `log_sq_${Date.now()}`,
+      id: `log_sq_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       timestamp: new Date().toLocaleTimeString('en-IN'),
       type: 'EXECUTION',
       message: `Position Closed: ${pos.symbol} (${pos.quantity} Qty) @ ₹${pos.currentLTP} (PnL: ₹${pos.pnl})`,
@@ -1118,7 +1199,7 @@ const handleSquareOffAll = (req: Request, res: Response) => {
   });
   positionsStore = [];
   botLogsStore.unshift({
-    id: `log_sq_all_${Date.now()}`,
+    id: `log_sq_all_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     timestamp: new Date().toLocaleTimeString('en-IN'),
     type: 'EXECUTION',
     message: `All ${closedCount} active positions squared off successfully.`,
@@ -1149,7 +1230,7 @@ setInterval(() => {
     // Auto square off all positions to prevent further drawdown
     positionsStore.forEach(pos => {
       ordersStore.unshift({
-        id: `ORD_CB_${Date.now()}`,
+        id: `ORD_CB_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
         orderId: `CB_${Date.now()}`,
         symbol: pos.symbol,
         instrumentKey: pos.instrumentKey,
@@ -1168,7 +1249,7 @@ setInterval(() => {
     positionsStore = [];
 
     botLogsStore.unshift({
-      id: `log_cb_${Date.now()}`,
+      id: `log_cb_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       timestamp: new Date().toLocaleTimeString('en-IN'),
       type: 'ERROR',
       message: `🚨 CIRCUIT BREAKER TRIGGERED: Daily loss (₹${currentTotalPnL.toFixed(2)}) breached limit of ₹${botConfig.dailyMaxLossLimit}. All trades closed & Bot paused for the day.`,
@@ -1180,71 +1261,195 @@ setInterval(() => {
   }
 
   // 3. Monitor individual positions for SL / Target / Trailing SL
-  if (positionsStore.length === 0) return;
-  positionsStore.forEach((pos, idx) => {
-    const quote = liveQuotesCache[pos.symbol];
-    if (!quote) return;
-    const currentLTP = quote.ltp;
+  if (positionsStore.length > 0) {
+    positionsStore.forEach((pos, idx) => {
+      const quote = liveQuotesCache[pos.symbol];
+      if (!quote) return;
+      const currentLTP = quote.ltp;
 
-    const activeSL = pos.trailingStopLoss || pos.stopLoss;
+      const activeSL = pos.trailingStopLoss || pos.stopLoss;
 
-    // Check Stop-Loss Hit
-    if (activeSL && currentLTP <= activeSL) {
-      ordersStore.unshift({
-        id: `ORD_SL_${Date.now()}`,
-        orderId: `SL_${Date.now()}`,
-        symbol: pos.symbol,
-        instrumentKey: pos.instrumentKey,
-        transactionType: 'SELL',
-        orderType: 'MARKET',
-        productType: pos.productType,
-        quantity: pos.quantity,
-        price: currentLTP,
-        status: 'COMPLETE',
-        executedPrice: currentLTP,
-        timestamp: new Date().toLocaleTimeString('en-IN'),
-        mode: pos.mode,
-        notes: 'Stop-Loss / Trailing SL Trigger Hit',
-      });
-      botLogsStore.unshift({
-        id: `log_sl_${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString('en-IN'),
-        type: 'SL_TRIGGER',
-        message: `🛡️ Stop-Loss / TSL Triggered for ${pos.symbol} at ₹${currentLTP} (Risk Protection Executed)`,
-        messageMalayalam: `🛡️ ${pos.symbol}-ൽ സ്റ്റോപ്പ് ലോസ്സ് / TSL ട്രിഗർ ആയി (₹${currentLTP}). സംരക്ഷണം നടപ്പിലാക്കി.`,
-      });
-      sendTelegramAlert(`🛡️ <b>Stop-Loss / TSL Triggered</b>\n\n📌 <b>${pos.symbol}</b>\n💰 Exit Price: ₹${currentLTP}\n📊 Result: Risk control executed.\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
-      positionsStore.splice(idx, 1);
-    }
-    // Check Target Hit
-    else if (pos.target && currentLTP >= pos.target) {
-      ordersStore.unshift({
-        id: `ORD_TP_${Date.now()}`,
-        orderId: `TP_${Date.now()}`,
-        symbol: pos.symbol,
-        instrumentKey: pos.instrumentKey,
-        transactionType: 'SELL',
-        orderType: 'MARKET',
-        productType: pos.productType,
-        quantity: pos.quantity,
-        price: currentLTP,
-        status: 'COMPLETE',
-        executedPrice: currentLTP,
-        timestamp: new Date().toLocaleTimeString('en-IN'),
-        mode: pos.mode,
-        notes: 'Target Profit Hit',
-      });
-      botLogsStore.unshift({
-        id: `log_tp_${Date.now()}`,
-        timestamp: new Date().toLocaleTimeString('en-IN'),
-        type: 'TP_TRIGGER',
-        message: `🎯 Target Profit Hit for ${pos.symbol} at ₹${currentLTP} (Profit Secured!)`,
-        messageMalayalam: `🎯 ${pos.symbol}-ൽ ടാർഗെറ്റ് ലാഭം ലഭിച്ചു (₹${currentLTP}). ലാഭം സുരക്ഷിതമാക്കി!`,
-      });
-      sendTelegramAlert(`🎯 <b>TARGET PROFIT SECURED!</b>\n\n📌 <b>${pos.symbol}</b>\n💰 Hit Target: ₹${currentLTP}\n📊 Profit locked in successfully.\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
-      positionsStore.splice(idx, 1);
-    }
-  });
+      // Check Stop-Loss Hit
+      if (activeSL && ((pos.quantity > 0 && currentLTP <= activeSL) || (pos.quantity < 0 && currentLTP >= activeSL))) {
+        ordersStore.unshift({
+          id: `ORD_SL_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          orderId: `SL_${Date.now()}`,
+          symbol: pos.symbol,
+          instrumentKey: pos.instrumentKey,
+          transactionType: pos.quantity > 0 ? 'SELL' : 'BUY',
+          orderType: 'MARKET',
+          productType: pos.productType,
+          quantity: Math.abs(pos.quantity),
+          price: currentLTP,
+          status: 'COMPLETE',
+          executedPrice: currentLTP,
+          timestamp: new Date().toLocaleTimeString('en-IN'),
+          mode: pos.mode,
+          notes: 'Stop-Loss / Trailing SL Trigger Hit',
+        });
+        botLogsStore.unshift({
+          id: `log_sl_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          timestamp: new Date().toLocaleTimeString('en-IN'),
+          type: 'SL_TRIGGER',
+          message: `🛡️ Stop-Loss / TSL Triggered for ${pos.symbol} at ₹${currentLTP} (Risk Protection Executed)`,
+          messageMalayalam: `🛡️ ${pos.symbol}-ൽ സ്റ്റോപ്പ് ലോസ്സ് / TSL ട്രിഗർ ആയി (₹${currentLTP}). സംരക്ഷണം നടപ്പിലാക്കി.`,
+        });
+        sendTelegramAlert(`🛡️ <b>Stop-Loss / TSL Triggered</b>\n\n📌 <b>${pos.symbol}</b>\n💰 Exit Price: ₹${currentLTP}\n📊 Result: Risk control executed.\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
+        
+        if (pos.netPnl !== undefined) {
+           if (pos.netPnl < 0) {
+             if (pos.isOption) dailyStats.optionLossCount++;
+             else dailyStats.stockLossCount++;
+           } else if (pos.netPnl > 0) {
+             if (!pos.isOption) dailyStats.stockProfitCount++;
+           }
+        }
+        positionsStore.splice(idx, 1);
+      }
+      // Check Target Hit
+      else if (pos.target && ((pos.quantity > 0 && currentLTP >= pos.target) || (pos.quantity < 0 && currentLTP <= pos.target))) {
+        // Enforce minimum 300 Net PnL requirement for Options
+        if (pos.isOption && (pos.netPnl === undefined || pos.netPnl < (botConfig.minOptionProfitAmount || 300))) {
+            return; // Wait until min profit criteria is met
+        }
+        
+        ordersStore.unshift({
+          id: `ORD_TP_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          orderId: `TP_${Date.now()}`,
+          symbol: pos.symbol,
+          instrumentKey: pos.instrumentKey,
+          transactionType: pos.quantity > 0 ? 'SELL' : 'BUY',
+          orderType: 'MARKET',
+          productType: pos.productType,
+          quantity: Math.abs(pos.quantity),
+          price: currentLTP,
+          status: 'COMPLETE',
+          executedPrice: currentLTP,
+          timestamp: new Date().toLocaleTimeString('en-IN'),
+          mode: pos.mode,
+          notes: 'Target Profit Hit',
+        });
+        botLogsStore.unshift({
+          id: `log_tp_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          timestamp: new Date().toLocaleTimeString('en-IN'),
+          type: 'TP_TRIGGER',
+          message: `🎯 Target Profit Hit for ${pos.symbol} at ₹${currentLTP} (Profit Secured!)`,
+          messageMalayalam: `🎯 ${pos.symbol}-ൽ ടാർഗെറ്റ് ലാഭം ലഭിച്ചു (₹${currentLTP}). ലാഭം സുരക്ഷിതമാക്കി!`,
+        });
+        sendTelegramAlert(`🎯 <b>TARGET PROFIT SECURED!</b>\n\n📌 <b>${pos.symbol}</b>\n💰 Hit Target: ₹${currentLTP}\n📊 Profit locked in successfully.\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
+        
+        if (pos.netPnl !== undefined) {
+           if (pos.netPnl < 0) {
+             if (pos.isOption) dailyStats.optionLossCount++;
+             else dailyStats.stockLossCount++;
+           } else if (pos.netPnl > 0) {
+             if (!pos.isOption) dailyStats.stockProfitCount++;
+           }
+        }
+        positionsStore.splice(idx, 1);
+      }
+    });
+  }
+
+  // 4. Auto-Execute High Confidence Signals if BOT IS RUNNING
+  if (botConfig.enabled && !botConfig.dailyLossLocked) {
+    const liveSignals = generateDynamicSignals();
+    liveSignals.forEach(sig => {
+      // Check confidence threshold
+      if (sig.confidenceScore >= (botConfig.minConfidence || 85)) {
+        // Prevent duplicate positions
+        const alreadyOpen = positionsStore.some(p => p.symbol === sig.symbol);
+        if (!alreadyOpen) {
+          // Check Trade Mode and Limit Restrictions
+          const isOptionSignal = botConfig.autoOptionStrikeSelector && !!sig.recommendedOptionStrike;
+          
+          if (botConfig.tradeMode === 'OPTIONS_ONLY' && !isOptionSignal) return;
+          if (botConfig.tradeMode === 'STOCKS_ONLY' && isOptionSignal) return;
+
+          if (isOptionSignal && dailyStats.optionLossCount >= (botConfig.maxOptionLossCount || 4)) return;
+          if (!isOptionSignal && dailyStats.stockLossCount >= (botConfig.maxStockLossCount || 3)) return;
+          if (!isOptionSignal && dailyStats.stockProfitCount >= (botConfig.maxStockProfitCount || 10)) return;
+
+          // If option selector is on, we trade the recommended option!
+          let tradeSymbol = sig.symbol;
+          let tradePrice = sig.price;
+          
+          const getLotSize = (sym: string) => {
+            const s = sym.toUpperCase();
+            // First check dynamic Upstox live cache
+            for (const [key, size] of Object.entries(dynamicLotSizes)) {
+               if (s.includes(key)) return size;
+            }
+            // Fallbacks if Upstox file hasn't loaded yet
+            if (s.includes('BANKNIFTY')) return 15;
+            if (s.includes('FINNIFTY')) return 25;
+            if (s.includes('MIDCPNIFTY')) return 120;
+            if (s.includes('SENSEX')) return 10;
+            if (s.includes('BANKEX')) return 15;
+            if (s.includes('NIFTY')) return 75; 
+            return 100; // default equity qty if nothing matches
+          };
+          
+          let tradeQty = getLotSize(sig.symbol);
+          
+          if (botConfig.autoOptionStrikeSelector && sig.recommendedOptionStrike) {
+            tradeSymbol = `${sig.symbol} ${sig.recommendedOptionStrike.expiry} ${sig.recommendedOptionStrike.strikePrice} ${sig.recommendedOptionStrike.optionType}`;
+            tradePrice = sig.recommendedOptionStrike.ltp;
+            tradeQty = getLotSize(sig.symbol); // Option lot size based on symbol
+          }
+
+          const orderId = `ORD_AUTO_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+          const newOrder = {
+            id: orderId,
+            orderId,
+            symbol: tradeSymbol,
+            instrumentKey: `NSE_EQ|${tradeSymbol}`,
+            transactionType: sig.signalType,
+            orderType: 'MARKET',
+            productType: 'INTRADAY',
+            quantity: tradeQty,
+            price: tradePrice,
+            status: 'COMPLETE',
+            executedPrice: tradePrice,
+            timestamp: new Date().toLocaleTimeString('en-IN'),
+            mode: botConfig.mode,
+            notes: `Auto executed ${sig.strategyName}`,
+          };
+          
+          ordersStore.unshift(newOrder);
+          
+          // Auto add to position store manually to apply correct SL/TP logic
+          positionsStore.push({
+            id: `pos_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+            symbol: tradeSymbol,
+            instrumentKey: newOrder.instrumentKey,
+            productType: newOrder.productType,
+            quantity: newOrder.transactionType === 'BUY' ? tradeQty : -tradeQty,
+            buyPrice: tradePrice,
+            currentLTP: tradePrice,
+            pnl: 0,
+            pnlPercent: 0,
+            mode: newOrder.mode,
+            openedAt: newOrder.timestamp,
+            stopLoss: Number((tradePrice * (1 - (botConfig.stopLossPercent || 1.5) / 100)).toFixed(2)),
+            target: Number((tradePrice * (1 + (botConfig.targetProfitPercent || 3.0) / 100)).toFixed(2)),
+            trailingStopLoss: Number((tradePrice * (1 - (botConfig.stopLossPercent || 1.5) / 100)).toFixed(2)),
+            isOption: botConfig.autoOptionStrikeSelector && !!sig.recommendedOptionStrike,
+          });
+
+          botLogsStore.unshift({
+            id: `log_auto_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+            timestamp: new Date().toLocaleTimeString('en-IN'),
+            type: 'EXECUTION',
+            message: `🤖 Auto-Trade Executed: ${sig.signalType} ${tradeSymbol} @ ₹${tradePrice} (Confidence: ${sig.confidenceScore}%)`,
+            messageMalayalam: `🤖 ഓട്ടോ-ട്രേഡ്: ${sig.signalType} ${tradeSymbol} @ ₹${tradePrice} (കൃത്യത: ${sig.confidenceScore}%)`,
+          });
+          
+          sendTelegramAlert(`🤖 <b>AUTO-TRADE EXECUTED</b>\n\n📌 <b>${tradeSymbol}</b>\n📈 Signal: ${sig.signalType}\n💰 Entry: ₹${tradePrice}\n🎯 Target: ₹${(tradePrice * 1.03).toFixed(2)}\n🛡 SL: ₹${(tradePrice * 0.985).toFixed(2)}\n⭐ Confidence: ${sig.confidenceScore}%\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
+        }
+      }
+    });
+  }
 }, 2500);
 
 // 10. Gemini AI Live Market & Algorithmic Analysis Engine (with aliases)

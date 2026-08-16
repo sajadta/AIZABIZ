@@ -399,6 +399,85 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
         {activeTab === 'SETTINGS' && (
           <div className="space-y-4">
             
+            {/* Trade Mode & Asset Class Selection */}
+            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+              <h4 className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                <Sliders className="w-4 h-4 text-emerald-400" />
+                <span>{language === 'ml' ? 'ട്രേഡ് മോഡും ലിമിറ്റുകളും' : 'Trade Mode & Daily Limits'}</span>
+              </h4>
+              
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400">{language === 'ml' ? 'എന്ത് ട്രേഡ് ചെയ്യണം?' : 'What to Trade?'}</label>
+                <div className="flex bg-slate-950 rounded-lg p-1 border border-slate-800">
+                  <button 
+                    onClick={() => onUpdateBotConfig({ tradeMode: 'OPTIONS_ONLY' })}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'OPTIONS_ONLY' ? 'bg-fuchsia-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                  >
+                    OPTIONS ONLY
+                  </button>
+                  <button 
+                    onClick={() => onUpdateBotConfig({ tradeMode: 'STOCKS_ONLY' })}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'STOCKS_ONLY' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                  >
+                    STOCKS ONLY
+                  </button>
+                  <button 
+                    onClick={() => onUpdateBotConfig({ tradeMode: 'BOTH' })}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'BOTH' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                  >
+                    BOTH
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                    {language === 'ml' ? 'ഓപ്ഷൻ മിനിമം ലാഭം' : 'Min Option Profit (₹)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={botConfig.minOptionProfitAmount || 300}
+                    onChange={(e) => onUpdateBotConfig({ minOptionProfitAmount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                    {language === 'ml' ? 'ഓപ്ഷൻ പരമാവധി നഷ്ടങ്ങൾ' : 'Max Option Losses'}
+                  </label>
+                  <input
+                    type="number"
+                    value={botConfig.maxOptionLossCount || 4}
+                    onChange={(e) => onUpdateBotConfig({ maxOptionLossCount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                    {language === 'ml' ? 'സ്റ്റോക്ക് പരമാവധി ലാഭങ്ങൾ' : 'Max Stock Profits'}
+                  </label>
+                  <input
+                    type="number"
+                    value={botConfig.maxStockProfitCount || 10}
+                    onChange={(e) => onUpdateBotConfig({ maxStockProfitCount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                    {language === 'ml' ? 'സ്റ്റോക്ക് പരമാവധി നഷ്ടങ്ങൾ' : 'Max Stock Losses'}
+                  </label>
+                  <input
+                    type="number"
+                    value={botConfig.maxStockLossCount || 3}
+                    onChange={(e) => onUpdateBotConfig({ maxStockLossCount: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs focus:border-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Strategy Selection */}
             <div>
               <label className="text-xs font-bold text-slate-300 block mb-2">
