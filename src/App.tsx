@@ -50,6 +50,7 @@ import {
   OrderTransactionType 
 } from './types';
 import { translations } from './translations';
+import { analyzeTradingSignals } from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
 
 export default function App() {
@@ -221,10 +222,25 @@ export default function App() {
   const runGeminiAnalysis = useCallback(async () => {
     setAiLoading(true);
     try {
+      const quote = quotes.find(q => q.symbol === selectedSymbol);
+      let indicators = null;
+      if (candles.length > 0) {
+        const analysis = analyzeTradingSignals(candles);
+        indicators = analysis.readings;
+      }
+      
+      const payload = { 
+        symbol: selectedSymbol, 
+        interval,
+        ltp: quote?.ltp || 0,
+        changePercent: quote?.changePercent || 0,
+        indicators
+      };
+
       const res = await fetch('/api/gemini/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: selectedSymbol, interval }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const data = await res.json();
@@ -236,7 +252,7 @@ export default function App() {
     } finally {
       setAiLoading(false);
     }
-  }, [selectedSymbol, interval, soundEnabled]);
+  }, [selectedSymbol, interval, quotes, candles, soundEnabled]);
 
   // 7. Fetch API Config & sync daily token
   const fetchApiConfig = useCallback(async () => {

@@ -1,38 +1,55 @@
 const fs = require('fs');
-let code = fs.readFileSync('server.ts', 'utf8');
+let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-const oldPromptBlock = `    const quote = { ltp: ltp || 24350, changePercent: changePercent || 0.4 };
+// Import analyzeConfluence
+if (!code.includes('analyzeConfluence')) {
+  code = code.replace(
+    "import { translations } from './translations';",
+    "import { translations } from './translations';\nimport { analyzeConfluence } from './utils/indicators';"
+  );
+}
 
-    const prompt = \`You are a world-class Quantitative Financial Analyst and Algorithmic Trading Architect for Indian Equities (NSE/BSE) on the Upstox Live Platform.
-Analyze the following LIVE MARKET DATA for \${symbol}:
-- Current LTP: ₹\${quote.ltp}
-- Day Change: \${quote.changePercent}%
-- Timeframe: \${interval || '5m'}
-- Technical Indicator States:
-  * Supertrend: \${indicators?.supertrend?.signal || 'BUY'} at ₹\${indicators?.supertrend?.value || (quote.ltp * 0.985).toFixed(2)}
-  * RSI (14): \${indicators?.rsi || 58.5}
-  * MACD: \${indicators?.macd?.signal || 'Bullish Crossover'}
-  * Moving Averages (20, 50, 200 EMA): \${indicators?.ema?.bias || 'Price trading above 20 EMA & 50 EMA'}
-  * Options Open Interest (OI) Bias: \${indicators?.oi?.bias || 'Heavy Put Writing detected at ATM strikes (Support building)'}
-  * Order Book / Volume: \${indicators?.volume?.bias || 'Institutional accumulation visible in last 3 candles'}
+// Modify runGeminiAnalysis to include data
+const newRunGeminiAnalysis = `
+  const runGeminiAnalysis = useCallback(async () => {
+    setAiLoading(true);
+    try {
+      const quote = quotes.find(q => q.symbol === selectedSymbol);
+      let indicators = null;
+      if (candles.length > 0) {
+        const analysis = analyzeConfluence(candles);
+        indicators = analysis.readings;
+      }
+      
+      const payload = { 
+        symbol: selectedSymbol, 
+        interval,
+        ltp: quote?.ltp || 0,
+        changePercent: quote?.changePercent || 0,
+        indicators
+      };
 
-Provide a highly professional, brutally objective, and algorithmic evaluation of this setup. \`;`;
+      const res = await fetch('/api/gemini/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setGeminiAnalysis(data.data || data);
+        if (soundEnabled) soundEngine.play('SUCCESS');
+      }
+    } catch {
+      // Soft handling
+    } finally {
+      setAiLoading(false);
+    }
+  }, [selectedSymbol, interval, quotes, candles, soundEnabled]);
+`;
 
-const newPromptBlock = `    const quote = { ltp: ltp || 0, changePercent: changePercent || 0 };
+code = code.replace(
+  /const runGeminiAnalysis = useCallback\(async \(\) => \{[\s\S]*?\}, \[selectedSymbol, interval, soundEnabled\]\);/,
+  newRunGeminiAnalysis.trim()
+);
 
-    const prompt = \`You are a world-class Quantitative Financial Analyst and Algorithmic Trading Architect for Indian Equities (NSE/BSE) on the Upstox Live Platform.
-Analyze the following LIVE MARKET DATA for \${symbol}:
-- Current LTP: ₹\${quote.ltp}
-- Day Change: \${quote.changePercent}%
-- Timeframe: \${interval || '5m'}
-- Technical Indicator States:
-  * Supertrend: \${indicators?.supertrend?.signal || 'N/A'} at ₹\${indicators?.supertrend?.value || 'N/A'}
-  * RSI (14): \${indicators?.rsi || 'N/A'}
-  * MACD: \${indicators?.macd?.signal || 'N/A'}
-  * Moving Averages Bias: \${indicators?.ema?.bias || 'N/A'}
-  * Volume Bias: \${indicators?.volume?.bias || 'N/A'}
-
-Provide a highly professional, brutally objective, and algorithmic evaluation of this setup. \`;`;
-
-code = code.replace(oldPromptBlock, newPromptBlock);
-fs.writeFileSync('server.ts', code);
+fs.writeFileSync('src/App.tsx', code);
