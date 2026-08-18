@@ -88,7 +88,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 
           return (
             <div
-              key={q.symbol}
+              key={q.instrumentKey}
               onClick={() => onSelectSymbol(q.symbol)}
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected

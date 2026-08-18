@@ -1,3 +1,4 @@
+import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle, Key } from 'lucide-react';
 import { 
@@ -63,6 +64,7 @@ export default function App() {
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [interval, setInterval] = useState<string>('5m');
   const [positions, setPositions] = useState<Position[]>([]);
+  const [holdings, setHoldings] = useState<any[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
@@ -104,6 +106,7 @@ export default function App() {
   });
 
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [optionLoading, setOptionLoading] = useState(false);
@@ -156,6 +159,11 @@ export default function App() {
       if (ordRes.ok) {
         const ordData = await ordRes.json();
         setOrders(Array.isArray(ordData) ? ordData : (ordData.orders || []));
+      }
+      
+      const holdRes = await fetch('/api/upstox/holdings');
+      if (holdRes.ok) {
+        setHoldings(await holdRes.json());
       }
     } catch {
       // Soft handling during polling
@@ -255,6 +263,26 @@ export default function App() {
     }
   }, []);
 
+
+  // Initial Local Storage Setup Check
+  useEffect(() => {
+    const isSetupComplete = localStorage.getItem('app_setup_complete');
+    if (!isSetupComplete) {
+      setIsOnboardingOpen(true);
+    } else {
+      // Sync local config to backend if backend was restarted
+      const tgToken = localStorage.getItem('algo_tg_token');
+      const tgChat = localStorage.getItem('algo_tg_chat');
+      if (tgToken && tgChat) {
+        fetch('/api/bot/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegramBotToken: tgToken, telegramChatId: tgChat, telegramAlertsEnabled: true })
+        }).catch(() => {});
+      }
+    }
+  }, []);
+
   // Initial Load & Intervals
   useEffect(() => {
     fetchQuotes();
@@ -263,7 +291,7 @@ export default function App() {
     fetchApiConfig();
 
     const quoteInterval = window.setInterval(fetchQuotes, 1000);
-    const tradingInterval = window.setInterval(fetchPositionsAndOrders, 1500);
+    const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 3000);
     const botInterval = window.setInterval(fetchBotState, 2000);
 
     return () => {
@@ -520,6 +548,17 @@ export default function App() {
                 {t.optionChain}
               </button>
               <button
+                onClick={() => setBottomTab('PORTFOLIO')}
+                className={`flex-1 py-1.5 rounded-xl transition ${
+                  bottomTab === 'PORTFOLIO'
+                    ? 'bg-slate-800 text-teal-300 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Funds & Holdings
+              </button>
+
+              <button
                 onClick={() => setBottomTab('AI')}
                 className={`flex-1 py-1.5 rounded-xl transition ${
                   bottomTab === 'AI'
@@ -562,6 +601,49 @@ export default function App() {
                   language={language}
                   symbol={selectedSymbol}
                 />
+              )}
+
+              {bottomTab === 'PORTFOLIO' && (
+                <div className="bg-[#0b0f19] border border-slate-800 rounded-2xl flex-1 overflow-hidden flex flex-col p-4 animate-in fade-in zoom-in-95 duration-200">
+                  <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-teal-400"></span>
+                    Portfolio & Available Margin
+                  </h3>
+                  
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Available Margin</p>
+                      <p className="text-lg font-black text-emerald-400">₹{apiConfig?.availableMargin?.toLocaleString('en-IN') || '0.00'}</p>
+                    </div>
+                    <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Used Margin</p>
+                      <p className="text-lg font-black text-rose-400">₹{apiConfig?.usedMargin?.toLocaleString('en-IN') || '0.00'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto min-h-0">
+                    {holdings.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic text-center mt-4">No long-term holdings found in this Upstox account.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {holdings.map((h, i) => (
+                          <div key={i} className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                            <div>
+                              <p className="text-xs font-bold text-slate-200">{h.symbol}</p>
+                              <p className="text-[10px] text-slate-400">Qty: {h.quantity} • Avg: ₹{Number(h.buyPrice).toFixed(2)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-bold text-white">₹{Number(h.currentLTP).toFixed(2)}</p>
+                              <p className={`text-[11px] font-bold ${h.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {h.pnl >= 0 ? '+' : ''}{Number(h.pnl).toFixed(2)} ({Number(h.pnlPercent).toFixed(2)}%)
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>

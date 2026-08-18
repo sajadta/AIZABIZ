@@ -116,7 +116,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                 const isProfit = pos.pnl >= 0;
                 return (
                   <div
-                    key={pos.id}
+                    key={pos.id + "-" + pos.productType}
                     className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-3 flex-wrap"
                   >
                     <div>

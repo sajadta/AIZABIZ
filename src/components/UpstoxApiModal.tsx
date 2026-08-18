@@ -42,7 +42,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
   const [apiKey, setApiKey] = useState(config.apiKey);
   const [apiSecret, setApiSecret] = useState(config.apiSecret);
-  const [accessToken, setAccessToken] = useState(config.accessToken);
+  const [accessToken, setAccessToken] = useState(config.accessToken || '');
   const [redirectUri, setRedirectUri] = useState(config.redirectUri || `${window.location.origin}/api/upstox/callback`);
   
   // Auth Code for OAuth exchange
@@ -56,7 +56,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   useEffect(() => {
     setApiKey(config.apiKey);
     setApiSecret(config.apiSecret);
-    setAccessToken(config.accessToken);
+    setAccessToken(config.accessToken || '');
     if (config.redirectUri) setRedirectUri(config.redirectUri);
   }, [config, isOpen]);
 
@@ -65,7 +65,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   // 1. Direct Daily Token Save & Verify
   const handleDailyTokenSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken.trim()) {
+    if (!accessToken?.trim()) {
       setStatusMsg({
         type: 'error',
         text: language === 'ml' 
@@ -83,7 +83,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       const res = await fetch('/api/upstox/daily-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: accessToken.trim() }),
+        body: JSON.stringify({ accessToken: accessToken?.trim() }),
       });
 
       const data = await res.json();
@@ -91,7 +91,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (data.success) {
         // Save to parent config state
         await onSaveConfig({
-          accessToken: accessToken.trim(),
+          accessToken: accessToken?.trim(),
           isConnected: true,
           userName: data.profile?.userName || 'Upstox Trader',
           userClientCode: data.profile?.userClientCode || 'UP_LIVE',
@@ -103,7 +103,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         // Store in localStorage with today's date
         try {
           const todayStr = new Date().toISOString().split('T')[0];
-          localStorage.setItem('upstox_daily_token', accessToken.trim());
+          localStorage.setItem('upstox_daily_token', accessToken?.trim());
           localStorage.setItem('upstox_token_date', todayStr);
         } catch (e) {}
 
@@ -157,7 +157,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
   // 3. One-Click OAuth Exchange (Code -> Token)
   const handleExchangeCode = async () => {
-    if (!authCode.trim()) {
+    if (!authCode?.trim()) {
       setStatusMsg({
         type: 'error',
         text: language === 'ml' ? 'റീഡയറക്റ്റ് URL-ൽ നിന്നുള്ള Auth Code നൽകുക.' : 'Please enter the authorization code from redirected URL.',
@@ -172,7 +172,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          code: authCode.trim(),
+          code: authCode?.trim(),
           apiKey,
           apiSecret,
           redirectUri,
@@ -426,7 +426,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
                 <button
                   type="submit"
-                  disabled={validating || !accessToken.trim()}
+                  disabled={validating || !accessToken?.trim()}
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-extrabold shadow-lg shadow-emerald-950 transition active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {validating ? (
@@ -527,7 +527,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                     <button
                       type="button"
                       onClick={handleExchangeCode}
-                      disabled={exchangingCode || !authCode.trim()}
+                      disabled={exchangingCode || !authCode?.trim()}
                       className="px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold transition flex items-center gap-1 disabled:opacity-50"
                     >
                       {exchangingCode ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}

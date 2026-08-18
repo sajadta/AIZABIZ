@@ -101,14 +101,14 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/40">
-            {data.strikes.map((s) => {
+            {data.strikes.map((s, i) => {
               const isATM = Math.abs(s.strikePrice - data.underlyingLTP) <= 50;
               const isITMCall = s.strikePrice < data.underlyingLTP;
               const isITMPut = s.strikePrice > data.underlyingLTP;
 
               return (
                 <tr
-                  key={s.strikePrice}
+                  key={s.strikePrice + "-" + i}
                   className={`transition hover:bg-slate-850 ${
                     isATM ? 'bg-amber-500/10' : ''
                   }`}

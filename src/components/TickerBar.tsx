@@ -22,7 +22,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
 
           return (
             <button
-              key={q.symbol}
+              key={q.instrumentKey}
               onClick={() => onSelectSymbol(q.symbol)}
               className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-left transition-all font-mono ${
                 isSelected
