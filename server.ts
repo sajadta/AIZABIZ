@@ -10,7 +10,7 @@ dotenv.config();
 
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // CORS & Middleware Configuration
 app.use((req, res, next) => {
@@ -40,7 +40,7 @@ const ai = new GoogleGenAI({
 let upstoxConfig = {
   apiKey: process.env.UPSTOX_API_KEY || '',
   apiSecret: process.env.UPSTOX_API_SECRET || '',
-  redirectUri: process.env.UPSTOX_REDIRECT_URI || `${process.env.APP_URL || 'http://localhost:3000'}/api/upstox/callback`,
+  redirectUri: process.env.UPSTOX_REDIRECT_URI || `${process.env.APP_URL || `http://localhost:${PORT}`}/api/upstox/callback`,
   accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',
   userName: 'Upstox Trader',
   userEmail: 'trader@upstox.com',
