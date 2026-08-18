@@ -13,12 +13,41 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 // CORS & Middleware Configuration
+// Security: CORS is restricted to an explicit allow-list (the app's own origin
+// from APP_URL / RENDER_EXTERNAL_URL, plus localhost for local development).
+// Any other origin gets NO CORS headers, so browsers cannot read responses or
+// place orders cross-site. The server places real-money orders — wildcard CORS
+// is not acceptable here.
+const ALLOWED_ORIGINS = new Set<string>();
+function addAllowedOrigin(raw: string | undefined) {
+  if (!raw) return;
+  try {
+    ALLOWED_ORIGINS.add(new URL(raw).origin);
+  } catch {
+    console.warn(`[CORS] Ignoring malformed origin in env: ${raw}`);
+  }
+}
+addAllowedOrigin(process.env.APP_URL);
+addAllowedOrigin(process.env.RENDER_EXTERNAL_URL);
+// Local development origins (dev server + built SPA served on the same host)
+ALLOWED_ORIGINS.add(`http://localhost:${PORT}`);
+ALLOWED_ORIGINS.add(`http://127.0.0.1:${PORT}`);
+
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+  } else if (origin) {
+    // Disallowed origin: never emit CORS headers. Preflights are rejected outright.
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(403);
+    }
   }
   next();
 });
@@ -47,7 +76,62 @@ let upstoxConfig = {
   userClientCode: 'UPSTOX_LIVE',
   tokenGeneratedAt: '',
   tokenExpiresAt: '',
+  // Result of the last real validation against Upstox. Never contains the token itself.
+  lastTokenValidation: null as { checkedAt: string; valid: boolean; error?: string; httpStatus?: number } | null,
 };
+
+const UPSTOX_VALIDATION_TIMEOUT_MS = 8000;
+const UPSTOX_ORDER_TIMEOUT_MS = 10000;
+
+// Honest token validation: hits the real Upstox v2 profile endpoint with a short
+// timeout and reports the truth. Garbage/expired tokens return { valid: false }.
+async function validateUpstoxToken(token: string): Promise<{ valid: boolean; profile?: any; error?: string; httpStatus?: number }> {
+  if (!token) return { valid: false, error: 'No token provided' };
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), UPSTOX_VALIDATION_TIMEOUT_MS);
+    let fetchResponse: globalThis.Response;
+    try {
+      fetchResponse = await fetch('https://api.upstox.com/v2/user/profile', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    const data = await fetchResponse.json().catch(() => ({}));
+    if (data.status === 'success' && data.data) {
+      return { valid: true, profile: data.data, httpStatus: fetchResponse.status };
+    }
+    const msg =
+      data?.errors?.[0]?.message ||
+      data?.message ||
+      (fetchResponse.status === 401 || fetchResponse.status === 403
+        ? 'Invalid or expired access token'
+        : `Upstox rejected the token (HTTP ${fetchResponse.status})`);
+    return { valid: false, error: String(msg), httpStatus: fetchResponse.status };
+  } catch (err: any) {
+    const timedOut = err?.name === 'AbortError';
+    return {
+      valid: false,
+      error: timedOut
+        ? 'Upstox validation timed out (no response within 8s)'
+        : `Upstox validation failed: ${err?.message || 'network error'}`,
+    };
+  }
+}
+
+function recordTokenValidation(result: { valid: boolean; error?: string; httpStatus?: number }) {
+  upstoxConfig.lastTokenValidation = {
+    checkedAt: new Date().toISOString(),
+    valid: result.valid,
+    error: result.error,
+    httpStatus: result.httpStatus,
+  };
+}
 
 // Realistic baseline price index for NSE/BSE top instruments
 const REAL_NSE_SYMBOLS = [
@@ -77,6 +161,13 @@ let dynamicLotSizes: Record<string, number> = {
   'BANKEX': 15,
 };
 
+// Live instrument mapping: instrument_key (e.g. "NSE_EQ|INE002A01018" / "NSE_FO|50917")
+// -> numeric exchange_token (e.g. "3045") as required by Upstox v2 order APIs.
+// Populated from the same BOD instruments CSV the app already syncs for lot sizes.
+let instrumentTokenByKey = new Map<string, string>();
+// Uppercase trading symbol -> instrument_key (first/current match in the CSV).
+let instrumentKeyBySymbol = new Map<string, string>();
+
 async function fetchDynamicLotSizes() {
   try {
     const response = await fetch('https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz');
@@ -85,6 +176,8 @@ async function fetchDynamicLotSizes() {
     const csvData = zlib.gunzipSync(Buffer.from(buffer)).toString('utf8');
     
     const lines = csvData.split('\n');
+    const nextTokenByKey = new Map<string, string>();
+    const nextKeyBySymbol = new Map<string, string>();
     for (const line of lines) {
       if (line.includes('"OPTIDX"')) {
         const parts = line.split('","');
@@ -96,16 +189,81 @@ async function fetchDynamicLotSizes() {
           }
         }
       }
+      // Build instrument_key -> numeric exchange_token mapping (all rows).
+      // CSV columns: "instrument_key","exchange_token","tradingsymbol",...
+      const keyMatch = line.match(/^"([^"]+)","(\d+)","([^"]*)"/);
+      if (keyMatch) {
+        const key = keyMatch[1];
+        const exchangeToken = keyMatch[2];
+        const tradingSymbol = keyMatch[3];
+        if (key && exchangeToken) {
+          nextTokenByKey.set(key, exchangeToken);
+          if (tradingSymbol) {
+            const upper = tradingSymbol.toUpperCase();
+            if (!nextKeyBySymbol.has(upper)) nextKeyBySymbol.set(upper, key);
+          }
+        }
+      }
+    }
+    if (nextTokenByKey.size > 0) {
+      instrumentTokenByKey = nextTokenByKey;
+      instrumentKeyBySymbol = nextKeyBySymbol;
     }
     console.log('[Upstox Sync] Successfully fetched LIVE dynamic lot sizes:', dynamicLotSizes);
+    console.log(`[Upstox Sync] Instrument map ready: ${instrumentTokenByKey.size} instruments indexed`);
   } catch (error) {
     console.error('[Upstox Sync] Error fetching dynamic lot sizes, using fallbacks.', error);
   }
+}
+
+// Resolve the numeric instrument token (string of digits) that Upstox v2 order
+// APIs expect. Accepts an instrument_key ("NSE_EQ|INE..."), a bare numeric token,
+// or a trading symbol. Returns null when the instrument is unknown.
+function resolveInstrumentToken(instrumentKey?: string, symbol?: string): string | null {
+  if (instrumentKey && typeof instrumentKey === 'string') {
+    const key = instrumentKey.trim();
+    if (/^\d+$/.test(key)) return key; // already a numeric token
+    const mapped = instrumentTokenByKey.get(key);
+    if (mapped) return mapped;
+  }
+  if (symbol && typeof symbol === 'string') {
+    const key = instrumentKeyBySymbol.get(symbol.trim().toUpperCase());
+    if (key) {
+      const mapped = instrumentTokenByKey.get(key);
+      if (mapped) return mapped;
+    }
+  }
+  return null;
 }
 // Run immediately on server start
 fetchDynamicLotSizes();
 // Re-sync every day
 setInterval(fetchDynamicLotSizes, 24 * 60 * 60 * 1000);
+
+// Boot-time token verification: if an UPSTOX_ACCESS_TOKEN was provided via env,
+// verify it against Upstox before we ever allow live mode. If it cannot be
+// verified (invalid/expired/rejected), the token is discarded so the server
+// does NOT start in live mode with a worthless credential.
+if (upstoxConfig.accessToken) {
+  validateUpstoxToken(upstoxConfig.accessToken).then(result => {
+    recordTokenValidation(result);
+    if (result.valid) {
+      console.log('[Upstox] Env access token verified OK at boot.');
+      if (result.profile) {
+        upstoxConfig.userName = result.profile.user_name || upstoxConfig.userName;
+        upstoxConfig.userEmail = result.profile.email || upstoxConfig.userEmail;
+        upstoxConfig.userClientCode = result.profile.user_id || upstoxConfig.userClientCode;
+      }
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
+      upstoxConfig.tokenExpiresAt = '03:30 AM (Next Day)';
+    } else {
+      console.warn(`[Upstox] Env access token FAILED validation: ${result.error}. Live mode disabled (token discarded).`);
+      upstoxConfig.accessToken = '';
+      upstoxConfig.tokenGeneratedAt = '';
+      upstoxConfig.tokenExpiresAt = '';
+    }
+  });
+}
 
 function initializeQuotes() {
   const now = new Date();
@@ -208,22 +366,32 @@ setInterval(() => {
 }, SELF_PING_INTERVAL_MS);
 
 // 2. Upstox API Auth & Configuration
+// SECURITY: this endpoint must NEVER expose the access token or api secret.
+// It returns only non-sensitive status fields.
 app.get('/api/upstox/config', (req: Request, res: Response) => {
   const isConnected = Boolean(upstoxConfig.accessToken);
+  const lastValidation = upstoxConfig.lastTokenValidation;
+  const tokenVerified = lastValidation ? lastValidation.valid === true : false;
   res.json({
-    apiKey: upstoxConfig.apiKey,
-    apiSecret: upstoxConfig.apiSecret ? '••••••••' : '',
-    redirectUri: upstoxConfig.redirectUri,
-    accessToken: upstoxConfig.accessToken,
+    upstoxConfigured: Boolean(upstoxConfig.apiKey) || isConnected,
     hasToken: isConnected,
+    hasApiKey: Boolean(upstoxConfig.apiKey),
+    lastTokenValidation: lastValidation ? {
+      checkedAt: lastValidation.checkedAt,
+      valid: lastValidation.valid,
+      error: lastValidation.error || null,
+      httpStatus: lastValidation.httpStatus || null,
+    } : null,
+    apiKey: upstoxConfig.apiKey,
+    redirectUri: upstoxConfig.redirectUri,
     isConnected,
+    todayTokenValid: isConnected && tokenVerified,
     userName: upstoxConfig.userName || (isConnected ? 'Upstox Active Trader' : 'Paper Trading Account'),
     userEmail: upstoxConfig.userEmail || (isConnected ? 'trader@upstox.com' : 'paper@trading.terminal'),
     userClientCode: upstoxConfig.userClientCode || (isConnected ? 'UP_LIVE_PRO' : 'PAPER_SIM'),
     broker: 'Upstox Securities Live Engine',
-    tokenGeneratedAt: upstoxConfig.tokenGeneratedAt || (isConnected ? new Date().toLocaleTimeString('en-IN') : ''),
-    tokenExpiresAt: upstoxConfig.tokenExpiresAt || (isConnected ? 'Tomorrow 03:30 AM' : ''),
-    todayTokenValid: isConnected,
+    tokenGeneratedAt: upstoxConfig.tokenGeneratedAt || '',
+    tokenExpiresAt: upstoxConfig.tokenExpiresAt || '',
     availableMargin: isConnected ? 250000.00 : 1000000.00,
     usedMargin: isConnected ? 34500.00 : 45200.00,
   });
@@ -235,57 +403,80 @@ app.post('/api/upstox/config', async (req: Request, res: Response) => {
   if (apiSecret !== undefined) upstoxConfig.apiSecret = apiSecret;
   if (redirectUri !== undefined) upstoxConfig.redirectUri = redirectUri;
   
-  if (accessToken !== undefined) {
-    upstoxConfig.accessToken = accessToken.trim();
-    if (accessToken.trim()) {
+  if (accessToken !== undefined && typeof accessToken === 'string') {
+    const trimmed = accessToken.trim();
+    if (trimmed) {
+      // Honest validation: never store a token that Upstox rejects.
+      const result = await validateUpstoxToken(trimmed);
+      recordTokenValidation(result);
+      if (!result.valid) {
+        return res.status(400).json({
+          success: false,
+          error: `Token validation failed: ${result.error}. Token was NOT saved — live mode remains disabled.`,
+          lastTokenValidation: upstoxConfig.lastTokenValidation,
+        });
+      }
+
+      upstoxConfig.accessToken = trimmed;
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
       upstoxConfig.tokenExpiresAt = '03:30 AM (Next Day)';
-      
-      // Attempt live profile check
-      try {
-        const response = await fetch('https://api.upstox.com/v2/user/profile', {
-          headers: {
-            'Authorization': `Bearer ${accessToken.trim()}`,
-            'Accept': 'application/json',
-          },
-        });
-        const data = await response.json();
-        if (data.status === 'success' && data.data) {
-          upstoxConfig.userName = data.data.user_name || 'Live Trader';
-          upstoxConfig.userEmail = data.data.email || 'trader@upstox.com';
-          upstoxConfig.userClientCode = data.data.user_id || 'UPSTOX_USER';
-        }
-      } catch (err) {
-        // use default fallback
+      if (result.profile) {
+        upstoxConfig.userName = result.profile.user_name || 'Live Trader';
+        upstoxConfig.userEmail = result.profile.email || 'trader@upstox.com';
+        upstoxConfig.userClientCode = result.profile.user_id || 'UPSTOX_USER';
       }
     }
+    // Empty string = "leave the current token untouched" (the UI sends the full
+    // config object on save, and the explicit /api/upstox/clear-token endpoint
+    // is the only way to disconnect). This prevents an accidental wipe.
   }
 
   res.json({
     success: true,
     message: 'Upstox configuration updated successfully',
     isConnected: Boolean(upstoxConfig.accessToken),
-    apiKey: upstoxConfig.apiKey,
+    hasToken: Boolean(upstoxConfig.accessToken),
+    hasApiKey: Boolean(upstoxConfig.apiKey),
+    lastTokenValidation: upstoxConfig.lastTokenValidation,
     redirectUri: upstoxConfig.redirectUri,
     userName: upstoxConfig.userName,
     userClientCode: upstoxConfig.userClientCode,
-    todayTokenValid: Boolean(upstoxConfig.accessToken),
+    todayTokenValid: Boolean(upstoxConfig.accessToken) && upstoxConfig.lastTokenValidation?.valid === true,
     tokenGeneratedAt: upstoxConfig.tokenGeneratedAt,
     tokenExpiresAt: upstoxConfig.tokenExpiresAt,
   });
 });
 
-app.post('/api/upstox/save-config', (req: Request, res: Response) => {
+app.post('/api/upstox/save-config', async (req: Request, res: Response) => {
   const { apiKey, apiSecret, redirectUri, accessToken } = req.body;
   if (apiKey) upstoxConfig.apiKey = apiKey;
   if (apiSecret) upstoxConfig.apiSecret = apiSecret;
   if (redirectUri) upstoxConfig.redirectUri = redirectUri;
-  if (accessToken) upstoxConfig.accessToken = accessToken.trim();
+  if (accessToken && typeof accessToken === 'string') {
+    const trimmed = accessToken.trim();
+    if (!trimmed) {
+      return res.status(400).json({ success: false, error: 'Access token must not be empty.' });
+    }
+    // Honest validation — same rule as /api/upstox/config.
+    const result = await validateUpstoxToken(trimmed);
+    recordTokenValidation(result);
+    if (!result.valid) {
+      return res.status(400).json({
+        success: false,
+        error: `Token validation failed: ${result.error}. Token was NOT saved.`,
+      });
+    }
+    upstoxConfig.accessToken = trimmed;
+    upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
+    upstoxConfig.tokenExpiresAt = '03:30 AM (Next Day)';
+  }
 
   res.json({
     success: true,
     message: 'Upstox configuration updated successfully',
     isConnected: Boolean(upstoxConfig.accessToken),
+    hasToken: Boolean(upstoxConfig.accessToken),
+    lastTokenValidation: upstoxConfig.lastTokenValidation,
   });
 });
 
@@ -301,68 +492,38 @@ app.post('/api/upstox/daily-token', async (req: Request, res: Response) => {
     });
   }
 
-  try {
-    // Validate with real Upstox API v2
-    const response = await fetch('https://api.upstox.com/v2/user/profile', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-      },
-    });
+  // Validate with the real Upstox API v2 before we store anything.
+  const result = await validateUpstoxToken(token);
+  recordTokenValidation(result);
 
-    const data = await response.json();
-
-    if (data.status === 'success' && data.data) {
-      upstoxConfig.accessToken = token;
-      upstoxConfig.userName = data.data.user_name || 'Live Trader';
-      upstoxConfig.userEmail = data.data.email || 'trader@upstox.com';
-      upstoxConfig.userClientCode = data.data.user_id || 'UPSTOX_USER';
-      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
-      upstoxConfig.tokenExpiresAt = 'Tomorrow 03:30 AM';
-
-      return res.json({
-        success: true,
-        message: 'Daily Token verified and activated! Live trading mode enabled.',
-        profile: {
-          userName: upstoxConfig.userName,
-          userEmail: upstoxConfig.userEmail,
-          userClientCode: upstoxConfig.userClientCode,
-          tokenGeneratedAt: upstoxConfig.tokenGeneratedAt,
-          tokenExpiresAt: upstoxConfig.tokenExpiresAt,
-        },
-      });
-    } else {
-      // If direct call returns invalid JWT or API error, still save in sandbox mode if requested or notify user
-      upstoxConfig.accessToken = token;
-      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
-      upstoxConfig.tokenExpiresAt = 'Today (Market Session)';
-      upstoxConfig.userName = 'Upstox Live Trader';
-      
-      return res.json({
-        success: true,
-        message: 'Daily Access Token saved and ready for live execution.',
-        profile: {
-          userName: upstoxConfig.userName,
-          userEmail: upstoxConfig.userEmail,
-          userClientCode: 'UP_LIVE_SESSION',
-          tokenGeneratedAt: upstoxConfig.tokenGeneratedAt,
-          tokenExpiresAt: upstoxConfig.tokenExpiresAt,
-        },
-      });
-    }
-  } catch (err: any) {
-    upstoxConfig.accessToken = token;
-    upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
-    return res.json({
-      success: true,
-      message: 'Token saved and active for today session.',
-      profile: {
-        userName: 'Upstox Trader',
-        userEmail: 'live@upstox.com',
-        userClientCode: 'UP_SESSION',
-      },
+  if (!result.valid) {
+    // Honest failure: do NOT store the token, do NOT enable live mode.
+    return res.status(400).json({
+      success: false,
+      error: `Token validation failed: ${result.error}. The token was NOT saved and live mode was NOT enabled.`,
+      lastTokenValidation: upstoxConfig.lastTokenValidation,
     });
   }
+
+  upstoxConfig.accessToken = token;
+  upstoxConfig.userName = result.profile?.user_name || 'Live Trader';
+  upstoxConfig.userEmail = result.profile?.email || 'trader@upstox.com';
+  upstoxConfig.userClientCode = result.profile?.user_id || 'UPSTOX_USER';
+  upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString('en-IN');
+  upstoxConfig.tokenExpiresAt = 'Tomorrow 03:30 AM';
+
+  return res.json({
+    success: true,
+    message: 'Daily Token verified and activated! Live trading mode enabled.',
+    profile: {
+      userName: upstoxConfig.userName,
+      userEmail: upstoxConfig.userEmail,
+      userClientCode: upstoxConfig.userClientCode,
+      tokenGeneratedAt: upstoxConfig.tokenGeneratedAt,
+      tokenExpiresAt: upstoxConfig.tokenExpiresAt,
+    },
+    lastTokenValidation: upstoxConfig.lastTokenValidation,
+  });
 });
 
 // Clear token endpoint
@@ -370,6 +531,7 @@ app.post('/api/upstox/clear-token', (req: Request, res: Response) => {
   upstoxConfig.accessToken = '';
   upstoxConfig.tokenGeneratedAt = '';
   upstoxConfig.tokenExpiresAt = '';
+  upstoxConfig.lastTokenValidation = null;
   res.json({
     success: true,
     message: 'Daily Upstox token cleared. Switched to Paper Trading Mode.',
@@ -383,32 +545,25 @@ app.post('/api/upstox/validate-token', async (req: Request, res: Response) => {
     return res.status(400).json({ valid: false, error: 'No token provided' });
   }
 
-  try {
-    const response = await fetch('https://api.upstox.com/v2/user/profile', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-      },
+  const result = await validateUpstoxToken(token);
+  recordTokenValidation(result);
+
+  if (result.valid) {
+    return res.json({
+      valid: true,
+      userName: result.profile?.user_name || 'Live Trader',
+      userEmail: result.profile?.email || 'trader@upstox.com',
+      userClientCode: result.profile?.user_id || 'UPSTOX_USER',
+      lastTokenValidation: upstoxConfig.lastTokenValidation,
     });
-    const data = await response.json();
-    if (data.status === 'success' && data.data) {
-      return res.json({
-        valid: true,
-        userName: data.data.user_name || 'Live Trader',
-        userEmail: data.data.email || 'trader@upstox.com',
-        userClientCode: data.data.user_id || 'UPSTOX_USER',
-      });
-    } else {
-      return res.json({
-        valid: true, // Allow simulation/manual token testing
-        userName: 'Upstox Live Client',
-        userEmail: 'trader@upstox.com',
-        userClientCode: 'UP_CLIENT',
-      });
-    }
-  } catch (e: any) {
-    return res.json({ valid: true, userName: 'Upstox Trader' });
   }
+
+  // Honest failure: return valid:false with the real reason.
+  return res.status(401).json({
+    valid: false,
+    error: result.error || 'Invalid or expired access token',
+    lastTokenValidation: upstoxConfig.lastTokenValidation,
+  });
 });
 
 app.get('/api/upstox/auth-url', (req: Request, res: Response) => {
@@ -925,7 +1080,29 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
 
   const orderId = `ORD_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-  if (mode === 'UPSTOX_LIVE' && token) {
+  // ---- LIVE MODE: honest execution, no silent fallback ----
+  if (mode === 'UPSTOX_LIVE') {
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Live mode requires a valid Upstox access token. Save a verified token first (token modal).',
+      });
+    }
+
+    // Upstox v2 expects the NUMERIC instrument token (from the BOD instruments
+    // file). Map the client-supplied instrument_key / symbol to it; never send
+    // a malformed payload.
+    const numericInstrumentToken = resolveInstrumentToken(instrumentKey, symbol);
+    if (!numericInstrumentToken) {
+      return res.status(400).json({
+        success: false,
+        error: `Unknown instrument "${instrumentKey || symbol}". Cannot place a live order without a valid instrument mapping — the instrument sync may still be loading, or the symbol is not in the Upstox instruments list.`,
+        instrumentKey: instrumentKey || null,
+        symbol: symbol || null,
+      });
+    }
+
+    let fetchResponse: globalThis.Response;
     try {
       const payload = {
         quantity: Number(quantity),
@@ -933,7 +1110,7 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
         validity: 'DAY',
         price: orderType === 'MARKET' ? 0 : Number(price),
         tag: 'algo_bot',
-        instrument_token: instrumentKey,
+        instrument_token: numericInstrumentToken,
         order_type: orderType === 'MARKET' ? 'MARKET' : 'LIMIT',
         transaction_type: transactionType,
         disclosed_quantity: 0,
@@ -941,22 +1118,30 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
         is_amo: false,
       };
 
-      const response = await fetch('https://api.upstox.com/v2/order/place', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (data.status === 'success') {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), UPSTOX_ORDER_TIMEOUT_MS);
+      try {
+        fetchResponse = await fetch('https://api.upstox.com/v2/order/place', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      const data = await fetchResponse.json().catch(() => ({}));
+      if (data.status === 'success' && data.data?.order_id) {
         const newOrder = {
           id: orderId,
-          orderId: data.data?.order_id || orderId,
+          orderId: data.data.order_id,
           symbol,
-          instrumentKey,
+          instrumentKey: instrumentKey || null,
+          instrumentToken: numericInstrumentToken,
           transactionType,
           orderType,
           productType,
@@ -977,17 +1162,36 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
           messageMalayalam: `ലൈവ് Upstox ഓർഡർ നൽകി: ${transactionType} ${quantity} ${symbol} @ ₹${execPrice}`,
         });
 
-        // Send Telegram alert
         sendTelegramAlert(`🟢 <b>Upstox Live Order Placed</b>\n\n📌 <b>${symbol}</b> (${transactionType})\n🔢 Quantity: ${quantity}\n💰 Executed Price: ₹${execPrice}\n🏷️ Mode: UPSTOX_LIVE\n⏰ Time: ${new Date().toLocaleTimeString('en-IN')}`);
 
         return res.json({ success: true, order: newOrder, liveBrokerResponse: data });
       }
-    } catch (e) {
-      // fallback to paper if Upstox live order failed
+
+      // Honest failure: the broker rejected the order. Record it as FAILED and
+      // return the real error — NEVER fabricate success and never fall back to paper.
+      const errMsg =
+        data?.errors?.[0]?.message ||
+        data?.message ||
+        `Upstox rejected the order (HTTP ${fetchResponse.status})`;
+      return recordFailedLiveOrder(res, {
+        orderId, symbol, instrumentKey: instrumentKey || null, instrumentToken: numericInstrumentToken,
+        transactionType, orderType, productType, quantity: Number(quantity), price: execPrice,
+        error: String(errMsg), brokerResponse: data, token,
+      });
+    } catch (e: any) {
+      const errMsg =
+        e?.name === 'AbortError'
+          ? 'Upstox order request timed out (no response within 10s). Order status is UNKNOWN — check the Upstox app before retrying.'
+          : `Upstox order request failed: ${e?.message || 'network error'}. Order status is UNKNOWN — check the Upstox app before retrying.`;
+      return recordFailedLiveOrder(res, {
+        orderId, symbol, instrumentKey: instrumentKey || null, instrumentToken: numericInstrumentToken,
+        transactionType, orderType, productType, quantity: Number(quantity), price: execPrice,
+        error: errMsg, brokerResponse: null, token,
+      });
     }
   }
 
-  // Paper / Simulated Live Execution
+  // ---- PAPER MODE: deliberate, explicit choice ----
   const newOrder = {
     id: orderId,
     orderId,
@@ -1021,6 +1225,45 @@ const handleOrderPlacement = async (req: Request, res: Response) => {
 
   res.json({ success: true, order: newOrder });
 };
+
+// Record a failed live order and return an honest error to the client.
+function recordFailedLiveOrder(res: Response, params: {
+  orderId: string; symbol: string; instrumentKey: string | null; instrumentToken: string | null;
+  transactionType: any; orderType: any; productType: any; quantity: number; price: number;
+  error: string; brokerResponse: any; token: string;
+}) {
+  const failedOrder = {
+    id: params.orderId,
+    orderId: params.orderId,
+    symbol: params.symbol,
+    instrumentKey: params.instrumentKey,
+    instrumentToken: params.instrumentToken,
+    transactionType: params.transactionType,
+    orderType: params.orderType || 'MARKET',
+    productType: params.productType || 'INTRADAY',
+    quantity: params.quantity,
+    price: params.price,
+    status: 'FAILED' as const,
+    error: params.error,
+    timestamp: new Date().toLocaleTimeString('en-IN'),
+    mode: 'UPSTOX_LIVE',
+  };
+  ordersStore.unshift(failedOrder);
+  botLogsStore.unshift({
+    id: `log_ord_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+    timestamp: new Date().toLocaleTimeString('en-IN'),
+    type: 'ERROR',
+    message: `Live Upstox Order FAILED: ${params.error}`,
+    messageMalayalam: `ലൈവ് Upstox ഓർഡർ പരാജയപ്പെട്ടു: ${params.error}`,
+  });
+  sendTelegramAlert(`🔴 <b>Live Order FAILED</b>\n\n📌 <b>${params.symbol}</b> (${params.transactionType})\n🔢 Quantity: ${params.quantity}\n❌ ${params.error}`);
+  return res.status(400).json({
+    success: false,
+    error: params.error,
+    order: failedOrder,
+    liveBrokerResponse: params.brokerResponse,
+  });
+}
 
 app.post('/api/upstox/order/place', handleOrderPlacement);
 app.post('/api/trading/order', handleOrderPlacement);
