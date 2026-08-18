@@ -32,7 +32,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header & Search */}
-      <div className="pb-3 border-b border-slate-800/80">
+      <div className="pb-3 border-b border-[#1d2335]">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -56,7 +56,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={language === 'ml' ? 'ഓഹരികൾ തിരയുക (Search)...' : 'Search symbol, index, stock...'}
-            className="w-full bg-[#070a14]/90 border border-slate-800/90 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
+            className="w-full bg-[#070a14]/90 border border-[#1d2335]/90 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
           />
         </div>
 
@@ -68,7 +68,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               onClick={() => setFilterSegment(seg)}
               className={`px-3 py-1 rounded-lg transition text-xs ${
                 filterSegment === seg
-                  ? 'bg-slate-800 text-emerald-400 font-extrabold border border-slate-700 shadow-sm'
+                  ? 'bg-[#1d2335] text-emerald-400 font-extrabold border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
               }`}
             >
@@ -93,7 +93,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected
                   ? 'bg-gradient-to-r from-slate-850 to-slate-900 border-emerald-500/50 shadow-md shadow-emerald-950/30 ring-1 ring-emerald-500/20'
-                  : 'bg-transparent border-transparent hover:bg-slate-900/60 hover:border-slate-800/80'
+                  : 'bg-transparent border-transparent hover:bg-[#111624]/60 hover:border-[#1d2335]'
               } ${q.tickFlash === 'up' ? 'flash-up' : q.tickFlash === 'down' ? 'flash-down' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -106,7 +106,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                     }`}>
                       {q.symbol}
                     </span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-400 border border-slate-700/60">
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#1d2335]/80 text-slate-400 border border-slate-700/60">
                       {q.exchange}
                     </span>
                   </div>
@@ -139,7 +139,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               {/* Day High / Low mini range bar */}
               <div className="mt-2.5 flex items-center justify-between text-[9px] text-slate-500 font-mono-num">
                 <span>L: ₹{q.low.toFixed(1)}</span>
-                <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-slate-800/60">
+                <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-[#1d2335]/60">
                   <div
                     className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{ width: `${Math.max(5, Math.min(95, currentPos))}%` }}
@@ -149,7 +149,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               </div>
 
               {/* Quick Action buttons on hover/select */}
-              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-slate-800/40">
+              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-[#1d2335]/40">
                 <span className="text-[10px] text-slate-400 font-mono-num font-medium">
                   Vol: {(q.volume / 100000).toFixed(2)}L
                 </span>

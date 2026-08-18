@@ -1,6 +1,6 @@
 import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu } from 'lucide-react';
+import { AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot } from 'lucide-react';
 import { 
   Header 
 } from './components/Header';
@@ -113,7 +113,7 @@ export default function App() {
   const [optionLoading, setOptionLoading] = useState(false);
 
   // Active Bottom Section Tab
-  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'AI'>('MARKETS');
+  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'SUPPORT'>('MARKETS');
   const [bottomTab, setBottomTab] = useState<'BOT' | 'ORDERS' | 'OPTIONS' | 'AI'>('BOT');
 
   // Track previous signal count to fire alert sound on new high-probability trade
@@ -462,7 +462,7 @@ export default function App() {
       />
 
       {/* 3. Main Dashboard Layout */}
-      <main className="flex-1 overflow-y-auto hide-scrollbar pb-20 w-full">
+      <main className="flex-1 overflow-y-auto hide-scrollbar pb-24 w-full">
         <div className="p-2 sm:p-4 max-w-md mx-auto space-y-4">
         
         {/* Daily Token Alert Banner for Live Mode */}
@@ -490,7 +490,7 @@ export default function App() {
         
         {appTab === 'MARKETS' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="h-[340px]">
+            <div className="h-[45vh] min-h-[340px]">
               <CandlestickChart
                 symbol={selectedSymbol}
                 quote={currentQuote}
@@ -504,7 +504,7 @@ export default function App() {
                 signal={activeSignal}
               />
             </div>
-            <div className="h-[400px]">
+            <div className="flex-1 min-h-[400px]">
               <Watchlist
                 quotes={quotes}
                 selectedSymbol={selectedSymbol}
@@ -517,7 +517,7 @@ export default function App() {
         )}
 
         {appTab === 'BOT' && (
-          <div className="h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
             <AlgoBotPanel
               botConfig={botConfig}
               onUpdateBotConfig={handleUpdateBotConfig}
@@ -530,7 +530,7 @@ export default function App() {
         )}
 
         {appTab === 'OPTIONS' && (
-          <div className="h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
             <OptionChainView
               data={optionChainData}
               loading={optionLoading}
@@ -542,7 +542,7 @@ export default function App() {
         )}
 
         {appTab === 'PORTFOLIO' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col h-[600px]">
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col flex-1 h-full min-h-[600px]">
             {/* Margin Cards */}
             <div className="grid grid-cols-2 gap-3 shrink-0">
               <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800">
@@ -568,12 +568,12 @@ export default function App() {
                     <div key={i} className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
                       <div>
                         <p className="text-xs font-bold text-slate-200">{p.symbol}</p>
-                        <p className="text-[10px] text-slate-400">Qty: {p.quantity} • Avg: ₹{Number(p.buyPrice).toFixed(2)}</p>
+                        <p className="text-[10px] text-slate-400">Qty: {p.quantity} • Avg: ₹{Number(p.buyPrice || 0).toFixed(2)}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs font-bold text-white">₹{Number(p.currentLTP).toFixed(2)}</p>
+                        <p className="text-xs font-bold text-white">₹{Number(p.currentLTP || 0).toFixed(2)}</p>
                         <p className={`text-[11px] font-bold ${p.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {p.pnl >= 0 ? '+' : ''}{Number(p.pnl).toFixed(2)}
+                          {p.pnl >= 0 ? '+' : ''}{Number(p.pnl || 0).toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -595,12 +595,12 @@ export default function App() {
                     <div key={i} className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
                       <div>
                         <p className="text-xs font-bold text-slate-200">{h.symbol}</p>
-                        <p className="text-[10px] text-slate-400">Qty: {h.quantity} • Avg: ₹{Number(h.buyPrice).toFixed(2)}</p>
+                        <p className="text-[10px] text-slate-400">Qty: {h.quantity} • Avg: ₹{Number(h.buyPrice || 0).toFixed(2)}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs font-bold text-white">₹{Number(h.currentLTP).toFixed(2)}</p>
+                        <p className="text-xs font-bold text-white">₹{Number(h.currentLTP || 0).toFixed(2)}</p>
                         <p className={`text-[11px] font-bold ${h.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {h.pnl >= 0 ? '+' : ''}{Number(h.pnl).toFixed(2)}
+                          {h.pnl >= 0 ? '+' : ''}{Number(h.pnl || 0).toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -611,8 +611,15 @@ export default function App() {
           </div>
         )}
 
+        
+        {appTab === 'SUPPORT' && (
+          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <LiveAiSupport apiConfig={apiConfig} quotesCount={quotes.length} />
+          </div>
+        )}
+
         {appTab === 'AI' && (
-          <div className="h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
             <GeminiAiAdvisor
               analysis={geminiAnalysis}
               loading={aiLoading}
@@ -649,9 +656,9 @@ export default function App() {
             <span className="text-[10px] font-bold">Portfolio</span>
           </button>
 
-          <button onClick={() => setAppTab('AI')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'AI' ? 'text-purple-400' : 'text-slate-500 hover:text-slate-400'}`}>
-            <Cpu className="w-5 h-5" />
-            <span className="text-[10px] font-bold">AI</span>
+          <button onClick={() => setAppTab('SUPPORT')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'SUPPORT' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-400'}`}>
+            <Bot className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Support</span>
           </button>
         </div>
       </nav>

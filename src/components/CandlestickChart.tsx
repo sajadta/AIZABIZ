@@ -119,7 +119,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top Toolbar */}
-      <div className="pb-3 border-b border-slate-800/80 flex items-center justify-between gap-3 flex-wrap">
+      <div className="pb-3 border-b border-[#1d2335] flex items-center justify-between gap-3 flex-wrap">
         
         {/* Symbol & Price Overview */}
         <div className="flex items-center gap-3">
@@ -166,7 +166,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         {/* Action Controls & AI Button */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Timeframe selector */}
-          <div className="bg-[#070b16] p-0.5 rounded-xl border border-slate-800 flex items-center shadow-inner">
+          <div className="bg-[#070b16] p-0.5 rounded-xl border border-[#1d2335] flex items-center shadow-inner">
             {intervals.map((int) => (
               <button
                 key={int}
@@ -174,7 +174,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-black transition ${
                   interval === int
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-950'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-slate-400 hover:text-white'
                 }`}
               >
                 {int}
@@ -183,7 +183,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
 
           {/* Indicator Pills */}
-          <div className="hidden sm:flex items-center gap-1 bg-[#070b16] p-0.5 rounded-xl border border-slate-800 text-[11px]">
+          <div className="hidden sm:flex items-center gap-1 bg-[#070b16] p-0.5 rounded-xl border border-[#1d2335] text-[11px]">
             <button
               onClick={() => setShowSupertrend(!showSupertrend)}
               className={`px-2.5 py-1 rounded-lg font-bold transition ${
@@ -211,7 +211,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
 
           {/* Subchart toggle */}
-          <div className="flex items-center bg-[#070b16] p-0.5 rounded-xl border border-slate-800 text-[11px]">
+          <div className="flex items-center bg-[#070b16] p-0.5 rounded-xl border border-[#1d2335] text-[11px]">
             <button
               onClick={() => setActiveSubChart(activeSubChart === 'RSI' ? 'NONE' : 'RSI')}
               className={`px-2.5 py-1 rounded-lg font-bold transition ${
@@ -249,13 +249,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       {/* Candlestick Tooltip Bar */}
       {hoveredCandle && (
-        <div className="bg-[#090d16] px-3 sm:px-4 py-1.5 border-b border-slate-800/50 flex items-center gap-3 sm:gap-5 text-[11px] font-mono text-slate-300 overflow-x-auto no-scrollbar">
+        <div className="bg-[#090d16] px-3 sm:px-4 py-1.5 border-b border-[#1d2335]/50 flex items-center gap-3 sm:gap-5 text-[11px] font-mono text-slate-300 overflow-x-auto no-scrollbar">
           <span className="text-slate-400">{hoveredCandle.timeStr}</span>
           <span>O: <strong className="text-white">₹{hoveredCandle.open}</strong></span>
           <span>H: <strong className="text-emerald-400">₹{hoveredCandle.high}</strong></span>
           <span>L: <strong className="text-rose-400">₹{hoveredCandle.low}</strong></span>
           <span>C: <strong className={hoveredCandle.close >= hoveredCandle.open ? 'text-emerald-400' : 'text-rose-400'}>₹{hoveredCandle.close}</strong></span>
-          <span className="text-slate-400">Vol: <strong className="text-slate-200">{(hoveredCandle.volume / 1000).toFixed(1)}k</strong></span>
+          <span className="text-slate-400">Vol: <strong className="text-white">{(hoveredCandle.volume / 1000).toFixed(1)}k</strong></span>
           {showEMA && hoveredCandle.ema9 && (
             <span className="text-cyan-400 hidden sm:inline">EMA9: ₹{hoveredCandle.ema9}</span>
           )}
@@ -481,7 +481,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
         {/* Sub Chart: RSI or MACD */}
         {activeSubChart !== 'NONE' && (
-          <div className="border-t border-slate-800 bg-[#070a12] p-2 relative">
+          <div className="border-t border-[#1d2335] bg-[#070a12] p-2 relative">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] font-bold text-slate-400 uppercase font-mono">
                 {activeSubChart === 'RSI' ? 'RSI (14) Momentum Indicator' : 'MACD (12, 26, 9) Oscillator'}
