@@ -1,6 +1,6 @@
 {
-  "name": "Upstox Live Algo Trading Terminal",
-  "description": "Live Upstox algorithmic trading platform with real-time market data, multi-indicator technical analysis, automated buy/sell signals, order execution, risk management, and Android mobile PWA support.",
+  "name": "AIZABIZ - Live Algo Trading Terminal",
+  "description": "Live AIZABIZ algorithmic trading platform with real-time market data, multi-indicator technical analysis, automated buy/sell signals, order execution, risk management, and Android mobile PWA support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

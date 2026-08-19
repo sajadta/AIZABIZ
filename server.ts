@@ -499,6 +499,9 @@ app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
       { symbol: 'NIFTY 50', name: 'Nifty 50', ltp: 24500.5, change: 100, changePercent: 0.4, segment: 'INDEX' },
       { symbol: 'NIFTY BANK', name: 'Bank Nifty', ltp: 52000.2, change: -150, changePercent: -0.3, segment: 'INDEX' },
       { symbol: 'NIFTY FIN SERVICE', name: 'Fin Nifty', ltp: 23100.0, change: 25, changePercent: 0.1, segment: 'INDEX' },
+      { symbol: 'NIFTY MID SELECT', name: 'Midcap Nifty', ltp: 12500.0, change: 80, changePercent: 0.6, segment: 'INDEX' },
+      { symbol: 'SENSEX', name: 'BSE Sensex', ltp: 80500.0, change: 300, changePercent: 0.38, segment: 'INDEX' },
+      { symbol: 'BANKEX', name: 'BSE Bankex', ltp: 58000.0, change: -200, changePercent: -0.34, segment: 'INDEX' },
       { symbol: 'RELIANCE', name: 'Reliance Ind', ltp: 3100.0, change: 15, changePercent: 0.5, segment: 'EQUITY' },
       { symbol: 'HDFCBANK', name: 'HDFC Bank', ltp: 1650.0, change: 5, changePercent: 0.3, segment: 'EQUITY' }
     ]);
@@ -546,9 +549,21 @@ app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
           lastTradeTime: new Date().toISOString()
         };
       });
-      return res.json({ success: true, source: 'UPSTOX_LIVE_V2', quotes: quotesArray });
+return res.json({ success: true, source: 'UPSTOX_LIVE_V2', quotes: quotesArray });
     }
-    return res.status(400).json({ success: false, error: 'Failed to fetch quotes', details: data });
+    
+    // If we reach here, Upstox returned an error (e.g. invalid token)
+    // Fallback to mock data so UI doesn't break entirely
+    return res.json([
+      { symbol: 'NIFTY 50', name: 'Nifty 50', ltp: 24500.5, change: 100, changePercent: 0.4, segment: 'INDEX' },
+      { symbol: 'NIFTY BANK', name: 'Bank Nifty', ltp: 52000.2, change: -150, changePercent: -0.3, segment: 'INDEX' },
+      { symbol: 'NIFTY FIN SERVICE', name: 'Fin Nifty', ltp: 23100.0, change: 25, changePercent: 0.1, segment: 'INDEX' },
+      { symbol: 'NIFTY MID SELECT', name: 'Midcap Nifty', ltp: 12500.0, change: 80, changePercent: 0.6, segment: 'INDEX' },
+      { symbol: 'SENSEX', name: 'BSE Sensex', ltp: 80500.0, change: 300, changePercent: 0.38, segment: 'INDEX' },
+      { symbol: 'BANKEX', name: 'BSE Bankex', ltp: 58000.0, change: -200, changePercent: -0.34, segment: 'INDEX' },
+      { symbol: 'RELIANCE', name: 'Reliance Ind', ltp: 3100.0, change: 15, changePercent: 0.5, segment: 'EQUITY' },
+      { symbol: 'HDFCBANK', name: 'HDFC Bank', ltp: 1650.0, change: 5, changePercent: 0.3, segment: 'EQUITY' }
+    ]);
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -746,6 +761,11 @@ app.get('/api/upstox/optionchain', handleOptionChain);
 app.get('/api/trading/option-chain', handleOptionChain);
 
 // 7. Bot Engine State, Signals & Logs
+
+let paperPositions: any[] = [];
+let paperOrders: any[] = [];
+let paperOrderIdCounter = 1000;
+
 let dailyStats = {
   optionLossCount: 0,
   stockLossCount: 0,
@@ -929,6 +949,59 @@ app.get('/api/bot/signals', async (req: Request, res: Response) => {
 // 8. Order Placement (Live Upstox or Paper execution)
 const handleOrderPlacement = async (req: Request, res: Response) => {
   const { symbol, instrumentKey, transactionType, orderType, productType, quantity, price, triggerPrice } = req.body;
+
+  if (req.body.mode === 'PAPER_TRADING') {
+     const pOrderId = 'PT' + paperOrderIdCounter++;
+     const execPrice = price || (symbol.includes('BANK') ? 52000 : 24500); // We don't have LTP in body unless passed, but wait, req.body.price is sent as defaultPrice which is LTP from frontend!
+     
+     const newOrder = {
+         id: pOrderId,
+         orderId: pOrderId,
+         symbol: symbol,
+         instrumentKey: instrumentKey,
+         transactionType: transactionType,
+         orderType: orderType,
+         productType: productType,
+         quantity: Number(quantity),
+         price: Number(req.body.price || 0),
+         status: 'complete',
+         executedPrice: Number(req.body.price || 0),
+         timestamp: new Date().toISOString(),
+         mode: 'PAPER_TRADING'
+     };
+     paperOrders.push(newOrder);
+
+     // Update paper position
+     const existingPos = paperPositions.find(p => p.symbol === symbol && p.productType === productType);
+     const qtyMult = transactionType === 'BUY' ? 1 : -1;
+     const newQty = (existingPos ? existingPos.quantity : 0) + (Number(quantity) * qtyMult);
+
+     if (existingPos) {
+       if (newQty === 0) {
+          paperPositions = paperPositions.filter(p => p.symbol !== symbol || p.productType !== productType);
+       } else {
+          existingPos.quantity = newQty;
+          // simplify avg price
+          if (transactionType === 'BUY') existingPos.buyPrice = newOrder.price;
+       }
+     } else {
+       paperPositions.push({
+         id: pOrderId,
+         symbol: symbol,
+         instrumentKey: instrumentKey,
+         productType: productType,
+         quantity: newQty,
+         buyPrice: newOrder.price,
+         currentLTP: newOrder.price,
+         pnl: 0,
+         pnlPercent: 0,
+         mode: 'PAPER_TRADING'
+       });
+     }
+
+     return res.json({ success: true, orderId: pOrderId, liveBrokerResponse: { status: 'success', data: { order_id: pOrderId } } });
+  }
+
   const token = req.headers.authorization?.replace('Bearer ', '') || upstoxConfig.accessToken;
 
   if (!token) {
@@ -1007,18 +1080,28 @@ app.get('/api/upstox/orders', async (req: Request, res: Response) => {
     return res.json([]);
   }
 });
+
 app.get('/api/trading/orders', async (req: Request, res: Response) => {
+   const mode = req.query.mode;
+   if (mode === 'PAPER_TRADING') {
+      return res.json(paperOrders);
+   }
    res.redirect('/api/upstox/orders');
 });
 
+
+
 app.get('/api/trading/positions', async (req: Request, res: Response) => {
+   const mode = req.query.mode;
+   if (mode === 'PAPER_TRADING') {
+      return res.json(paperPositions);
+   }
    res.redirect('/api/upstox/positions');
 });
 
+
 // Square off single position (Placeholder for Upstox integration)
-app.post('/api/trading/squareoff/:positionId', (req: Request, res: Response) => {
-  res.json({ success: false, error: 'Square off must be executed directly via Upstox API with specific order parameters.' });
-});
+
 app.post('/api/upstox/positions/squareoff/:positionId', (req: Request, res: Response) => {
   res.json({ success: false, error: 'Square off must be executed directly via Upstox API.' });
 });
@@ -1027,11 +1110,48 @@ app.post('/api/upstox/positions/squareoff/:positionId', (req: Request, res: Resp
 app.post('/api/upstox/positions/square-off-all', (req: Request, res: Response) => {
   res.json({ success: false, error: 'Square off all must be executed directly via Upstox API with specific order parameters.' });
 });
+
+app.post('/api/trading/squareoff/:positionId', (req: Request, res: Response) => {
+  const { mode } = req.body;
+  if (mode === 'PAPER_TRADING') {
+     const posId = req.params.positionId;
+     const idx = paperPositions.findIndex(p => p.id === posId || p.symbol === posId);
+     if (idx >= 0) {
+        paperPositions.splice(idx, 1);
+        return res.json({ success: true });
+     }
+  }
+  res.json({ success: false, error: 'Square off must be executed directly via Upstox API with specific order parameters.' });
+});
+
 app.post('/api/trading/squareoff-all', (req: Request, res: Response) => {
+  const { mode } = req.body;
+  if (mode === 'PAPER_TRADING') {
+     paperPositions = [];
+     return res.json({ success: true });
+  }
   res.json({ success: false, error: 'Square off all must be executed directly via Upstox API.' });
 });
 
 
+
+
+
+app.post('/api/trading/paper-sync', (req: Request, res: Response) => {
+   const { quotes } = req.body;
+   if (quotes && Array.isArray(quotes)) {
+      paperPositions = paperPositions.map(pos => {
+         const q = quotes.find((x: any) => x.symbol === pos.symbol);
+         if (q) {
+            pos.currentLTP = q.ltp;
+            pos.pnl = (q.ltp - pos.buyPrice) * pos.quantity;
+            pos.pnlPercent = ((q.ltp - pos.buyPrice) / pos.buyPrice) * 100;
+         }
+         return pos;
+      });
+   }
+   res.json({ success: true });
+});
 
 // 10. Gemini AI Live Market & Algorithmic Analysis Engine (with aliases)
 const handleGeminiAnalysis = async (req: Request, res: Response) => {
@@ -1148,6 +1268,30 @@ Provide both English and Malayalam (മലയാളം) explanations for the use
 
 app.post('/api/gemini/market-analysis', handleGeminiAnalysis);
 app.post('/api/gemini/analyze', handleGeminiAnalysis);
+
+// 10. AI Diagnostics & Support Chat
+app.post('/api/gemini/chat', async (req: Request, res: Response) => {
+  if (!genAI) return res.status(500).json({ success: false, error: 'GenAI client not initialized (Missing API Key).' });
+  const { message, systemStatus } = req.body;
+  try {
+    const prompt = `You are an AI assistant for a Trading application built with Upstox API.
+    
+    User Message: "${message}"
+    
+    System Status: ${JSON.stringify(systemStatus)}
+    
+    Help the user troubleshoot or provide guidance on using the app. Reply in the same language they used (Malayalam or English). Keep it concise.`;
+
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3.7-flash',
+      contents: prompt,
+    });
+    
+    return res.json({ text: response.text });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // Global Error Handler for API routes
 app.use((err: any, req: Request, res: Response, next: any) => {

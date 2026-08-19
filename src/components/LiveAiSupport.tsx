@@ -82,7 +82,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
     if (apiConfig.isConnected) {
       diagMsg += '✅ Upstox API Connected.\n';
     } else {
-      diagMsg += '❌ Upstox API Disconnected! Go to Settings (Key icon) and enter today\\'s Access Token.\n';
+      diagMsg += "❌ Upstox API Disconnected! Go to Settings (Key icon) and enter today's Access Token.\n";
     }
 
     if (quotesCount > 0) {

@@ -49,6 +49,32 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+
+  const displayCandles = useMemo(() => {
+    if (candles.length === 0) return [];
+    
+    // Create a copy of the candles
+    const currentCandles = [...candles];
+    const lastCandleIndex = currentCandles.length - 1;
+    
+    // If we have a live quote, update the last candle's close, high, and low dynamically
+    if (quote && quote.ltp) {
+       const lastCandle = { ...currentCandles[lastCandleIndex] };
+       
+       // Update close to current LTP
+       lastCandle.close = quote.ltp;
+       
+       // Expand high/low if current LTP exceeds them
+       if (quote.ltp > lastCandle.high) lastCandle.high = quote.ltp;
+       if (quote.ltp < lastCandle.low) lastCandle.low = quote.ltp;
+       
+       currentCandles[lastCandleIndex] = lastCandle;
+    }
+    
+    return currentCandles;
+  }, [candles, quote]);
+
+
   const intervals = ['1m', '3m', '5m', '15m', '1h', '1D'];
 
   // Calculate scales
@@ -57,7 +83,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const paddingY = 25;
 
   const validCandles = useMemo(() => {
-    return candles.slice(-50);
+    return displayCandles.slice(-50);
   }, [candles]);
 
   const { minPrice, maxPrice, maxVol, minRsi, maxRsi, maxMacd } = useMemo(() => {
@@ -317,10 +343,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             const highY = priceToY(c.high);
             const lowY = priceToY(c.low);
 
+
             const isGreen = c.close >= c.open;
             const color = isGreen ? '#10b981' : '#ef4444';
             const bodyY = Math.min(openY, closeY);
             const bodyHeight = Math.max(2, Math.abs(closeY - openY));
+
+            // Determine if there is a signal crossover for this candle
+            const prevCandle = i > 0 ? validCandles[i - 1] : null;
+            let showBuyArrow = false;
+            let showSellArrow = false;
+
+            if (c.supertrendDir === 'BUY' && (!prevCandle || prevCandle.supertrendDir === 'SELL')) {
+              showBuyArrow = true;
+            } else if (c.supertrendDir === 'SELL' && (!prevCandle || prevCandle.supertrendDir === 'BUY')) {
+              showSellArrow = true;
+            }
 
             // Volume bar
             const volHeight = (c.volume / maxVol) * 50;
@@ -349,8 +387,25 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                   fill={color}
                   rx="1"
                 />
+
+                {/* Buy Arrow */}
+                {showBuyArrow && (
+                  <g transform={`translate(${x}, ${Math.min(chartHeight - 30, lowY + 15)})`}>
+                    <polygon points="-5,5 5,5 0,-5" fill="#10b981" />
+                    <text y="15" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="bold" fontFamily="JetBrains Mono">BUY</text>
+                  </g>
+                )}
+
+                {/* Sell Arrow */}
+                {showSellArrow && (
+                  <g transform={`translate(${x}, ${Math.max(30, highY - 15)})`}>
+                    <polygon points="-5,-5 5,-5 0,5" fill="#ef4444" />
+                    <text y="-10" textAnchor="middle" fill="#ef4444" fontSize="10" fontWeight="bold" fontFamily="JetBrains Mono">SELL</text>
+                  </g>
+                )}
               </g>
             );
+
           })}
 
           {/* Supertrend Line */}

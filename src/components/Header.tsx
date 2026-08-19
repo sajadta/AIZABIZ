@@ -56,17 +56,17 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 p-0.5 shadow-lg shadow-purple-500/20 flex items-center justify-center">
-              <div className="w-full h-full bg-[#090d16] rounded-[10px] flex items-center justify-center">
-                <Zap className="w-5 h-5 text-amber-400 fill-amber-400" />
+              <div className="w-full h-full bg-[#090d16] rounded-[10px] flex items-center justify-center overflow-hidden">
+                <img src="/src/assets/images/aizabiz_logo_1787123141675.jpg" alt="AIZABIZ Logo" className="w-full h-full object-cover" />
               </div>
             </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-base sm:text-lg font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
-                  UPSTOX <span className="text-emerald-400">ALGO</span>
+                  AIZA<span className="text-emerald-400">BIZ</span>
                 </span>
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  PRO v3
+                  PRO
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-medium hidden sm:block">

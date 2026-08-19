@@ -34,6 +34,8 @@ import {
 import { 
   AndroidInstallModal 
 } from './components/AndroidInstallModal';
+import { LiveAiSupport } from './components/LiveAiSupport';
+
 import { 
   StockQuote, 
   CandleData, 
@@ -113,13 +115,17 @@ export default function App() {
   const [optionLoading, setOptionLoading] = useState(false);
 
   // Active Bottom Section Tab
+  
   const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'SUPPORT'>('MARKETS');
+  const [marketView, setMarketView] = useState<'SINGLE' | 'GRID'>('SINGLE');
+
   const [bottomTab, setBottomTab] = useState<'BOT' | 'ORDERS' | 'OPTIONS' | 'AI'>('BOT');
 
   // Track previous signal count to fire alert sound on new high-probability trade
   const prevSignalCountRef = useRef(0);
 
   // 1. Fetch Market Quotes
+  
   const fetchQuotes = useCallback(async () => {
     try {
       const res = await fetch('/api/upstox/quotes');
@@ -127,11 +133,21 @@ export default function App() {
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.quotes || []);
         setQuotes(list);
+        
+        // Sync LTP to Paper Trading backend so PNL calculates accurately
+        if (list.length > 0) {
+           fetch('/api/trading/paper-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quotes: list })
+           }).catch(() => {});
+        }
       }
     } catch {
       // Soft handling during server reconnect / transient network delay
     }
   }, []);
+
 
   // 2. Fetch Candlestick History
   const fetchCandles = useCallback(async (symbol: string, tf: string) => {
@@ -151,8 +167,8 @@ export default function App() {
   const fetchPositionsAndOrders = useCallback(async () => {
     try {
       const [posRes, ordRes] = await Promise.all([
-        fetch('/api/trading/positions'),
-        fetch('/api/trading/orders'),
+        fetch(`/api/trading/positions?mode=${mode}`),
+        fetch(`/api/trading/orders?mode=${mode}`),
       ]);
       if (posRes.ok) {
         const posData = await posRes.json();
@@ -170,7 +186,7 @@ export default function App() {
     } catch {
       // Soft handling during polling
     }
-  }, []);
+  }, [mode]);
 
   // 4. Fetch Bot Config, Logs & Live Signals
   const fetchBotState = useCallback(async () => {
@@ -308,22 +324,32 @@ export default function App() {
     fetchApiConfig();
 
     const quoteInterval = window.setInterval(fetchQuotes, 1000);
+    
     const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 3000);
     const botInterval = window.setInterval(fetchBotState, 2000);
-
     return () => {
       window.clearInterval(quoteInterval);
       window.clearInterval(tradingInterval);
       window.clearInterval(botInterval);
     };
+
   }, [fetchQuotes, fetchPositionsAndOrders, fetchBotState, fetchApiConfig]);
 
-  // When selected symbol or timeframe changes, refresh chart & option chain
+// When selected symbol or timeframe changes, refresh chart & option chain
   useEffect(() => {
     fetchCandles(selectedSymbol, interval);
-    if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK')) {
+    if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
       fetchOptionChain(selectedSymbol);
     }
+
+    const chartInterval = window.setInterval(() => { 
+      fetchCandles(selectedSymbol, interval); 
+      if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
+         fetchOptionChain(selectedSymbol);
+      }
+    }, 10000);
+
+    return () => window.clearInterval(chartInterval);
   }, [selectedSymbol, interval, fetchCandles, fetchOptionChain]);
 
   // Update Bot Config Handler
@@ -372,6 +398,8 @@ export default function App() {
     try {
       const res = await fetch(`/api/trading/squareoff/${positionId}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
       });
       if (res.ok) {
         if (soundEnabled) soundEngine.play('ORDER_FILLED');
@@ -387,6 +415,8 @@ export default function App() {
     try {
       const res = await fetch('/api/trading/squareoff-all', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
       });
       if (res.ok) {
         if (soundEnabled) soundEngine.play('ALERT');
@@ -488,8 +518,13 @@ export default function App() {
           </div>
         )}
         
-        {appTab === 'MARKETS' && (
+        {appTab === 'MARKETS' && marketView === 'SINGLE' && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="flex justify-end px-2">
+               <button onClick={() => setMarketView('GRID')} className="text-xs bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-emerald-400 font-bold shadow-md">
+                 6 Index Grid View
+               </button>
+            </div>
             <div className="h-[45vh] min-h-[340px]">
               <CandlestickChart
                 symbol={selectedSymbol}
@@ -514,6 +549,45 @@ export default function App() {
               />
             </div>
           </div>
+        )}
+
+        {appTab === 'MARKETS' && marketView === 'GRID' && (
+           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className="flex justify-between items-center px-2">
+               <h2 className="text-sm font-bold text-white">Live Index Grid</h2>
+               <button onClick={() => setMarketView('SINGLE')} className="text-xs bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-amber-400 font-bold shadow-md">
+                 Single Chart View
+               </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 pb-6">
+               {['NIFTY 50', 'NIFTY BANK', 'NIFTY FIN SERVICE', 'NIFTY MID SELECT', 'SENSEX', 'BANKEX'].map(sym => {
+                  const q = quotes.find(x => x.symbol === sym) || { ltp: 0, changePercent: 0 };
+                  const color = q.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                  const isUp = q.changePercent >= 0;
+                  return (
+                     <div key={sym} onClick={() => { setSelectedSymbol(sym); setMarketView('SINGLE'); }} className="bg-[#0b0f19] border border-slate-800 rounded-xl p-3 cursor-pointer hover:border-slate-600 transition shadow-lg">
+                        <div className="flex justify-between items-start mb-2">
+                           <h3 className="text-[10px] sm:text-xs font-black text-slate-300 w-[65%] leading-tight">{sym}</h3>
+                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isUp ? 'bg-emerald-950/40 text-emerald-400' : 'bg-rose-950/40 text-rose-400'}`}>
+                              {isUp ? '+' : ''}{q.changePercent.toFixed(2)}%
+                           </span>
+                        </div>
+                        <div className={`text-lg font-black ${color}`}>
+                           ₹{q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                        <div className="h-20 mt-3 relative overflow-hidden rounded border border-slate-800/50 bg-[#070a14]">
+                           {/* Decorative Mini Sparkline */}
+                           <div className="absolute inset-0 flex items-end">
+                              {Array.from({ length: 20 }).map((_, i) => (
+                                 <div key={i} className={`w-full mx-[1px] rounded-t-sm ${isUp ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} style={{ height: `${Math.random() * 80 + 20}%` }} />
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                  );
+               })}
+            </div>
+           </div>
         )}
 
         {appTab === 'BOT' && (
