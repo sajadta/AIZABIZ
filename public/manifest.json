@@ -1,7 +1,12 @@
 {
+  "id": "/",
   "short_name": "AIZABIZ",
   "name": "AIZABIZ PRO Trading Terminal",
   "description": "Professional Live Algorithmic Trading & Analysis Terminal for Android & Web",
+  "categories": [
+    "finance",
+    "business"
+  ],
   "icons": [
     {
       "src": "/icon-192.png",
@@ -18,6 +23,10 @@
   "background_color": "#090d16",
   "theme_color": "#0f172a",
   "display": "standalone",
+  "display_override": [
+    "windows-control-overlay",
+    "tabbed"
+  ],
   "orientation": "portrait-primary",
   "scope": "/"
 }
