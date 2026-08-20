@@ -62,7 +62,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 
         {/* Filter Pills */}
         <div className="flex items-center gap-1.5 text-[11px] font-bold">
-          {(['ALL', 'INDEX', 'EQUITY'] as const).map((seg) => (
+          {(['ALL', 'INDEX', 'EQUITY', 'GLOBAL'] as const).map((seg) => (
             <button
               key={seg}
               onClick={() => setFilterSegment(seg)}
@@ -88,7 +88,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 
           return (
             <div
-              key={q.instrumentKey}
+              key={q.instrumentKey || q.symbol}
               onClick={() => onSelectSymbol(q.symbol)}
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected
@@ -131,27 +131,27 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                       <ArrowDownRight className="w-3 h-3 mr-0.5 inline" />
                     )}
                     {isPositive ? '+' : ''}
-                    {q.change.toFixed(2)} ({q.changePercent}%)
+                    {Number(q.change || 0).toFixed(2)} ({q.changePercent}%)
                   </div>
                 </div>
               </div>
 
               {/* Day High / Low mini range bar */}
               <div className="mt-2.5 flex items-center justify-between text-[9px] text-slate-500 font-mono-num">
-                <span>L: ₹{q.low.toFixed(1)}</span>
+                <span>L: ₹{Number(q.low || 0).toFixed(1)}</span>
                 <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-[#1d2335]/60">
                   <div
                     className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{ width: `${Math.max(5, Math.min(95, currentPos))}%` }}
                   />
                 </div>
-                <span>H: ₹{q.high.toFixed(1)}</span>
+                <span>H: ₹{Number(q.high || 0).toFixed(1)}</span>
               </div>
 
               {/* Quick Action buttons on hover/select */}
               <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-[#1d2335]/40">
                 <span className="text-[10px] text-slate-400 font-mono-num font-medium">
-                  Vol: {(q.volume / 100000).toFixed(2)}L
+                  Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button

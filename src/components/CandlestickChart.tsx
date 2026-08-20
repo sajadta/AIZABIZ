@@ -168,7 +168,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
                     ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
                     : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
                 }`}>
-                  {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)} ({quote.changePercent}%)
+                  {quote.change >= 0 ? '+' : ''}{Number(quote.change || 0).toFixed(2)} ({quote.changePercent}%)
                 </span>
               )}
             </div>
@@ -281,7 +281,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           <span>H: <strong className="text-emerald-400">₹{hoveredCandle.high}</strong></span>
           <span>L: <strong className="text-rose-400">₹{hoveredCandle.low}</strong></span>
           <span>C: <strong className={hoveredCandle.close >= hoveredCandle.open ? 'text-emerald-400' : 'text-rose-400'}>₹{hoveredCandle.close}</strong></span>
-          <span className="text-slate-400">Vol: <strong className="text-white">{(hoveredCandle.volume / 1000).toFixed(1)}k</strong></span>
+          <span className="text-slate-400">Vol: <strong className="text-white">{Number((hoveredCandle.volume || 0) / 1000).toFixed(1)}k</strong></span>
           {showEMA && hoveredCandle.ema9 && (
             <span className="text-cyan-400 hidden sm:inline">EMA9: ₹{hoveredCandle.ema9}</span>
           )}

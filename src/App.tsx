@@ -52,7 +52,7 @@ import {
   OrderTransactionType 
 } from './types';
 import { translations } from './translations';
-import { analyzeTradingSignals } from './utils/indicators';
+import { analyzeTradingSignals, enrichCandlesWithIndicators } from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
 
 export default function App() {
@@ -156,7 +156,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.candles || []);
-        setCandles(list);
+        setCandles(enrichCandlesWithIndicators(list));
       }
     } catch {
       // Soft handling
@@ -241,7 +241,15 @@ export default function App() {
       const quote = quotes.find(q => q.symbol === selectedSymbol);
       let indicators = null;
       if (candles.length > 0) {
-        const analysis = analyzeTradingSignals(candles);
+        const currentLtp = quote?.ltp || (candles[candles.length - 1]?.close || 0);
+        const analysis = analyzeTradingSignals(
+          selectedSymbol,
+          selectedSymbol,
+          quote?.instrumentKey || '',
+          candles,
+          currentLtp,
+          botConfig.selectedStrategy || 'PROFIT_MAX_100_PERCENT_MATRIX'
+        );
         indicators = analysis.readings;
       }
       
@@ -560,20 +568,22 @@ export default function App() {
                </button>
             </div>
             <div className="grid grid-cols-2 gap-3 pb-6">
-               {['NIFTY 50', 'NIFTY BANK', 'NIFTY FIN SERVICE', 'NIFTY MID SELECT', 'SENSEX', 'BANKEX'].map(sym => {
+               {['NIFTY 50', 'NIFTY BANK', 'SENSEX', 'NASDAQ', 'DOW JONES', 'GIFT NIFTY'].map(sym => {
                   const q = quotes.find(x => x.symbol === sym) || { ltp: 0, changePercent: 0 };
-                  const color = q.changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400';
-                  const isUp = q.changePercent >= 0;
+                  const cp = q.changePercent || 0;
+                  const ltp = q.ltp || 0;
+                  const color = cp >= 0 ? 'text-emerald-400' : 'text-rose-400';
+                  const isUp = cp >= 0;
                   return (
                      <div key={sym} onClick={() => { setSelectedSymbol(sym); setMarketView('SINGLE'); }} className="bg-[#0b0f19] border border-slate-800 rounded-xl p-3 cursor-pointer hover:border-slate-600 transition shadow-lg">
                         <div className="flex justify-between items-start mb-2">
                            <h3 className="text-[10px] sm:text-xs font-black text-slate-300 w-[65%] leading-tight">{sym}</h3>
                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isUp ? 'bg-emerald-950/40 text-emerald-400' : 'bg-rose-950/40 text-rose-400'}`}>
-                              {isUp ? '+' : ''}{q.changePercent.toFixed(2)}%
+                              {isUp ? '+' : ''}{cp.toFixed(2)}%
                            </span>
                         </div>
                         <div className={`text-lg font-black ${color}`}>
-                           ₹{q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                           ₹{ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </div>
                         <div className="h-20 mt-3 relative overflow-hidden rounded border border-slate-800/50 bg-[#070a14]">
                            {/* Decorative Mini Sparkline */}

@@ -41,9 +41,9 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [productType, setProductType] = useState<ProductType>('INTRADAY');
   const [quantity, setQuantity] = useState<number>(symbol.includes('BANK') ? 15 : symbol.includes('NIFTY') ? 25 : 10);
   const [price, setPrice] = useState<number>(defaultPrice || 100);
-  const [triggerPrice, setTriggerPrice] = useState<number>(Number((defaultPrice * 0.99).toFixed(2)));
-  const [stopLoss, setStopLoss] = useState<number>(Number((defaultPrice * 0.985).toFixed(2)));
-  const [target, setTarget] = useState<number>(Number((defaultPrice * 1.025).toFixed(2)));
+  const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
+  const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
+  const [target, setTarget] = useState<number>(Number(((defaultPrice || 0) * 1.025).toFixed(2)));
 
   if (!isOpen) return null;
 
@@ -80,7 +80,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-lg font-black tracking-tight">{symbol}</span>
               <span className="text-xs px-2 py-0.5 rounded bg-black/30 font-mono font-bold">
-                LTP ₹{defaultPrice.toFixed(2)}
+                LTP ₹{Number(defaultPrice || 0).toFixed(2)}
               </span>
             </div>
             <p className="text-xs text-white/80 font-medium">

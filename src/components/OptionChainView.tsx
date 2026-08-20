@@ -43,7 +43,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               {t.optionChain} - {data.underlyingSymbol}
             </h3>
             <span className="text-xs font-mono-num font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              ₹{data.underlyingLTP.toFixed(2)}
+              ₹{Number(data.underlyingLTP || 0).toFixed(2)}
             </span>
           </div>
           <div className="flex items-center gap-3 text-[11px] font-mono-num text-slate-400 mt-1">
@@ -115,7 +115,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                 >
                   {/* CALLS */}
                   <td className={`py-1.5 px-2 text-right text-slate-400 ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
-                    {(s.callOI / 1000).toFixed(0)}
+                    {((s.callOI || 0) / 1000).toFixed(0)}
                   </td>
                   <td className={`py-1.5 px-2 text-right text-slate-500 ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
                     {s.callIV}%
@@ -123,7 +123,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   <td className={`py-1.5 px-2 text-right font-bold text-emerald-400 border-r border-slate-800 cursor-pointer hover:underline ${isITMCall ? 'bg-emerald-950/15' : ''}`}
                     onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, s.callLTP)}
                   >
-                    ₹{s.callLTP.toFixed(1)}
+                    ₹{Number(s.callLTP || 0).toFixed(1)}
                   </td>
 
                   {/* STRIKE */}
@@ -137,13 +137,13 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   <td className={`py-1.5 px-2 text-left font-bold text-rose-400 cursor-pointer hover:underline ${isITMPut ? 'bg-rose-950/15' : ''}`}
                     onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} PE`, s.putLTP)}
                   >
-                    ₹{s.putLTP.toFixed(1)}
+                    ₹{Number(s.putLTP || 0).toFixed(1)}
                   </td>
                   <td className={`py-1.5 px-2 text-left text-slate-500 ${isITMPut ? 'bg-rose-950/10' : ''}`}>
                     {s.putIV}%
                   </td>
                   <td className={`py-1.5 px-2 text-left text-slate-400 ${isITMPut ? 'bg-rose-950/10' : ''}`}>
-                    {(s.putOI / 1000).toFixed(0)}
+                    {((s.putOI || 0) / 1000).toFixed(0)}
                   </td>
                 </tr>
               );
