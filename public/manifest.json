@@ -9,12 +9,12 @@
   ],
   "icons": [
     {
-      "src": "/launchericon-192.png",
+      "src": "/launchericon-192x192.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "/launchericon-512.png",
+      "src": "/launchericon-512x512.png",
       "type": "image/png",
       "sizes": "512x512"
     }
