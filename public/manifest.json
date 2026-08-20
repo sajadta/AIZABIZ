@@ -24,7 +24,7 @@
   "theme_color": "#0f172a",
   "display": "standalone",
   "display_override": [
-    "windows-control-overlay",
+    "window-controls-overlay",
     "tabbed"
   ],
   "orientation": "portrait-primary",
