@@ -73,7 +73,9 @@ export default function App() {
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
   const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiMarketAnalysis | null>(null);
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(true);
   const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
+    geminiApiKey: '',
     apiKey: '',
     apiSecret: '',
     accessToken: '',
@@ -82,6 +84,44 @@ export default function App() {
   });
 
   // Bot Config
+  
+  const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
+  const [tempConfig, setTempConfig] = useState<UpstoxApiConfig>({ apiKey: '', apiSecret: '', accessToken: '', redirectUri: 'http://localhost:8080/', isConnected: false, geminiApiKey: '' });
+  
+  useEffect(() => {
+     const storedConfig = localStorage.getItem('algoTradingConfig');
+     if (storedConfig) {
+        try {
+           const parsed = JSON.parse(storedConfig);
+           setApiConfig(parsed);
+           // Push to server
+           fetch('/api/upstox/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(parsed)
+           }).catch(() => {});
+        } catch(e) {}
+     } else {
+        setShowSetupModal(true);
+     }
+  }, []);
+  
+  const handleSaveSetup = async () => {
+     try {
+       const res = await fetch('/api/upstox/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(tempConfig)
+       });
+       if (res.ok) {
+          const updated = await res.json();
+          setApiConfig(updated);
+          localStorage.setItem('algoTradingConfig', JSON.stringify(updated));
+          setShowSetupModal(false);
+       }
+     } catch(e) {}
+  };
+
   const [botConfig, setBotConfig] = useState<BotConfig>({
     enabled: false,
     mode: 'PAPER_TRADING',
@@ -250,7 +290,7 @@ export default function App() {
           currentLtp,
           botConfig.selectedStrategy || 'PROFIT_MAX_100_PERCENT_MATRIX'
         );
-        indicators = analysis.readings;
+        indicators = analysis.indicators;
       }
       
       const payload = { 
@@ -331,12 +371,68 @@ export default function App() {
     fetchBotState();
     fetchApiConfig();
 
-    const quoteInterval = window.setInterval(fetchQuotes, 1000);
+    
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host;
+    const wsUrl = `${wsProto}//${wsHost}/api/ws/quotes`;
+
+    let socket: WebSocket | null = null;
+    let reconnectTimeout: number | null = null;
+    let reconnectAttempts = 0;
+
+    const connectWebSocket = () => {
+        socket = new WebSocket(wsUrl);
+        
+        socket.onopen = () => {
+            console.log('Connected to Live Quotes WebSocket');
+            setIsWsConnected(true);
+            reconnectAttempts = 0;
+        };
+        
+        socket.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'QUOTES') {
+                    const list = msg.data || [];
+                    setQuotes(list);
+                    
+                    if (list.length > 0) {
+                        fetch('/api/trading/paper-sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ quotes: list })
+                        }).catch(() => {});
+                    }
+                }
+            } catch(e) {}
+        };
+
+        socket.onerror = (err) => {
+           console.error('WebSocket Error:', err);
+        };
+        
+        socket.onclose = () => {
+           setIsWsConnected(false);
+           const timeoutMs = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+           console.log(`WebSocket closed. Reconnecting in ${Math.round(timeoutMs/1000)}s...`);
+           reconnectTimeout = window.setTimeout(() => {
+               reconnectAttempts++;
+               connectWebSocket();
+           }, timeoutMs);
+        };
+    };
+
+    connectWebSocket();
+
+    const quoteInterval = window.setInterval(fetchQuotes, 10000); // fallback polling if WS dies, or just as a keepalive
+
     
     const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 3000);
     const botInterval = window.setInterval(fetchBotState, 2000);
     return () => {
       window.clearInterval(quoteInterval);
+      if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
+      if (socket && socket.readyState === WebSocket.OPEN) { socket.close(); }
       window.clearInterval(tradingInterval);
       window.clearInterval(botInterval);
     };
@@ -437,6 +533,8 @@ export default function App() {
 
   // Save Upstox API Config
   const handleSaveApiConfig = async (cfg: Partial<UpstoxApiConfig>) => {
+    const merged = { ...apiConfig, ...cfg };
+    localStorage.setItem('algoTradingConfig', JSON.stringify(merged));
     const res = await fetch('/api/upstox/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -474,132 +572,92 @@ export default function App() {
   const t = translations[language];
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-black">
-      
-      {/* 1. Header */}
-      <Header
-        mode={mode}
-        setMode={setMode}
-        language={language}
-        setLanguage={setLanguage}
-        soundEnabled={soundEnabled}
-        setSoundEnabled={setSoundEnabled}
-        apiConfig={apiConfig}
-        onOpenApiSettings={() => setIsApiModalOpen(true)}
-        onOpenAndroidModal={() => setIsAndroidModalOpen(true)}
-        activePositionsCount={positions.length}
-        onSquareOffAll={handleSquareOffAll}
-        totalPnL={totalPnL}
-      />
+    <div className="h-screen w-full relative overflow-x-hidden">
 
-      {/* 2. Real-time Ticker Ribbon */}
-      <TickerBar
-        quotes={quotes}
-        selectedSymbol={selectedSymbol}
-        onSelectSymbol={setSelectedSymbol}
-      />
-
-      {/* 3. Main Dashboard Layout */}
-      <main className="flex-1 overflow-y-auto hide-scrollbar pb-24 w-full">
-        <div className="p-2 sm:p-4 max-w-md mx-auto space-y-4">
-        
-        {/* Daily Token Alert Banner for Live Mode */}
-        {mode === 'UPSTOX_LIVE' && !apiConfig.isConnected && (
-          <div className="p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-amber-900/20 to-slate-900/40 border border-amber-500/40 flex items-center justify-between gap-3 text-xs shadow-lg animate-in fade-in flex-wrap">
-            <div className="flex items-center gap-2.5 text-amber-200 font-medium">
-              <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
-                <AlertTriangle className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="font-extrabold text-amber-300 block text-xs">
-                  {language === 'ml' ? 'ടോക്കൺ നൽകുക' : 'Token Required'}
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={() => setIsApiModalOpen(true)}
-              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-extrabold text-[10px] transition shrink-0 flex items-center gap-1.5 shadow-md shadow-amber-950 active:scale-95"
-            >
-              <Key className="w-3.5 h-3.5" />
-              <span>{language === 'ml' ? 'നൽകുക' : 'Enter'}</span>
-            </button>
+      {showSetupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-2xl max-w-lg w-full shadow-2xl">
+             <h2 className="text-2xl font-bold text-white mb-4">Initial Setup</h2>
+             <p className="text-slate-400 text-sm mb-6">Please enter your API credentials. These are stored locally on your device and never on our servers permanently.</p>
+             
+             <div className="space-y-4">
+                <div>
+                  <label className="block text-slate-300 text-sm mb-1">Gemini API Key (Required for AI)</label>
+                  <input type="password" value={tempConfig.geminiApiKey || ''} onChange={e => setTempConfig({...tempConfig, geminiApiKey: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-300 text-sm mb-1">Upstox API Key</label>
+                  <input type="text" value={tempConfig.apiKey} onChange={e => setTempConfig({...tempConfig, apiKey: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-300 text-sm mb-1">Upstox API Secret</label>
+                  <input type="password" value={tempConfig.apiSecret} onChange={e => setTempConfig({...tempConfig, apiSecret: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                <div>
+                  <label className="block text-slate-300 text-sm mb-1">Upstox Access Token (Optional)</label>
+                  <input type="password" value={tempConfig.accessToken} onChange={e => setTempConfig({...tempConfig, accessToken: e.target.value})} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white" />
+                </div>
+                
+                <button onClick={handleSaveSetup} className="w-full mt-4 bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2 rounded-lg transition-colors">
+                   Save & Start
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+        <Header 
+          mode={mode} 
+          setMode={setMode} 
+          language={language} 
+          setLanguage={setLanguage}
+          soundEnabled={soundEnabled}
+          toggleSound={() => setSoundEnabled(!soundEnabled)}
+          onOpenApiSettings={() => setIsApiModalOpen(true)}
+          onOpenAndroidInstall={() => setIsAndroidModalOpen(true)}
+          apiConfig={apiConfig}
+        />
+        {(!isWsConnected || !apiConfig.accessToken || apiConfig.accessToken === '') && !showSetupModal && (
+          <div className="bg-red-900/50 border-b border-red-500/50 text-red-200 px-4 py-2 text-sm flex items-center justify-center gap-2">
+             <AlertTriangle size={16} />
+             <span>{(!apiConfig.accessToken || apiConfig.accessToken === '') ? 'Upstox API Token Missing. Please update settings.' : 'Connection Lost. Showing last known market data.'}</span>
           </div>
         )}
+        <TickerBar quotes={quotes} />
         
-        {appTab === 'MARKETS' && marketView === 'SINGLE' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="flex justify-end px-2">
-               <button onClick={() => setMarketView('GRID')} className="text-xs bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-emerald-400 font-bold shadow-md">
-                 6 Index Grid View
-               </button>
-            </div>
-            <div className="h-[45vh] min-h-[340px]">
-              <CandlestickChart
-                symbol={selectedSymbol}
-                quote={currentQuote}
-                candles={candles}
-                interval={interval}
-                onChangeInterval={setInterval}
-                language={language}
-                onOpenOrderModal={openOrderModal}
-                onGenerateAiAnalysis={runGeminiAnalysis}
-                aiLoading={aiLoading}
-                signal={activeSignal}
+        {appTab === 'MARKETS' && (
+          <div className="flex-1 flex overflow-hidden">
+            <div className="w-80 border-r border-[#1d2335] bg-[#0b0f19] flex flex-col hide-scrollbar overflow-y-auto">
+              <Watchlist 
+                 quotes={quotes}
+                 selectedSymbol={selectedSymbol}
+                 onSelectSymbol={setSelectedSymbol}
+                 language={language}
+                 onOpenOrderModal={openOrderModal}
               />
             </div>
-            <div className="flex-1 min-h-[400px]">
-              <Watchlist
-                quotes={quotes}
-                selectedSymbol={selectedSymbol}
-                onSelectSymbol={setSelectedSymbol}
-                language={language}
-                onOpenOrderModal={openOrderModal}
-              />
+            <div className="flex-1 flex flex-col bg-[#070a12]">
+              <div className="flex-1 border-b border-[#1d2335] p-2 relative">
+                 <CandlestickChart 
+                    candles={candles || []}
+                    symbol={selectedSymbol}
+                    interval={interval}
+                    onChangeInterval={setInterval}
+                    quote={quotes.find(q => q.symbol === selectedSymbol)}
+                    language={language}
+                    onOpenOrderModal={openOrderModal}
+                    onGenerateAiAnalysis={() => {}}
+                 />
+              </div>
+              <div className="h-64 overflow-y-auto hide-scrollbar p-2 bg-[#0b0f19]">
+                 <OrderBookPositions 
+                    positions={positions}
+                    orders={orders}
+                    language={language}
+                 />
+              </div>
             </div>
           </div>
         )}
-
-        {appTab === 'MARKETS' && marketView === 'GRID' && (
-           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className="flex justify-between items-center px-2">
-               <h2 className="text-sm font-bold text-white">Live Index Grid</h2>
-               <button onClick={() => setMarketView('SINGLE')} className="text-xs bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-amber-400 font-bold shadow-md">
-                 Single Chart View
-               </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 pb-6">
-               {['NIFTY 50', 'NIFTY BANK', 'SENSEX', 'NASDAQ', 'DOW JONES', 'GIFT NIFTY'].map(sym => {
-                  const q = quotes.find(x => x.symbol === sym) || { ltp: 0, changePercent: 0 };
-                  const cp = q.changePercent || 0;
-                  const ltp = q.ltp || 0;
-                  const color = cp >= 0 ? 'text-emerald-400' : 'text-rose-400';
-                  const isUp = cp >= 0;
-                  return (
-                     <div key={sym} onClick={() => { setSelectedSymbol(sym); setMarketView('SINGLE'); }} className="bg-[#0b0f19] border border-slate-800 rounded-xl p-3 cursor-pointer hover:border-slate-600 transition shadow-lg">
-                        <div className="flex justify-between items-start mb-2">
-                           <h3 className="text-[10px] sm:text-xs font-black text-slate-300 w-[65%] leading-tight">{sym}</h3>
-                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isUp ? 'bg-emerald-950/40 text-emerald-400' : 'bg-rose-950/40 text-rose-400'}`}>
-                              {isUp ? '+' : ''}{cp.toFixed(2)}%
-                           </span>
-                        </div>
-                        <div className={`text-lg font-black ${color}`}>
-                           ₹{ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </div>
-                        <div className="h-20 mt-3 relative overflow-hidden rounded border border-slate-800/50 bg-[#070a14]">
-                           {/* Decorative Mini Sparkline */}
-                           <div className="absolute inset-0 flex items-end">
-                              {Array.from({ length: 20 }).map((_, i) => (
-                                 <div key={i} className={`w-full mx-[1px] rounded-t-sm ${isUp ? 'bg-emerald-500/20' : 'bg-rose-500/20'}`} style={{ height: `${Math.random() * 80 + 20}%` }} />
-                              ))}
-                           </div>
-                        </div>
-                     </div>
-                  );
-               })}
-            </div>
-           </div>
-        )}
-
         {appTab === 'BOT' && (
           <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
             <AlgoBotPanel
@@ -714,8 +772,6 @@ export default function App() {
           </div>
         )}
         
-        </div>
-      </main>
 
       {/* App Mobile Bottom Navigation Bar */}
       <nav className="fixed bottom-0 w-full bg-[#0a0e17]/95 backdrop-blur-md border-t border-slate-800/80 pb-safe z-50">
@@ -773,6 +829,6 @@ export default function App() {
         language={language}
       />
 
-    </div>
+        </div>
   );
 }

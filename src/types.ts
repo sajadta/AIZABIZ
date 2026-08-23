@@ -243,6 +243,7 @@ export interface BotLog {
 }
 
 export interface UpstoxApiConfig {
+  geminiApiKey?: string;
   apiKey: string;
   apiSecret: string;
   redirectUri: string;
