@@ -625,8 +625,8 @@ export default function App() {
         <TickerBar quotes={quotes} />
         
         {appTab === 'MARKETS' && (
-          <div className="flex-1 flex overflow-hidden">
-            <div className="w-80 border-r border-[#1d2335] bg-[#0b0f19] flex flex-col hide-scrollbar overflow-y-auto">
+          <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
+            <div className="w-full sm:w-80 border-b sm:border-b-0 sm:border-r border-[#1d2335] bg-[#0b0f19] flex flex-col hide-scrollbar overflow-y-auto max-h-[35vh] sm:max-h-none shrink-0">
               <Watchlist 
                  quotes={quotes}
                  selectedSymbol={selectedSymbol}

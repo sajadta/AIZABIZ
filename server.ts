@@ -26,7 +26,7 @@ let botConfig = {
   riskPerTradePercent: 1.5,
   stopLossPercent: 10,
   targetProfitPercent: 30,
-  trailingStopLoss: true,
+  trailingStopLoss: true, trailingStepPercent: 5, tradeQuantity: 50,
   multiTimeframeEnabled: true,
   optionStrikeSelector: true,
   tradeMmode: 'OPTIONS_ONLY', // 'OPTIONS_ONLY'
@@ -102,10 +102,44 @@ setInterval(async ()  => {
          // It'scan option. We need option LTP. 
          // For now, simulate option price  movement based on Index  movement if we don't have live option quotes.
          const ltp = pos.currentLTP || pos.buyPrice; // updated via frontend paper-sync or live sync
-         const pnlPercent = ((ltp - pos.buyPrice)  / pos.buyPrice)  * 100;
+         // Track highest LTP for trailing stop loss
+         pos.highestLTP = Math.max(pos.highestLTP || pos.buyPrice, ltp);
          
-         if (pnlPercent >= botConfig.targetProfitPercent)  {
-             botLogs.unshift({ id: Date.now() .toString(), time: new Date() .toLocaleTimeString(), message: `Target Profit hit (${pnlPercent.toFixed(2) }%)  for ${pos.symbol}. Squaring off.`, type: 'SUCCESS' });
+         const pnlPercent = ((ltp - pos.buyPrice) / pos.buyPrice) * 100;
+         let shouldSell = false;
+         let sellReason = '';
+
+         // 1. Static Target Check
+         if (pnlPercent >= botConfig.targetProfitPercent && !botConfig.trailingStopLoss) {
+             shouldSell = true;
+             sellReason = `Target Profit hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Maximum profit locked!`;
+         } 
+         // 2. Trailing Stop Loss (Auto Change Stoploss / Target)
+         else if (botConfig.trailingStopLoss) {
+             const trailingStopPrice = pos.highestLTP * (1 - (botConfig.trailingStepPercent || 5) / 100);
+             const dynamicTargetPrice = pos.highestLTP * (1 + (botConfig.targetProfitPercent || 10) / 100);
+             
+             if (ltp <= trailingStopPrice) {
+                shouldSell = true;
+                const profitDiff = ((ltp - pos.buyPrice) / pos.buyPrice) * 100;
+                if (profitDiff > 0) {
+                    sellReason = `Trailing Stop Loss triggered! Secured profit of ${profitDiff.toFixed(2)}% on ${pos.symbol}.`;
+                } else {
+                    sellReason = `Trailing Stop Loss hit (${profitDiff.toFixed(2)}%) for ${pos.symbol}. Minimizing loss.`;
+                }
+             } else if (ltp >= dynamicTargetPrice) {
+                shouldSell = true;
+                sellReason = `Dynamic Trailing Target hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Max profit reached!`;
+             }
+         }
+         // 3. Static Stop Loss
+         if (!shouldSell && pnlPercent <= -botConfig.stopLossPercent) {
+             shouldSell = true;
+             sellReason = `Stop Loss hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Squaring off to prevent further loss.`;
+         }
+
+         if (shouldSell) {
+             botLogs.unshift({ id: Date.now().toString(), time: new Date().toLocaleTimeString(), message: sellReason, type: pnlPercent > 0 ? 'SUCCESS' : 'ERROR' });
              if (botConfig.mode === 'PAPER_TRADING')  {
                  paperPositions = paperPositions.filter(p => p.id !== pos.id);
              } else if (botConfig.mode === 'UPSTOX_LIVE')  {
@@ -351,7 +385,7 @@ let upstoxConfig = {
   apiKey: process.env.UPSTOX_API_KEY || '',
   apiSecret: process.env.UPSTOX_API_SECRET || '',
   redirectUri: process.env.UPSTOX_REDIRECT_URI || 'http://localhost:8080/',
-  accessToken: process.env.UPSTOX_ACCESS_TOKEN || '',
+  accessToken: '', // Removed hardcoded to avoid confusion
   userName: 'Upstox Trader',
   userEmail: '',
   userClientCode: '',
@@ -844,7 +878,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
     }
 
     const response = await fetch(url, {
-      headers: { 'Accept': 'application/json', 'Api-Version': '2.0' }
+      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' }
     });
     const data = await response.json();
     
@@ -881,7 +915,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
 
 
 // 6. Option Chain Data (Real Upstox API with Fallback)
-let lastKnownOptionChain: any = {};
+
 
 app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
   const symbol = (req.query.symbol as string) || 'NIFTY 50';
@@ -889,9 +923,8 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
   const token = upstoxConfig.accessToken;
 
   if (!token) {
-     if (lastKnownOptionChain[symbol]) {
-        return res.json(lastKnownOptionChain[symbol]);
-     }
+     // No fallback. Return error if disconnected.
+     return res.status(401).json({ error: 'Upstox Token Missing', strikes: [] });
      return res.json({ error: 'Upstox Token Missing', strikes: [] });
   }
 
@@ -969,16 +1002,14 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
             totalPutOI
          };
          
-         lastKnownOptionChain[symbol] = result;
+
          return res.json(result);
      }
      throw new Error('Invalid chain data');
   } catch (error) {
      console.error('Error fetching Option Chain:', error);
      // Fallback to last known if available
-     if (lastKnownOptionChain[symbol]) {
-         return res.json(lastKnownOptionChain[symbol]);
-     }
+     return res.status(500).json({ error: 'Failed to fetch option chain', strikes: [] });
      return res.status(500).json({ error: 'Failed to fetch option chain', strikes: [] });
   }
 });
