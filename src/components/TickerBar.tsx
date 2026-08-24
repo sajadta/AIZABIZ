@@ -5,7 +5,7 @@ import { StockQuote } from '../types';
 interface TickerBarProps {
   quotes: StockQuote[];
   selectedSymbol: string;
-  onSelectSymbol: (symbol: string) => void;
+  onSelectSymbol?: (symbol: string, instrumentKey?: string) => void;
 }
 
 export const TickerBar: React.FC<TickerBarProps> = ({
@@ -23,7 +23,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
           return (
             <button
               key={q.instrumentKey || q.symbol}
-              onClick={() => onSelectSymbol(q.symbol)}
+              onClick={() => onSelectSymbol && onSelectSymbol(q.symbol, q.instrumentKey)}
               className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-left transition-all font-mono ${
                 isSelected
                   ? 'bg-slate-800/90 border-slate-600 shadow-sm'

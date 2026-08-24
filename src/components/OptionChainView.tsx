@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Activity, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { Layers, Activity, TrendingUp, TrendingDown, RefreshCw, LineChart } from 'lucide-react';
 import { OptionChainData, Language } from '../types';
 import { translations } from '../translations';
 
@@ -9,6 +9,7 @@ interface OptionChainViewProps {
   onRefresh: () => void;
   language: Language;
   onSelectOptionTrade: (type: 'BUY' | 'SELL', optionSymbol: string, price: number) => void;
+  onViewChart?: (symbol: string, instrumentKey: string) => void;
 }
 
 export const OptionChainView: React.FC<OptionChainViewProps> = ({
@@ -17,6 +18,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   onRefresh,
   language,
   onSelectOptionTrade,
+  onViewChart,
 }) => {
   const t = translations[language];
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
@@ -124,10 +126,11 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   <td className={`py-1.5 px-2 text-right text-slate-500 ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
                     {s.callIV}%
                   </td>
-                  <td className={`py-1.5 px-2 text-right font-bold text-emerald-400 border-r border-slate-800 cursor-pointer hover:underline ${isITMCall ? 'bg-emerald-950/15' : ''}`}
-                    onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, s.callLTP)}
-                  >
-                    ₹{Number(s.callLTP || 0).toFixed(1)}
+                  <td className={`py-1.5 px-2 text-right font-bold text-emerald-400 border-r border-slate-800 ${isITMCall ? 'bg-emerald-950/15' : ''}`}>
+                    <div className="flex items-center justify-end gap-2">
+                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, s.callLTP)}>₹{Number(s.callLTP || 0).toFixed(1)}</span>
+                       {onViewChart && <LineChart className="w-3.5 h-3.5 text-slate-500 hover:text-emerald-400 cursor-pointer" onClick={(e) => { e.stopPropagation(); onViewChart(`${data.underlyingSymbol} ${s.strikePrice} CE`, s.callInstrumentKey); }} />}
+                    </div>
                   </td>
 
                   {/* STRIKE */}
@@ -138,10 +141,11 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   </td>
 
                   {/* PUTS */}
-                  <td className={`py-1.5 px-2 text-left font-bold text-rose-400 cursor-pointer hover:underline ${isITMPut ? 'bg-rose-950/15' : ''}`}
-                    onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} PE`, s.putLTP)}
-                  >
-                    ₹{Number(s.putLTP || 0).toFixed(1)}
+                  <td className={`py-1.5 px-2 text-left font-bold text-rose-400 ${isITMPut ? 'bg-rose-950/15' : ''}`}>
+                    <div className="flex items-center justify-start gap-2">
+                       {onViewChart && <LineChart className="w-3.5 h-3.5 text-slate-500 hover:text-rose-400 cursor-pointer" onClick={(e) => { e.stopPropagation(); onViewChart(`${data.underlyingSymbol} ${s.strikePrice} PE`, s.putInstrumentKey); }} />}
+                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} PE`, s.putLTP)}>₹{Number(s.putLTP || 0).toFixed(1)}</span>
+                    </div>
                   </td>
                   <td className={`py-1.5 px-2 text-left text-slate-500 ${isITMPut ? 'bg-rose-950/10' : ''}`}>
                     {s.putIV}%

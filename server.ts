@@ -12,6 +12,7 @@ dotenv.config();
 
 
 const app = express();
+app.use(express.json({ limit: '10mb' }));
 
 // ---------------------------------------------------------
 // ALGO BOT ENGINE (BACKEND) 
@@ -365,7 +366,7 @@ app.use((req, res, next)  => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' }));
+
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Initialize Gemini Client
@@ -864,7 +865,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
   }
 
   try {
-    const instrumentKey = getInstrumentKey(symbol);
+    let instrumentKey = (req.query.instrumentKey) || getInstrumentKey(symbol);
     let url = '';
     
     // Upstox API v2 historical candle interval accepts one of (1minute,30minute,day,week,month) 
@@ -919,7 +920,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
 
 app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
   const symbol = (req.query.symbol as string) || 'NIFTY 50';
-  const instrumentKey = symbol.includes('BANK') ? 'NSE_INDEX|Nifty Bank' : (symbol.includes('NIFTY') ? 'NSE_INDEX|Nifty 50' : `NSE_INDEX|${symbol}`);
+  const instrumentKey = getInstrumentKey(symbol);
   const token = upstoxConfig.accessToken;
 
   if (!token) {
@@ -943,8 +944,14 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
          throw new Error('No contracts found');
      }
      
-     // Find nearest expiry date
-     const expiryDate = contractData.data[0].expiry; // Assume first is nearest, or sort by date. Upstox returns sorted.
+     // Find nearest valid expiry date
+     const today = new Date();
+     today.setHours(0,0,0,0);
+     const validExpiries = contractData.data
+         .map((c) => c.expiry)
+         .filter((e) => new Date(e).getTime() >= today.getTime())
+         .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+     const expiryDate = validExpiries.length > 0 ? validExpiries[0] : contractData.data[0].expiry;
 
      // Fetch option chain
      const chainRes = await fetch(`https://api.upstox.com/v2/option/chain?instrument_key=${encodeURIComponent(instrumentKey)}&expiry_date=${expiryDate}`, {
@@ -1326,6 +1333,73 @@ app.use((err: any, req: Request, res: Response, next: any)  => {
 });
 
 // Vite middleware for development vs static dist for production
+
+app.get('/api/stream/quotes', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    let symbols = 'NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank,BSE_INDEX|SENSEX,BSE_INDEX|BANKEX,NSE_INDEX|Nifty Fin Service';
+    if (req.query.symbols) {
+       symbols = req.query.symbols;
+    }
+
+    // Send an initial connected message
+    res.write('data: {"type": "CONNECTED"}\n\n');
+
+    const fetchAndPushQuotes = async () => {
+        // Send a heartbeat comment to keep the connection alive through proxies
+        res.write(':\n\n');
+
+        const token = upstoxConfig.accessToken;
+        if (!token) {
+            // Just send a keep-alive if no token so the connection doesn't drop
+            return;
+        }
+        try {
+            const instruments = symbols.split(',').map(s => encodeURIComponent(s.trim())).join(',');
+            const response = await fetch(`https://api.upstox.com/v2/market-quote/quotes?instrument_key=${instruments}`, {
+                headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' }
+            });
+            const data = await response.json();
+            if (data.status === 'success' && data.data) {
+                const quotesList = Object.keys(data.data).map(key => {
+                    const item = data.data[key];
+                    const ltp = item.last_price || 0;
+                    const close = item.ohlc?.close || ltp;
+                    const change = Number((ltp - close).toFixed(2));
+                    const changePercent = close > 0 ? Number(((change / close) * 100).toFixed(2)) : 0;
+                    
+                    let symbolDisplay = item.symbol;
+                    if (!symbolDisplay || symbolDisplay === 'NA') {
+                        const parts = key.split(/[:|]/);
+                        symbolDisplay = (parts.length > 1 ? parts[1] : key).toUpperCase();
+                    } else {
+                        symbolDisplay = symbolDisplay.toUpperCase();
+                    }
+                    return {
+                        symbol: symbolDisplay,
+                        instrumentKey: key,
+                        ltp, change, changePercent,
+                        volume: item.volume || 0,
+                        open: item.ohlc?.open || 0,
+                        high: item.ohlc?.high || 0,
+                        low: item.ohlc?.low || 0,
+                        close
+                    };
+                });
+                res.write(`data: ${JSON.stringify({ type: 'QUOTES', data: quotesList })}\n\n`);
+            }
+        } catch(err) {}
+    };
+
+    const quoteInterval = setInterval(fetchAndPushQuotes, 1000);
+    req.on('close', () => {
+        clearInterval(quoteInterval);
+    });
+});
+
 async function setupVite()  {
   if (process.env.NODE_ENV !== 'production')  {
     const vite= await createViteServer({
@@ -1343,81 +1417,6 @@ async function setupVite()  {
 
   const server = app.listen(PORT, '0.0.0.0', ()  => {
     console.log(`Upstox Live Algo Server running on http://0.0.0.0:${PORT}`);
-  });
-
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on('upgrade', (request, socket, head)  => {
-      console.log('UPGRADE REQUEST:', request.url);
-      if (request.url?.startsWith('/api/ws/quotes'))  {
-          wss.handleUpgrade(request, socket, head, (ws)  => {
-              wss.emit('connection', ws, request);
-          });
-          return;
-      }
-      // other upgrades (like VitemHMR)  are handled by Vite
-  });
-
-  wss.on('connection', (ws)  => {
-      let quoteInterval;
-      let symbols = 'NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank,BSE_INDEX|SENSEX,BSE_INDEX|BANKEX,NSE_INDEX|Nifty Fin Service';
-      
-      ws.on('message', (message)  => {
-          try {
-              const data = JSON.parse(message.toString());
-              if (data.type === 'SET_SYMBOLS')  {
-                  symbols = data.symbols;
-              }
-          } catch(e)  {}
-      });
-
-      const fetchAndPushQuotes = async ()  => {
-          const token = upstoxConfig.accessToken;
-          if (!token)  return;
-          try {
-              const instruments = symbols.split(',') .map(s => encodeURIComponent(s.trim())) .join(',');
-              const response = await fetch(`https://api.upstox.com/v2/market-quote/quotes?instrument_key=${instruments}`, {
-                  headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' }
-              });
-              const data = await response.json();
-              if (data.status === 'success' && data.data)  {
-                  const quotesList = Object.keys(data.data) .map(key => {
-                      const item = data.data[key];
-                      const ltp = item.last_price || 0;
-                      const close = item.ohlc?.close || ltp;
-                      const change = Number((ltp - close) .toFixed(2));
-                      const changePercent = close > 0 ? Number(((change / close)  * 100) .toFixed(2)) : 0;
-                      
-                      let symbolDisplay = item.symbol;
-                      if (!symbolDisplay || symbolDisplay === 'NA')  {
-                          const parts = key.split(/[:|]/);
-                          symbolDisplay = (parts.length > 1 ? parts[1]: key) .toUpperCase();
-                      } else {
-                          symbolDisplay = symbolDisplay.toUpperCase();
-                      }
-                      return {
-                          symbol: symbolDisplay,
-                          instrumentKey: key,
-                          ltp, change, changePercent,
-                          volume: item.volume || 0,
-                          open: item.ohlc?.open || 0,
-                          high: item.ohlc?.high || 0,
-                          low: item.ohlc?.low || 0,
-                          close
-                      };
-                  });
-                  if (ws.readyState === 1)  { // OPEN
-                      ws.send(JSON.stringify({ type: 'QUOTES', data: quotesList }));
-                  }
-              }
-          } catch(err)  {}
-      };
-
-      quoteInterval = setInterval(fetchAndPushQuotes, 1000);
-
-      ws.on('close', ()  => {
-          clearInterval(quoteInterval);
-      });
   });
 }
 

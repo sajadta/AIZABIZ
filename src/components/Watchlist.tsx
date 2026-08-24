@@ -6,7 +6,7 @@ import { translations } from '../translations';
 interface WatchlistProps {
   quotes: StockQuote[];
   selectedSymbol: string;
-  onSelectSymbol: (symbol: string) => void;
+  onSelectSymbol: (symbol: string, instrumentKey?: string) => void;
   language: Language;
   onOpenOrderModal: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
 }
@@ -89,7 +89,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
           return (
             <div
               key={q.instrumentKey || q.symbol}
-              onClick={() => onSelectSymbol(q.symbol)}
+              onClick={() => onSelectSymbol(q.symbol, q.instrumentKey)}
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected
                   ? 'bg-gradient-to-r from-slate-850 to-slate-900 border-emerald-500/50 shadow-md shadow-emerald-950/30 ring-1 ring-emerald-500/20'

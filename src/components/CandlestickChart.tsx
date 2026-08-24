@@ -12,7 +12,7 @@ import {
   EyeOff,
   RefreshCw
 } from 'lucide-react';
-import { createChart, CrosshairMode, LineStyle, IChartApi, ISeriesApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
+import { createChart, CrosshairMode, LineStyle, IChartApi, ISeriesApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { CandleData, StockQuote, Language, TradingSignal } from '../types';
 import { translations } from '../translations';
 
@@ -51,6 +51,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   
   const seriesRef = useRef<{
     candlestick?: any;
+    candlestickMarkers?: any;
     volume?: any;
     supertrend?: any;
     ema9?: any;
@@ -121,6 +122,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       wickDownColor: '#ef4444',
     });
     seriesRef.current.candlestick = candlestickSeries;
+    seriesRef.current.candlestickMarkers = createSeriesMarkers(candlestickSeries, []);
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
@@ -215,7 +217,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       seriesRef.current.supertrend?.setData([]);
     }
 
-    seriesRef.current.candlestick.setMarkers(markers);
+    seriesRef.current.candlestickMarkers?.setMarkers(markers);
 
   }, [displayCandles, showEMA, showSupertrend]);
 

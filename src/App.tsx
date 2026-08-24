@@ -64,6 +64,7 @@ export default function App() {
   // Market & Trading State
   const [quotes, setQuotes] = useState<StockQuote[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');
+  const [selectedInstrumentKey, setSelectedInstrumentKey] = useState<string>('NSE_INDEX|Nifty 50');
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [interval, setInterval] = useState<string>('5m');
   const [positions, setPositions] = useState<Position[]>([]);
@@ -190,9 +191,9 @@ export default function App() {
 
 
   // 2. Fetch Candlestick History
-  const fetchCandles = useCallback(async (symbol: string, tf: string) => {
+  const fetchCandles = useCallback(async (symbol: string, instKey: string, tf: string) => {
     try {
-      const res = await fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&interval=${tf}`);
+      const res = await fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&instrumentKey=${encodeURIComponent(instKey)}&interval=${tf}`);
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.candles || []);
@@ -372,30 +373,29 @@ export default function App() {
     fetchApiConfig();
 
     
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.host;
-    const wsUrl = `${wsProto}//${wsHost}/api/ws/quotes`;
 
-    let socket: WebSocket | null = null;
+    let eventSource: EventSource | null = null;
     let reconnectTimeout: number | null = null;
     let reconnectAttempts = 0;
-
-    const connectWebSocket = () => {
-        socket = new WebSocket(wsUrl);
+    
+    const connectEventSource = () => {
+        eventSource = new EventSource('/api/stream/quotes');
         
-        socket.onopen = () => {
-            console.log('Connected to Live Quotes WebSocket');
+        eventSource.onopen = () => {
+            console.log('Connected to Live Quotes SSE');
             setIsWsConnected(true);
             reconnectAttempts = 0;
         };
         
-        socket.onmessage = (event) => {
+        eventSource.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
+                if (msg.type === 'CONNECTED') {
+                    console.log('SSE Stream fully established.');
+                }
                 if (msg.type === 'QUOTES') {
                     const list = msg.data || [];
                     setQuotes(list);
-                    
                     if (list.length > 0) {
                         fetch('/api/trading/paper-sync', {
                             method: 'POST',
@@ -406,23 +406,21 @@ export default function App() {
                 }
             } catch(e) {}
         };
-
-        socket.onerror = (err) => {
-           console.error('WebSocket Error:', err);
-        };
         
-        socket.onclose = () => {
+        eventSource.onerror = (err) => {
+           console.log('SSE connection interrupted, attempting to reconnect...');
            setIsWsConnected(false);
+           eventSource?.close();
            const timeoutMs = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
-           console.log(`WebSocket closed. Reconnecting in ${Math.round(timeoutMs/1000)}s...`);
+           console.log(`SSE closed. Reconnecting in ${Math.round(timeoutMs/1000)}s...`);
            reconnectTimeout = window.setTimeout(() => {
                reconnectAttempts++;
-               connectWebSocket();
+               connectEventSource();
            }, timeoutMs);
         };
     };
 
-    connectWebSocket();
+    connectEventSource();
 
     const quoteInterval = window.setInterval(fetchQuotes, 10000); // fallback polling if WS dies, or just as a keepalive
 
@@ -432,7 +430,7 @@ export default function App() {
     return () => {
       window.clearInterval(quoteInterval);
       if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
-      if (socket && socket.readyState === WebSocket.OPEN) { socket.close(); }
+      if (eventSource) { eventSource.close(); }
       window.clearInterval(tradingInterval);
       window.clearInterval(botInterval);
     };
@@ -441,20 +439,20 @@ export default function App() {
 
 // When selected symbol or timeframe changes, refresh chart & option chain
   useEffect(() => {
-    fetchCandles(selectedSymbol, interval);
+    fetchCandles(selectedSymbol, selectedInstrumentKey, interval);
     if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
       fetchOptionChain(selectedSymbol);
     }
 
     const chartInterval = window.setInterval(() => { 
-      fetchCandles(selectedSymbol, interval); 
+      fetchCandles(selectedSymbol, selectedInstrumentKey, interval); 
       if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
          fetchOptionChain(selectedSymbol);
       }
     }, 10000);
 
     return () => window.clearInterval(chartInterval);
-  }, [selectedSymbol, interval, fetchCandles, fetchOptionChain]);
+  }, [selectedSymbol, selectedInstrumentKey, interval, fetchCandles, fetchOptionChain]);
 
   // Update Bot Config Handler
   const handleUpdateBotConfig = async (newConfig: Partial<BotConfig>) => {
@@ -622,7 +620,14 @@ export default function App() {
              <span>{(!apiConfig.accessToken || apiConfig.accessToken === '') ? 'Upstox API Token Missing. Please update settings.' : 'Connection Lost. Showing last known market data.'}</span>
           </div>
         )}
-        <TickerBar quotes={quotes} />
+        <TickerBar 
+          quotes={quotes} 
+          selectedSymbol={selectedSymbol}
+          onSelectSymbol={(sym, key) => {
+             setSelectedSymbol(sym);
+             if(key) setSelectedInstrumentKey(key);
+          }}
+        />
         
         {appTab === 'MARKETS' && (
           <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
@@ -630,7 +635,10 @@ export default function App() {
               <Watchlist 
                  quotes={quotes}
                  selectedSymbol={selectedSymbol}
-                 onSelectSymbol={setSelectedSymbol}
+                 onSelectSymbol={(sym, key) => {
+                   setSelectedSymbol(sym);
+                   if(key) setSelectedInstrumentKey(key);
+                 }}
                  language={language}
                  onOpenOrderModal={openOrderModal}
               />
@@ -679,6 +687,11 @@ export default function App() {
               onRefresh={() => fetchOptionChain(selectedSymbol)}
               language={language}
               onSelectOptionTrade={openOrderModal}
+              onViewChart={(sym, key) => {
+                setSelectedSymbol(sym);
+                setSelectedInstrumentKey(key);
+                setAppTab('MARKETS');
+              }}
             />
           </div>
         )}
