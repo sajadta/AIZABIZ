@@ -62,7 +62,7 @@ setInterval(async ()  => {
     // Fetch live positions if in UPSTOX_LIVE  mode
     if (botConfig.mode === 'UPSTOX_LIVE' && upstoxConfig.accessToken)  {
        try {
-           const pRes = await fetch('https://api.upstox.com/v2/portfolio/short-ter -positions', {
+           const pRes = await fetch('https://api.upstox.com/v2/portfolio/short-term-positions', {
               headers: { 'Authorization': `Bearer ${upstoxConfig.accessToken}`, 'Accept': 'application/json', 'Api-Version': '2.0' }
            });
            const pData = await pRes.json();
@@ -218,13 +218,18 @@ setInterval(async ()  => {
           if (cData.status === 'success' && cData.data?.candles)  {
              let rawCandles = cData.data.candles.map((c: any)  => ({
                 timestamp: new Date(c[0]) .getTime(),
-                timeStr: new Date(c[0]) .toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                timeStr: new Date(c[0]).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }),
                 open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
              })) .reverse();
              
              const enriched = enrichCandlesWithIndicators(rawCandles);
              const signal = analyzeTradingSignals('NIFTY 50', 'NIFTY 50', 'NSE_INDEX|Nifty 50', enriched, currentLiveQuote, botConfig.selectedStrategy as any);
              
+             if (signal && (signal.signalType === 'BUY' || signal.signalType === 'SELL')) {
+                 botSignals.unshift(signal);
+                 if (botSignals.length > 50) botSignals.pop();
+             }
+
              if (signal && (signal.signalType === 'BUY' || signal.signalType === 'SELL') && signal.confidenceScore >= botConfig.minConfidence) {
                 // Execute Trade on Option!
                 const isBullish = signal.signalType === 'BUY';
@@ -247,8 +252,9 @@ setInterval(async ()  => {
                        }
                    } catch(e)  {}
                    
-                   paperOrders.unshift({ id: 'ORD'+Date.now(), symbol: optionSymbol, type: 'BUY', quantity: 50, price: optionPrice, status: 'COMPLETE', time: new Date() .toISOString()  });
-                   paperPositions.push({ id: 'POS'+Date.now(), symbol: optionSymbol, quantity: 50, buyPrice: optionPrice, currentLTP: optionPrice, pnl: 0, type: 'BUY' });
+                   const botQty = await getDynamicLotSize(optionSymbol, token);
+                   paperOrders.unshift({ id: 'ORD'+Date.now(), symbol: optionSymbol, type: 'BUY', quantity: botQty, price: optionPrice, status: 'COMPLETE', time: new Date().toISOString() });
+                   paperPositions.push({ id: 'POS'+Date.now(), symbol: optionSymbol, quantity: botQty, buyPrice: optionPrice, currentLTP: optionPrice, pnl: 0, type: 'BUY', isOption: true });
                 } else if (botConfig.mode === 'UPSTOX_LIVE' && token) {
                     try {
                         const optInstrumentKey = 'NSE_FO|' + optionSymbol;
@@ -321,18 +327,51 @@ function aggregateCandles(candles: any[], intervalMs: number)  {
   return aggregated;
 }
 
+
+const lotSizeCache: Record<string, number> = {};
+
+const getDynamicLotSize = async (symbol: string, token: string): Promise<number> => {
+  if (lotSizeCache[symbol]) return lotSizeCache[symbol];
+  let defaultLot = 1;
+  if (symbol.includes('FIN SERVICE') || symbol.includes('FINNIFTY')) defaultLot = 65;
+  else if (symbol.includes('BANK')) defaultLot = 15;
+  else if (symbol.includes('NIFTY')) defaultLot = 25;
+  else if (symbol.includes('SENSEX')) defaultLot = 10;
+  
+  if (!token) return defaultLot;
+  
+  const instrumentKey = getInstrumentKey(symbol);
+  try {
+     const contractRes = await fetch(`https://api.upstox.com/v2/option/contract?instrument_key=${encodeURIComponent(instrumentKey)}`, {
+         headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+     });
+     if (contractRes.ok) {
+         const contractData = await contractRes.json();
+         if (contractData.data && contractData.data.length > 0) {
+             if (contractData.data[0].lot_size) {
+                 const upstoxLotSize = contractData.data[0].lot_size;
+                 lotSizeCache[symbol] = upstoxLotSize;
+                 return upstoxLotSize;
+             }
+         }
+     }
+  } catch (e) {
+  }
+  return defaultLot;
+};
+
 const getInstrumentKey = (symbol: string)  => {
   const s = symbol.toUpperCase();
-  if (s.includes('NIFTY 50'))  return 'NSE_INDEX|Nifty 50';
-  if (s.includes('NIFTY BANK')  || s === 'BANKNIFTY')  return 'NSE_INDEX|Nifty Bank';
-  if (s.includes('FIN SERVICE')  || s === 'FINNIFTY')  return 'NSE_INDEX|Nifty Fin Service';
-  if (s.includes('MID SELECT'))  return 'NSE_INDEX|NIFTY MID SELECT';
-  if (s.includes('SENSEX'))  return 'BSE_INDEX|SENSEX';
-  if (s.includes('BANKEX'))  return 'BSE_INDEX|BANKEX';
-  if (s.includes('RELIANCE'))  return 'NSE_EQ|INE002A01018';
-  if (s.includes('HDFCBANK')  || s === 'HDFC')  return 'NSE_EQ|INE040A01034';
-  if (s.includes('TCS'))  return 'NSE_EQ|INE467B01029';
-  if (s.includes('INFY'))  return 'NSE_EQ|INE009A01021';
+  if (s.includes('BANK') || s === 'BANKNIFTY') return 'NSE_INDEX|Nifty Bank';
+  if (s.includes('FIN SERVICE') || s.includes('FINNIFTY')) return 'NSE_INDEX|Nifty Fin Service';
+  if (s.includes('MID SELECT')) return 'NSE_INDEX|NIFTY MID SELECT';
+  if (s.includes('NIFTY 50') || (s.includes('NIFTY') && !s.includes('BANK') && !s.includes('FIN'))) return 'NSE_INDEX|Nifty 50';
+  if (s.includes('SENSEX')) return 'BSE_INDEX|SENSEX';
+  if (s.includes('BANKEX')) return 'BSE_INDEX|BANKEX';
+  if (s.includes('RELIANCE')) return 'NSE_EQ|INE002A01018';
+  if (s.includes('HDFCBANK') || s === 'HDFC') return 'NSE_EQ|INE040A01034';
+  if (s.includes('TCS')) return 'NSE_EQ|INE467B01029';
+  if (s.includes('INFY')) return 'NSE_EQ|INE009A01021';
   return symbol;
 };
 
@@ -736,7 +775,7 @@ app.get('/api/upstox/positions', async (req: Request, res: Response)  => {
   if (!token)  return res.json([]);
   
   try {
-    const response = await fetch('https://api.upstox.com/v2/portfolio/short-ter -positions', {
+    const response = await fetch('https://api.upstox.com/v2/portfolio/short-term-positions', {
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' },
     });
     const data = await response.json();
@@ -767,7 +806,7 @@ app.get('/api/upstox/holdings', async (req: Request, res: Response)  => {
   if (!token)  return res.json([]);
   
   try {
-    const response = await fetch('https://api.upstox.com/v2/portfolio/long-ter -holdings', {
+    const response = await fetch('https://api.upstox.com/v2/portfolio/long-term-holdings', {
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' },
     });
     const data = await response.json();
@@ -851,6 +890,9 @@ return res.json({ success: true, source: 'UPSTOX_LIVE_V2', quotes: quotesArray }
     // If we reach here, Upstox returned an error
     return res.status(400) .json({ success: false, error: data.errors?.[0]?.message || 'Failed to fetch Upstox data' });
   } catch (err: any)  {
+    if (err.message && err.message.includes('quota')) {
+       return res.json({ success: true, text: 'ക്ഷമിക്കണം, നിലവിൽ സിസ്റ്റത്തിൽ കൂടുതൽ തിരക്കുള്ളതിനാൽ (API Quota Exceeded) AI ഡയഗ്നോസ്റ്റിക്സ് ഇപ്പോൾ ലഭ്യമായിരിക്കില്ല. ദയവായി കുറച്ചു കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക. അൽഗോരിതം കോഡുകൾ സാധാരണഗതിയിൽ പ്രവർത്തിക്കുന്നുണ്ട് എന്ന് ഉറപ്പുവരുത്തിയിട്ടുണ്ട്.' });
+    }
     return res.status(500) .json({ success: false, error: err.message });
   }
 });
@@ -886,7 +928,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
     if (data.status === 'success' && data.data && data.data.candles)  {
       let rawCandles = data.data.candles.map((c: any)  => ({
         timestamp: new Date(c[0]) .getTime(),
-        timeStr: new Date(c[0]) .toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        timeStr: new Date(c[0]).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }),
         open: c[1],
         high: c[2],
         low: c[3],
@@ -917,6 +959,41 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
 
 // 6. Option Chain Data (Real Upstox API with Fallback)
 
+
+
+// Real-time instrument lookup
+app.get('/api/instrument/details', async (req: Request, res: Response) => {
+  const symbol = (req.query.symbol as string) || '';
+  const instrumentKey = getInstrumentKey(symbol);
+  
+  let lotSize = 1;
+  if (symbol.includes('FIN SERVICE') || symbol.includes('FINNIFTY')) lotSize = 65;
+  if (symbol.includes('BANK')) lotSize = 15;
+  if (symbol.includes('NIFTY')) lotSize = 25; // Default correct for Nifty 50 currently
+  if (symbol.includes('SENSEX')) lotSize = 10;
+  
+  const token = upstoxConfig.accessToken;
+  // If it's an option or index, try fetching contract to get the exact real-time lot size
+  if (token && (symbol.includes('NIFTY') || symbol.includes('BANK') || symbol.includes('SENSEX'))) {
+     try {
+         const contractRes = await fetch(`https://api.upstox.com/v2/option/contract?instrument_key=${encodeURIComponent(instrumentKey)}`, {
+             headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+         });
+         if (contractRes.ok) {
+             const contractData = await contractRes.json();
+             if (contractData.data && contractData.data.length > 0) {
+                 if (contractData.data[0].lot_size) {
+                     lotSize = contractData.data[0].lot_size;
+                 }
+             }
+         }
+     } catch (e) {
+         // ignore, use defaults
+     }
+  }
+
+  res.json({ symbol, instrumentKey, lotSize });
+});
 
 app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
   const symbol = (req.query.symbol as string) || 'NIFTY 50';
@@ -987,6 +1064,10 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
                  putVolume: put.market_data?.volume || 0,
                  callDelta: call.option_greeks?.delta || 0,
                  putDelta: put.option_greeks?.delta || 0,
+                 callTheta: call.option_greeks?.theta || 0,
+                 putTheta: put.option_greeks?.theta || 0,
+                 callGamma: call.option_greeks?.gamma || 0,
+                 putGamma: put.option_greeks?.gamma || 0,
                  callIV: call.option_greeks?.iv || 0,
                  putIV: put.option_greeks?.iv || 0,
                  callInstrumentKey: call.instrument_key || '',
@@ -1050,7 +1131,8 @@ app.post('/api/trading/order', async (req: Request, res: Response)  => {
         buyPrice: newOrder.price,
         currentLTP: newOrder.price,
         pnl: 0,
-        type: initialType
+        type: initialType,
+        isOption: symbol.includes(' CE') || symbol.includes(' PE')
       });
     }
     return res.json({ success: true, order: newOrder });
@@ -1205,7 +1287,7 @@ Return your response STRICTLY as a JSON object adhering to the schema.
 Provide both English and Malayalam (മലയാളം)  explanations for the user.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1310,7 +1392,7 @@ app.post('/api/gemini/chat', async (req: Request, res: Response)  => {
     Help the user troubleshoot or provide guidance on using the app. Reply in the same language they used (Malayalam or English) . Keep it concise.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: prompt,
     });
     

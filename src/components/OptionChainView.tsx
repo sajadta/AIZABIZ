@@ -97,6 +97,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               </th>
             </tr>
             <tr className="border-b border-slate-800 text-[10px] text-slate-500">
+              <th className="py-1 px-2 text-right">Vol (k)</th>
               <th className="py-1 px-2 text-right">OI (k)</th>
               <th className="py-1 px-2 text-right">IV</th>
               <th className="py-1 px-2 text-right border-r border-slate-800 text-emerald-400 font-bold">LTP</th>
@@ -104,6 +105,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               <th className="py-1 px-2 text-left text-rose-400 font-bold">LTP</th>
               <th className="py-1 px-2 text-left">IV</th>
               <th className="py-1 px-2 text-left">OI (k)</th>
+              <th className="py-1 px-2 text-left">Vol (k)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/40">

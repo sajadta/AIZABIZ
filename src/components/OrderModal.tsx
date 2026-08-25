@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Check, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
 import { OrderTransactionType, OrderType, ProductType, Language, ExecutionMode } from '../types';
 import { translations } from '../translations';
@@ -39,7 +39,32 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [transactionType, setTransactionType] = useState<OrderTransactionType>(initialType || 'BUY');
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
   const [productType, setProductType] = useState<ProductType>('INTRADAY');
-  const [quantity, setQuantity] = useState<number>(symbol.includes('BANK') ? 15 : symbol.includes('NIFTY') ? 25 : 10);
+  const [lotSize, setLotSize] = useState<number>(0);
+  const [quantity, setQuantity] = useState<number>(0);
+  const [isLoadingLot, setIsLoadingLot] = useState<boolean>(true);
+
+  useEffect(() => {
+    const fetchInstrumentDetails = async () => {
+      setIsLoadingLot(true);
+      try {
+        const res = await fetch(`/api/instrument/details?symbol=${encodeURIComponent(symbol)}`);
+        if (res.ok) {
+           const data = await res.json();
+           if (data.lotSize) {
+              setLotSize(data.lotSize);
+              setQuantity(data.lotSize);
+           }
+        }
+      } catch (e) {
+        // Fallback for extreme cases
+        setLotSize(1);
+        setQuantity(1);
+      } finally {
+        setIsLoadingLot(false);
+      }
+    };
+    fetchInstrumentDetails();
+  }, [symbol]);
   const [price, setPrice] = useState<number>(defaultPrice || 100);
   const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
   const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
@@ -47,7 +72,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
 
   if (!isOpen) return null;
 
-  const lotStep = symbol.includes('BANK') ? 15 : symbol.includes('NIFTY') ? 25 : 1;
+  const lotStep = lotSize;
   const estimatedMargin = Number(((price || defaultPrice) * quantity * (productType === 'INTRADAY' ? 0.2 : 1)).toFixed(2));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -161,10 +186,10 @@ export const OrderModal: React.FC<OrderModalProps> = ({
               <div className="flex items-center gap-1">
                 <input
                   type="number"
-                  min="1"
-                  step={lotStep}
+                  min={lotStep || 1}
+                  step={lotStep || 1}
                   value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+                  onChange={(e) => setQuantity(Number(e.target.value))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-white font-mono font-bold focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -275,7 +300,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
               }`}
             >
               <Zap className="w-4 h-4" />
-              <span>{transactionType === 'BUY' ? t.quickBuy : t.quickSell}</span>
+              <span>{isLoadingLot ? 'Fetching Lot Size...' : transactionType === 'BUY' ? t.quickBuy : t.quickSell}</span>
             </button>
           </div>
 

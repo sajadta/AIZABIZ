@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Cpu, 
   Play, 
@@ -43,7 +43,31 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   language,
   onExecuteSignal,
 }) => {
-  const t = translations[language];
+    const t = translations[language];
+  const [scanMessageIndex, setScanMessageIndex] = useState(0);
+  
+  useEffect(() => {
+    if (!botConfig.enabled) return;
+    const interval = setInterval(() => {
+       setScanMessageIndex(prev => (prev + 1) % 4);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [botConfig.enabled]);
+  
+  const scanMessagesEn = [
+    'Scanning live market for signals...',
+    'Analyzing RSI & MACD momentum...',
+    'Evaluating Option Greeks & Volume...',
+    'Checking Institutional Support levels...'
+  ];
+  
+  const scanMessagesMl = [
+    'സിഗ്നലുകൾക്കായി ലൈവ് മാർക്കറ്റ് സ്കാൻ ചെയ്യുന്നു...',
+    'RSI, MACD എന്നിവ പരിശോധിക്കുന്നു...',
+    'ഓപ്ഷൻ ഗ്രീക്സ് അനാലിസിസ് ചെയ്യുന്നു...',
+    'സപ്പോർട്ട്/റെസിസ്റ്റൻസ് ലെവലുകൾ നോക്കുന്നു...'
+  ];
+
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'SETTINGS' | 'TELEGRAM' | 'LOGS'>('SIGNALS');
   const [testAlertSending, setTestAlertSending] = useState(false);
   const [testAlertResult, setTestAlertResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -230,11 +254,20 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
         {/* TAB 1: LIVE SIGNALS */}
         {activeTab === 'SIGNALS' && (
           <div className="space-y-3">
-            {signals.length === 0 ? (
-              <div className="p-8 text-center text-slate-400">
-                <Activity className="w-8 h-8 mx-auto mb-2 text-slate-600 animate-spin" />
+            {botConfig.enabled && (
+               <div className="p-4 mb-4 text-center text-slate-300 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center gap-3">
+                 <Activity className="w-5 h-5 text-emerald-500 animate-pulse" />
+                 <p className="text-xs font-semibold animate-pulse">
+                   {language === 'ml' ? scanMessagesMl[scanMessageIndex] : scanMessagesEn[scanMessageIndex]}
+                 </p>
+               </div>
+            )}
+            
+            {signals.length === 0 && !botConfig.enabled ? (
+              <div className="p-8 text-center text-slate-500">
+                <ShieldAlert className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-xs font-semibold">
-                  {language === 'ml' ? 'സിഗ്നലുകൾക്കായി ലൈവ് മാർക്കറ്റ് സ്കാൻ ചെയ്യുന്നു...' : 'Scanning live market for high-probability setups...'}
+                  {language === 'ml' ? 'ബോട്ട് ഓഫാണ്' : 'Bot is offline'}
                 </p>
               </div>
             ) : (
@@ -828,10 +861,10 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   <span className="text-slate-500 shrink-0">[{log.timestamp}]</span>
                   <span className={`font-bold shrink-0 ${
                     log.type === 'SIGNAL' ? 'text-cyan-400' :
-                    log.type === 'EXECUTION' ? 'text-emerald-400' :
-                    log.type === 'SL_TRIGGER' ? 'text-rose-400' :
-                    log.type === 'TP_TRIGGER' ? 'text-amber-400' :
-                    log.type === 'ERROR' ? 'text-red-400 font-black' : 'text-slate-400'
+                    (log.type === 'EXECUTION' || log.type === 'TRADE') ? 'text-blue-400' :
+                    (log.type === 'SL_TRIGGER' || log.type === 'ERROR') ? 'text-rose-400' :
+                    (log.type === 'TP_TRIGGER' || log.type === 'SUCCESS') ? 'text-emerald-400 font-bold' :
+                    'text-slate-400'
                   }`}>
                     [{log.type}]
                   </span>

@@ -154,6 +154,10 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                   Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L
                 </span>
                 <div className="flex items-center gap-1.5">
+                  {q.segment === 'INDEX' ? (
+                   <span className="text-[10px] text-slate-500 italic mr-2">{language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ഉപയോഗിക്കുക' : 'Trade via Options'}</span>
+                  ) : (
+                  <>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -172,6 +176,8 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                   >
                     {t.quickSell}
                   </button>
+                  </>
+                  )}
                 </div>
               </div>
             </div>

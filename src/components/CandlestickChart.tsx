@@ -123,6 +123,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     });
     seriesRef.current.candlestick = candlestickSeries;
     seriesRef.current.candlestickMarkers = createSeriesMarkers(candlestickSeries, []);
+    
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
@@ -284,20 +285,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             </button>
           </div>
 
+          {!symbol.includes('NIFTY') && !symbol.includes('SENSEX') && quote?.segment !== 'INDEX' && (
           <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
             <button 
               onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
               className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-emerald-900/20"
             >
-              BUY
+              {language === 'ml' ? 'വാങ്ങുക (BUY)' : 'BUY'}
             </button>
             <button 
               onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
               className="bg-rose-600 hover:bg-rose-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-rose-900/20"
             >
-              SELL
+              {language === 'ml' ? 'വിൽക്കുക (SELL)' : 'SELL'}
             </button>
           </div>
+          )}
         </div>
       </div>
 

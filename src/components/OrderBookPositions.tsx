@@ -157,8 +157,8 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                       {/* PnL Display */}
                       <div className="text-right font-mono">
                         <div className="text-[10px] text-slate-400 font-semibold mb-0.5">NET P&L</div>
-                        <div className={`text-sm font-extrabold ${pos.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {pos.netPnl >= 0 ? `+₹${pos.netPnl?.toFixed(2)}` : `-₹${Math.abs(pos.netPnl || 0).toFixed(2)}`}
+                        <div className={`text-sm font-extrabold ${pos.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pos.pnl >= 0 ? `+₹${pos.pnl?.toFixed(2)}` : `-₹${Math.abs(pos.pnl || 0).toFixed(2)}`}
                         </div>
                       </div>
 
