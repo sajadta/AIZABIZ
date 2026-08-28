@@ -98,7 +98,11 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       if (data.success || data.text) {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
       } else {
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error in diagnostics: ' + JSON.stringify(data) }]);
+        let errText = 'ഡയഗ്നോസ്റ്റിക്സിൽ പിഴവ് സംഭവിച്ചു (API Error).';
+        if (JSON.stringify(data).includes('503') || JSON.stringify(data).includes('high demand')) {
+            errText = 'ക്ഷമിക്കണം, AI സെർവറുകളിൽ ഇപ്പോൾ വലിയ തിരക്കാണ് (High Demand). ദയവായി അല്പസമയം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.';
+        }
+        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: errText }]);
       }
     } catch(e) {
       setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);

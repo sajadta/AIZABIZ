@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Layers, Activity, TrendingUp, TrendingDown, RefreshCw, LineChart } from 'lucide-react';
-import { OptionChainData, Language } from '../types';
+import { OptionChainData, Language, StockQuote } from '../types';
 import { translations } from '../translations';
 
 interface OptionChainViewProps {
+  quotes?: StockQuote[];
   data: OptionChainData | null;
   loading: boolean;
   onRefresh: () => void;
@@ -19,9 +20,21 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   language,
   onSelectOptionTrade,
   onViewChart,
+  quotes = [],
 }) => {
   const t = translations[language];
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
+  
+  const getLtp = (instrumentKey, defaultLtp) => {
+      if (!instrumentKey) return defaultLtp;
+      const q = quotes.find(q => q.instrumentKey === instrumentKey);
+      return q ? q.ltp : defaultLtp;
+  };
+  const getChange = (instrumentKey, defaultChange) => {
+      if (!instrumentKey) return defaultChange;
+      const q = quotes.find(q => q.instrumentKey === instrumentKey);
+      return q ? q.changePercent : defaultChange;
+  };
 
   if (!data || (data as any).error) {
     return (

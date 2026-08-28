@@ -9,6 +9,8 @@ interface OrderModalProps {
   symbol: string;
   defaultPrice: number;
   initialType: OrderTransactionType;
+  defaultStopLoss?: number;
+  defaultTarget?: number;
   mode: ExecutionMode;
   onPlaceOrder: (orderData: {
     symbol: string;
@@ -30,6 +32,8 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   symbol,
   defaultPrice,
   initialType,
+  defaultStopLoss,
+  defaultTarget,
   mode,
   onPlaceOrder,
   language,
@@ -69,6 +73,19 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
   const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
   const [target, setTarget] = useState<number>(Number(((defaultPrice || 0) * 1.025).toFixed(2)));
+
+  useEffect(() => {
+     setPrice(defaultPrice || 100);
+     setTriggerPrice(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
+     
+     // More sensible default for options vs index
+     const slRatio = defaultPrice < 1000 ? 0.8 : 0.985;
+     const tgtRatio = defaultPrice < 1000 ? 1.5 : 1.025;
+     
+     setStopLoss(defaultStopLoss !== undefined ? defaultStopLoss : Number(((defaultPrice || 0) * slRatio).toFixed(2)));
+     setTarget(defaultTarget !== undefined ? defaultTarget : Number(((defaultPrice || 0) * tgtRatio).toFixed(2)));
+     setTransactionType(initialType || 'BUY');
+  }, [defaultPrice, initialType, defaultStopLoss, defaultTarget]);
 
   if (!isOpen) return null;
 

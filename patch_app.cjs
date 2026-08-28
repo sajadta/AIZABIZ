@@ -1,49 +1,45 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-// Add selectedInstrumentKey state
-code = code.replace(
-  "const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');",
-  "const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');\n  const [selectedInstrumentKey, setSelectedInstrumentKey] = useState<string>('NSE_INDEX|Nifty 50');"
-);
+const targetStr = `  // Open Order Modal Helper
+  const openOrderModal = (type: OrderTransactionType, sym: string, prc: number) => {
+    setOrderModalData({
+      symbol: sym,
+      price: prc,
+      initialType: type,
+    });
+    setOrderModalOpen(true);
+  };`;
 
-// Update fetchCandles
-code = code.replace(
-  "const fetchCandles = useCallback(async (symbol: string, tf: string) => {",
-  "const fetchCandles = useCallback(async (symbol: string, instKey: string, tf: string) => {"
-);
-code = code.replace(
-  "fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&interval=${tf}`);",
-  "fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&instrumentKey=${encodeURIComponent(instKey)}&interval=${tf}`);"
-);
+const replaceStr = `  // Open Order Modal Helper
+  const openOrderModal = (type: OrderTransactionType, sym: string, prc: number, sl?: number, tgt?: number) => {
+    setOrderModalData({
+      symbol: sym,
+      price: prc,
+      initialType: type,
+      stopLoss: sl,
+      target: tgt
+    } as any);
+    setOrderModalOpen(true);
+  };`;
 
-// Update calls to fetchCandles
-code = code.replace(
-  "fetchCandles(selectedSymbol, interval);",
-  "fetchCandles(selectedSymbol, selectedInstrumentKey, interval);"
-);
-code = code.replace(
-  "fetchCandles(selectedSymbol, interval); ",
-  "fetchCandles(selectedSymbol, selectedInstrumentKey, interval); "
-);
+code = code.replace(targetStr, replaceStr);
 
-// Make sure it depends on selectedInstrumentKey
-code = code.replace(
-  "[selectedSymbol, interval, fetchCandles, fetchOptionChain]);",
-  "[selectedSymbol, selectedInstrumentKey, interval, fetchCandles, fetchOptionChain]);"
-);
+const targetStr2 = `              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price)}`;
+const replaceStr2 = `              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price, sig.stopLoss, sig.target1)}`;
 
-// In Watchlist prop
-code = code.replace(
-  "onSelectSymbol={setSelectedSymbol}",
-  "onSelectSymbol={(sym, key) => {\n                   setSelectedSymbol(sym);\n                   if(key) setSelectedInstrumentKey(key);\n                 }}"
-);
+code = code.replace(targetStr2, replaceStr2);
 
-// Add onViewChart to OptionChainView
-code = code.replace(
-  "onSelectOptionTrade={openOrderModal}",
-  "onSelectOptionTrade={openOrderModal}\n              onViewChart={(sym, key) => {\n                setSelectedSymbol(sym);\n                setSelectedInstrumentKey(key);\n                setAppTab('MARKETS');\n              }}"
-);
+const targetStr3 = `              symbol={orderModalData.symbol}
+              defaultPrice={orderModalData.price}
+              initialType={orderModalData.initialType}`;
+const replaceStr3 = `              symbol={orderModalData.symbol}
+              defaultPrice={orderModalData.price}
+              initialType={orderModalData.initialType}
+              defaultStopLoss={(orderModalData as any).stopLoss}
+              defaultTarget={(orderModalData as any).target}`;
+
+code = code.replace(targetStr3, replaceStr3);
 
 fs.writeFileSync('src/App.tsx', code);
-console.log('Patched App.tsx');
+console.log("Patched App.tsx with default stopLoss and target");

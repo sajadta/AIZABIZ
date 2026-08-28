@@ -292,7 +292,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             ? 'bg-rose-500 text-white'
                             : 'bg-slate-700 text-slate-300'
                         }`}>
-                          {sig.signalType}
+                          {sig.symbol.includes('CE') || sig.symbol.includes('PE') ? 'BUY' : sig.signalType}
                         </span>
                         <span className="text-sm font-extrabold text-white tracking-tight">
                           {sig.symbol}
@@ -359,19 +359,19 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
                     <div className="bg-slate-900/90 p-2 rounded-lg border border-slate-800">
                       <span className="text-[10px] text-slate-400 block">{t.entryPrice}</span>
-                      <span className="font-bold text-white">₹{sig.price}</span>
+                      <span className="font-bold text-white">{sig.price < 5000 ? `₹${sig.price}` : 'Market Price'}</span>
                     </div>
                     <div className="bg-rose-950/30 p-2 rounded-lg border border-rose-800/40">
                       <span className="text-[10px] text-rose-400 block">{t.stopLoss}</span>
-                      <span className="font-bold text-rose-300">₹{sig.stopLoss}</span>
+                      <span className="font-bold text-rose-300">{sig.stopLoss < 5000 ? `₹${sig.stopLoss}` : `${sig.stopLoss > 10000 ? '-' : ''}₹${Math.abs(sig.stopLoss)}`}</span>
                     </div>
                     <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
                       <span className="text-[10px] text-emerald-400 block">{t.target1} (T1)</span>
-                      <span className="font-bold text-emerald-300">₹{sig.target1}</span>
+                      <span className="font-bold text-emerald-300">{sig.target1 < 5000 ? `₹${sig.target1}` : `${sig.target1 > 10000 ? '+' : ''}₹${Math.abs(sig.target1)}`}</span>
                     </div>
                     <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
                       <span className="text-[10px] text-emerald-400 block">{t.target2} (T2)</span>
-                      <span className="font-bold text-emerald-300">₹{sig.target2}</span>
+                      <span className="font-bold text-emerald-300">{sig.target2 < 5000 ? `₹${sig.target2}` : `${sig.target2 > 10000 ? '+' : ''}₹${Math.abs(sig.target2)}`}</span>
                     </div>
                   </div>
 

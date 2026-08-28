@@ -70,11 +70,13 @@ export default function App() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [holdings, setHoldings] = useState<any[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [tradeHistory, setTradeHistory] = useState<Position[]>([]);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
   const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiMarketAnalysis | null>(null);
   const [isWsConnected, setIsWsConnected] = useState<boolean>(true);
+  const wsRef = useRef<WebSocket | null>(null);
   const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
     geminiApiKey: '',
     apiKey: '',
@@ -105,7 +107,7 @@ export default function App() {
      } else {
         setShowSetupModal(true);
      }
-  }, []);
+  }, [selectedInstrumentKey]);
   
   const handleSaveSetup = async () => {
      try {
@@ -167,9 +169,10 @@ export default function App() {
 
   // 1. Fetch Market Quotes
   
+  // fetchQuotes depends on selectedInstrumentKey
   const fetchQuotes = useCallback(async () => {
     try {
-      const res = await fetch('/api/upstox/quotes');
+      const res = await fetch(`/api/upstox/quotes`);
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.quotes || []);
@@ -207,9 +210,10 @@ export default function App() {
   // 3. Fetch Positions & Orders
   const fetchPositionsAndOrders = useCallback(async () => {
     try {
-      const [posRes, ordRes] = await Promise.all([
+      const [posRes, ordRes, histRes] = await Promise.all([
         fetch(`/api/trading/positions?mode=${mode}`),
         fetch(`/api/trading/orders?mode=${mode}`),
+        fetch(`/api/trading/history?mode=${mode}`)
       ]);
       if (posRes.ok) {
         const posData = await posRes.json();
@@ -218,6 +222,10 @@ export default function App() {
       if (ordRes.ok) {
         const ordData = await ordRes.json();
         setOrders(Array.isArray(ordData) ? ordData : (ordData.orders || []));
+      }
+      if (histRes.ok) {
+        const histData = await histRes.json();
+        setTradeHistory(Array.isArray(histData) ? histData : []);
       }
       
       const holdRes = await fetch('/api/upstox/holdings');
@@ -267,6 +275,18 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setOptionChainData(data);
+        
+        // Subscribe to live option quotes if WS is connected
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && data?.options) {
+            const keysToSubscribe = [];
+            data.options.forEach(opt => {
+                if (opt.ce?.instrument_key) keysToSubscribe.push(opt.ce.instrument_key);
+                if (opt.pe?.instrument_key) keysToSubscribe.push(opt.pe.instrument_key);
+            });
+            if (keysToSubscribe.length > 0) {
+                if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify({ type: 'SUBSCRIBE', keys: keysToSubscribe }));
+            }
+        }
       }
     } catch {
       // Soft handling
@@ -374,28 +394,52 @@ export default function App() {
 
     
 
-    let eventSource: EventSource | null = null;
+    
     let reconnectTimeout: number | null = null;
+    let heartbeatInterval: number | null = null;
     let reconnectAttempts = 0;
     
-    const connectEventSource = () => {
-        eventSource = new EventSource('/api/stream/quotes');
+    const connectWebSocket = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`);
+        wsRef.current = ws;
         
-        eventSource.onopen = () => {
-            console.log('Connected to Live Quotes SSE');
+        ws.onopen = () => {
+            console.log('Connected to Live Quotes WS');
             setIsWsConnected(true);
             reconnectAttempts = 0;
+            
+            // Subscribe to important keys
+            if(ws.readyState===1)ws.send(JSON.stringify({
+                type: 'SUBSCRIBE',
+                keys: ['NSE_INDEX|Nifty 50', 'NSE_INDEX|Nifty Bank', 'BSE_INDEX|SENSEX', 'BSE_INDEX|BANKEX', 'NSE_INDEX|Nifty Fin Service']
+            }));
+            
+            // Start Heartbeat
+            heartbeatInterval = window.setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'PING' }));
+                }
+            }, 3000);
         };
         
-        eventSource.onmessage = (event) => {
+        ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
-                if (msg.type === 'CONNECTED') {
-                    console.log('SSE Stream fully established.');
+                if (msg.type === 'PONG') {
+                    // Heartbeat acknowledged
+                    setIsWsConnected(true);
                 }
                 if (msg.type === 'QUOTES') {
+                    setIsWsConnected(true);
                     const list = msg.data || [];
-                    setQuotes(list);
+                    
+                    setQuotes(prev => {
+                       const map = new Map(prev.map(q => [q.instrumentKey, q]));
+                       list.forEach((q: any) => map.set(q.instrumentKey, q));
+                       return Array.from(map.values());
+                    });
+                    
                     if (list.length > 0) {
                         fetch('/api/trading/paper-sync', {
                             method: 'POST',
@@ -404,23 +448,24 @@ export default function App() {
                         }).catch(() => {});
                     }
                 }
-            } catch(e) {}
+            } catch (err) {}
         };
         
-        eventSource.onerror = (err) => {
-           console.log('SSE connection interrupted, attempting to reconnect...');
+        ws.onclose = () => {
+           if (wsRef.current !== ws) return;
            setIsWsConnected(false);
-           eventSource?.close();
+           if (heartbeatInterval) window.clearInterval(heartbeatInterval);
+           
            const timeoutMs = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
-           console.log(`SSE closed. Reconnecting in ${Math.round(timeoutMs/1000)}s...`);
+           console.log(`WS closed. Reconnecting in ${Math.round(timeoutMs/1000)}s...`);
            reconnectTimeout = window.setTimeout(() => {
                reconnectAttempts++;
-               connectEventSource();
+               connectWebSocket();
            }, timeoutMs);
         };
     };
 
-    connectEventSource();
+    connectWebSocket();
 
     const quoteInterval = window.setInterval(fetchQuotes, 10000); // fallback polling if WS dies, or just as a keepalive
 
@@ -430,7 +475,7 @@ export default function App() {
     return () => {
       window.clearInterval(quoteInterval);
       if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
-      if (eventSource) { eventSource.close(); }
+      if (wsRef.current) { wsRef.current.close(); }
       window.clearInterval(tradingInterval);
       window.clearInterval(botInterval);
     };
@@ -439,6 +484,9 @@ export default function App() {
 
 // When selected symbol or timeframe changes, refresh chart & option chain
   useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && selectedInstrumentKey) {
+        if(wsRef.current?.readyState===1)wsRef.current.send(JSON.stringify({ type: 'SUBSCRIBE', keys: [selectedInstrumentKey] }));
+    }
     fetchCandles(selectedSymbol, selectedInstrumentKey, interval);
     if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
       fetchOptionChain(selectedSymbol);
@@ -457,10 +505,17 @@ export default function App() {
   // Update Bot Config Handler
   const handleUpdateBotConfig = async (newConfig: Partial<BotConfig>) => {
     try {
+      // Always sync the currently selected symbol to the backend bot when updating config
+      const payload = { ...newConfig };
+      if (newConfig.enabled === true) {
+         (payload as any).selectedSymbol = selectedSymbol;
+         (payload as any).selectedInstrumentKey = selectedInstrumentKey;
+      }
+      
       const res = await fetch('/api/bot/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newConfig),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -677,7 +732,7 @@ export default function App() {
               botLogs={botLogs}
               signals={signals}
               language={language}
-              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price)}
+              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price, sig.stopLoss, sig.target1)}
             />
           </div>
         )}
@@ -686,6 +741,7 @@ export default function App() {
           <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
             <OptionChainView
               data={optionChainData}
+              quotes={quotes}
               loading={optionLoading}
               onRefresh={() => fetchOptionChain(selectedSymbol)}
               language={language}
@@ -855,6 +911,8 @@ export default function App() {
         symbol={orderModalData.symbol}
         defaultPrice={orderModalData.price}
         initialType={orderModalData.initialType}
+        defaultStopLoss={(orderModalData as any).stopLoss}
+        defaultTarget={(orderModalData as any).target}
         mode={mode}
         onPlaceOrder={handlePlaceOrder}
         language={language}

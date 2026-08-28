@@ -2,6 +2,7 @@ export type Exchange = 'NSE' | 'BSE' | 'NFO' | 'MCX';
 
 export interface StockQuote {
   symbol: string;
+  indexSymbol?: string;
   name: string;
   instrumentKey: string;
   exchange: Exchange;
@@ -147,6 +148,9 @@ export interface Order {
 
 export interface Position {
   id: string;
+  realizedPnL?: number;
+  sellPrice?: number;
+  closeTime?: string;
   symbol: string;
   instrumentKey: string;
   productType: ProductType;

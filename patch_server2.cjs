@@ -1,11 +1,18 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-// Fix 1: short-ter -positions -> short-term-positions
-code = code.replace(/short-ter -positions/g, 'short-term-positions');
+const targetStr = `                 botSignals.unshift(signal);
+                 botSignals.unshift(signal);
+                 if (botSignals.length > 50) botSignals.pop();`;
 
-// Fix 2: long-ter -holdings -> long-term-holdings
-code = code.replace(/long-ter -holdings/g, 'long-term-holdings');
+const replaceStr = `                 // Prevent spamming the same signal
+                 const lastSignal = botSignals[0];
+                 if (!lastSignal || lastSignal.symbol !== signal.symbol || lastSignal.signalType !== signal.signalType) {
+                     botSignals.unshift(signal);
+                     if (botSignals.length > 50) botSignals.length = 50;
+                 }`;
+
+code = code.replace(targetStr, replaceStr);
 
 fs.writeFileSync('server.ts', code);
-console.log('Fixed upstox endpoint typos in server.ts');
+console.log("Patched server.ts 2");

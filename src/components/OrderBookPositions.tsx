@@ -17,22 +17,195 @@ import { translations } from '../translations';
 interface OrderBookPositionsProps {
   positions: Position[];
   orders: Order[];
+  tradeHistory?: Position[];
   language: Language;
   onSquareOffPosition: (positionId: string) => void;
   onSquareOffAll: () => void;
   totalPnL: number;
 }
 
+
+
+const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void }> = ({ pos, onSquareOff }) => {
+  const [estCharges, setEstCharges] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const fetchCharges = async () => {
+      try {
+         // Buy charges
+         let buyCharges = 0;
+         if (pos.buyPrice && pos.quantity) {
+             const r1 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
+             if (r1.ok) {
+                 const d1 = await r1.json();
+                 buyCharges += d1?.data?.charges?.total || 0;
+             }
+         }
+         
+         // Estimated Sell charges
+         let sellCharges = 0;
+         if (pos.currentLTP && pos.quantity) {
+             const r2 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${pos.currentLTP}`);
+             if (r2.ok) {
+                 const d2 = await r2.json();
+                 sellCharges += d2?.data?.charges?.total || 0;
+             }
+         }
+         
+         if (isMounted) setEstCharges(buyCharges + sellCharges);
+      } catch (e) {
+         console.error('Failed to fetch position charges', e);
+      }
+    };
+    fetchCharges();
+    return () => { isMounted = false; };
+  }, [pos.symbol, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
+
+  const gross = pos.pnl || 0;
+  const net = estCharges !== null ? gross - estCharges : gross;
+
+  return (
+      <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-extrabold text-white">
+              {pos.symbol}
+            </span>
+            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+              pos.isOption ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+            }`}>
+              {pos.isOption ? 'OPTION' : 'EQUITY'}
+            </span>
+            <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
+              Qty: <strong className="text-white">{pos.quantity}</strong>
+            </span>
+          </div>
+          <button
+            onClick={() => onSquareOff(pos.id)}
+            className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/30 transition shadow-sm"
+          >
+            Exit
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50">
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Buy Price</span>
+                <span className="text-slate-200 font-semibold">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Current (LTP)</span>
+                <span className="text-slate-200 font-semibold">₹{pos.currentLTP?.toFixed(2) || '0.00'}</span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Gross P&L</span>
+                <span className={`font-semibold ${gross >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+                </span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Net P&L {estCharges !== null ? `(-₹${estCharges.toFixed(2)} Tax)` : '(Calc...)'}</span>
+                <span className={`font-extrabold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+                </span>
+            </div>
+        </div>
+      </div>
+  );
+};
+
+const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, index }) => {
+  const [estCharges, setEstCharges] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    const fetchCharges = async () => {
+      try {
+         // Buy charges
+         let buyCharges = 0;
+         if (pos.buyPrice && pos.quantity) {
+             const r1 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
+             if (r1.ok) {
+                 const d1 = await r1.json();
+                 buyCharges += d1?.data?.charges?.total || 0;
+             }
+         }
+         
+         // Sell charges
+         let sellCharges = 0;
+         const finalSellPrice = pos.sellPrice || pos.currentLTP;
+         if (finalSellPrice && pos.quantity) {
+             const r2 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${finalSellPrice}`);
+             if (r2.ok) {
+                 const d2 = await r2.json();
+                 sellCharges += d2?.data?.charges?.total || 0;
+             }
+         }
+         
+         if (isMounted) setEstCharges(buyCharges + sellCharges);
+      } catch (e) {
+         console.error('Failed to fetch history charges', e);
+      }
+    };
+    fetchCharges();
+    return () => { isMounted = false; };
+  }, [pos.symbol, pos.buyPrice, pos.sellPrice, pos.currentLTP, pos.quantity, pos.productType]);
+
+  const gross = pos.realizedPnL || 0;
+  const net = estCharges !== null ? gross - estCharges : gross;
+
+  return (
+      <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/80 flex flex-col gap-3 opacity-90 hover:opacity-100 transition">
+        <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-extrabold text-white">
+              {pos.symbol}
+            </span>
+            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-slate-800 text-slate-300 border-slate-700">
+              CLOSED
+            </span>
+            <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
+              Qty: <strong className="text-slate-300">{pos.quantity}</strong>
+            </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/30">
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Buy Price</span>
+                <span className="text-slate-400">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Sell Price</span>
+                <span className="text-slate-400">₹{pos.sellPrice?.toFixed(2) || pos.currentLTP?.toFixed(2) || '0.00'}</span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Gross P&L</span>
+                <span className={`font-semibold ${gross >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                    {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+                </span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500">Net P&L {estCharges !== null ? `(-₹${estCharges.toFixed(2)} Tax)` : '(Calc...)'}</span>
+                <span className={`font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+                </span>
+            </div>
+        </div>
+      </div>
+  );
+};
+
 export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   positions,
   orders,
+  tradeHistory = [],
   language,
   onSquareOffPosition,
   onSquareOffAll,
   totalPnL,
 }) => {
   const t = translations[language];
-  const [activeTab, setActiveTab] = useState<'POSITIONS' | 'ORDERS'>('POSITIONS');
+  const [activeTab, setActiveTab] = useState<'POSITIONS' | 'ORDERS' | 'TRADE_HISTORY'>('POSITIONS');
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -68,6 +241,16 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
               }`}
             >
               {t.executedOrders} ({orders.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('TRADE_HISTORY')}
+              className={`px-3 py-1 rounded-lg transition ${
+                activeTab === 'TRADE_HISTORY'
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {language === 'ml' ? 'ട്രേഡ് ഹിസ്റ്ററി' : 'Trade History'} ({tradeHistory.length})
             </button>
           </div>
         </div>
@@ -112,67 +295,9 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                 </p>
               </div>
             ) : (
-              positions.map((pos) => {
-                const isProfit = pos.pnl >= 0;
-                return (
-                  <div
-                    key={pos.id + "-" + pos.productType}
-                    className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-3 flex-wrap"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-extrabold text-white">
-                          {pos.symbol}
-                        </span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
-                          pos.isOption ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20' : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
-                        }`}>
-                          {pos.isOption ? 'OPTION' : 'EQUITY'}
-                        </span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-                          {pos.productType}
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-400">
-                          Qty: <strong className="text-white">{pos.quantity}</strong>
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-3 text-xs font-mono text-slate-400 mt-1">
-                        <span>Avg: ₹{pos.buyPrice}</span>
-                        <span>LTP: <strong className="text-slate-200">₹{pos.currentLTP}</strong></span>
-                        {pos.stopLoss && <span>SL: ₹{pos.stopLoss}</span>}
-                      </div>
-                      
-                      {pos.taxes && (
-                        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500 mt-1.5">
-                          <span>Brokerage/Tax: ₹{pos.taxes.totalCharges}</span>
-                          <span className={pos.pnl >= 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}>
-                            Gross P&L: ₹{pos.pnl}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      {/* PnL Display */}
-                      <div className="text-right font-mono">
-                        <div className="text-[10px] text-slate-400 font-semibold mb-0.5">NET P&L</div>
-                        <div className={`text-sm font-extrabold ${pos.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {pos.pnl >= 0 ? `+₹${pos.pnl?.toFixed(2)}` : `-₹${Math.abs(pos.pnl || 0).toFixed(2)}`}
-                        </div>
-                      </div>
-
-                      {/* Exit Button */}
-                      <button
-                        onClick={() => onSquareOffPosition(pos.id)}
-                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-600 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 transition"
-                      >
-                        Exit
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
+              positions.map((pos) => (
+                <PositionItem key={pos.id + "-" + pos.productType} pos={pos} onSquareOff={onSquareOffPosition} />
+              ))
             )}
           </div>
         )}

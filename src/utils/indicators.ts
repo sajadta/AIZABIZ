@@ -215,7 +215,8 @@ export function analyzeTradingSignals(
   instrumentKey: string,
   candles: CandleData[],
   currentLtp: number,
-  strategy: StrategyKey = 'PROFIT_MAX_100_PERCENT_MATRIX'
+  strategy: StrategyKey = 'PROFIT_MAX_100_PERCENT_MATRIX',
+  realOptionPrice?: number
 ): TradingSignal | null {
   if (!candles || candles.length < 20) return null;
 
@@ -321,9 +322,52 @@ export function analyzeTradingSignals(
   const rewardDiff = Math.abs(target1 - currentLtp);
   const rrRatio = `1:${(rewardDiff / (riskDiff || 1)).toFixed(1)}`;
 
+  
+  const isBullish = signalType === 'BUY';
+  let optSymbol = '';
+  if (symbol.includes('NIFTY') && !symbol.includes('BANK') && !symbol.includes('FIN')) {
+     const strike = Math.round(currentLtp / 50) * 50;
+     optSymbol = `NIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
+  } else if (symbol.includes('BANK')) {
+     const strike = Math.round(currentLtp / 100) * 100;
+     optSymbol = `BANKNIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
+  } else if (symbol.includes('FIN')) {
+     const strike = Math.round(currentLtp / 50) * 50;
+     optSymbol = `FINNIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
+  } else if (symbol.includes('SENSEX')) {
+     const strike = Math.round(currentLtp / 100) * 100;
+     optSymbol = `SENSEX ${strike} ${isBullish ? 'CE' : 'PE'}`;
+  }
+
+  
+  let optEntry = currentLtp;
+  let optSL = stopLoss;
+  let optT1 = target1;
+  let optT2 = target2;
+  let optT3 = target3;
+
+  if (optSymbol) {
+     let basePremium = 100;
+     if (symbol.includes('BANK')) basePremium = 300;
+     else if (symbol.includes('SENSEX')) basePremium = 350;
+     
+     // USE REAL OPTION PRICE IF AVAILABLE, OTHERWISE USE BASE
+     optEntry = realOptionPrice ? realOptionPrice : basePremium;
+     
+     // Option Stop Loss: typically 20% of premium
+     optSL = Number((optEntry * 0.8).toFixed(2));
+     const risk = optEntry - optSL;
+     
+     // Targets based on Risk/Reward multipliers on the premium itself
+     optT1 = Number((optEntry + risk * 1.5).toFixed(2));
+     optT2 = Number((optEntry + risk * 2.5).toFixed(2));
+     optT3 = Number((optEntry + risk * 4.0).toFixed(2));
+  }
+
   return {
     id: `sig_${symbol}_${Date.now()}`,
-    symbol,
+    symbol: optSymbol || symbol,
+    
     name,
     instrumentKey,
     signalType,
@@ -331,11 +375,11 @@ export function analyzeTradingSignals(
       strategy === 'RSI_MOMENTUM_BREAKOUT' ? 'RSI Momentum Breakout' :
       strategy === 'VWAP_INSTITUTIONAL_REVERSION' ? 'VWAP Institutional Bounce' : '100% High-Accuracy Profit Matrix',
     confidenceScore: confidence,
-    price: currentLtp,
-    stopLoss,
-    target1,
-    target2,
-    target3,
+    price: optEntry,
+    stopLoss: optSL,
+    target1: optT1,
+    target2: optT2,
+    target3: optT3,
     riskRewardRatio: rrRatio,
     rationale,
     rationaleMalayalam,

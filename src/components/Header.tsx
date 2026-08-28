@@ -18,6 +18,7 @@ import { ExecutionMode, Language, UpstoxApiConfig } from '../types';
 import { translations } from '../translations';
 
 interface HeaderProps {
+  isWsConnected: boolean;
   mode: ExecutionMode;
   setMode: (mode: ExecutionMode) => void;
   language: Language;
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   activePositionsCount,
   onSquareOffAll,
   totalPnL,
+  isWsConnected,
 }) => {
   const t = translations[language];
 
@@ -80,10 +82,10 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Market Status Pill */}
           <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              {isWsConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${isWsConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
             </span>
-            <span className="text-slate-300 font-mono text-[11px]">NSE: LIVE</span>
+            <span className={`font-mono text-[11px] ${isWsConnected ? 'text-emerald-400' : 'text-rose-400'}`}>{isWsConnected ? 'UPSTOX: LIVE' : 'WS: OFFLINE'}</span>
             <span className="text-slate-600">|</span>
             <span className="text-slate-400 text-[11px] flex items-center gap-1">
               <Activity className="w-3 h-3 text-cyan-400" /> 18ms
@@ -176,15 +178,6 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Android App / APK button */}
-          <button
-            id="btn-android-install"
-            onClick={onOpenAndroidModal}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600/90 to-teal-600/90 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-900/30 transition active:scale-95"
-          >
-            <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
-            <span>{language === 'ml' ? 'ആപ്പ് / APK' : 'Android App'}</span>
-          </button>
 
           {/* Sound Toggle */}
           <button
