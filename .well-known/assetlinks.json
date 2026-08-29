@@ -1,1 +1,8 @@
-
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.onrender.aizabiz.twa",
+        "sha256_cert_fingerprints": ["DA:76:BB:7F:4B:B7:94:EC:6A:6D:1A:06:B6:83:47:B7:2B:CF:0E:0F:3D:95:10:19:C6:F2:5F:CD:9D:1A:6E:08"]
+      }
+    }]
