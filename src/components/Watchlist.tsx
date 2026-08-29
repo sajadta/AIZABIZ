@@ -9,6 +9,9 @@ interface WatchlistProps {
   onSelectSymbol: (symbol: string, instrumentKey?: string) => void;
   language: Language;
   onOpenOrderModal: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
+  priceAlerts?: PriceAlert[];
+  onAddAlert?: (symbol: string, instrumentKey: string, targetPrice: number, condition: 'GREATER_THAN'|'LESS_THAN') => void;
+  onRemoveAlert?: (id: string) => void;
 }
 
 export const Watchlist: React.FC<WatchlistProps> = ({
@@ -17,10 +20,15 @@ export const Watchlist: React.FC<WatchlistProps> = ({
   onSelectSymbol,
   language,
   onOpenOrderModal,
+  priceAlerts = [],
+  onAddAlert,
+  onRemoveAlert
 }) => {
   const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY'>('ALL');
+  const [alertTargetSymbol, setAlertTargetSymbol] = useState<string | null>(null);
+  const [alertPrice, setAlertPrice] = useState<string>('');
 
   const filteredQuotes = quotes.filter((q) => {
     const matchesSearch = q.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -148,12 +156,65 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                 <span>H: ₹{Number(q.high || 0).toFixed(1)}</span>
               </div>
 
+              {/* Active Alerts for this symbol */}
+              {priceAlerts.filter(a => a.symbol === q.symbol && a.isActive).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {priceAlerts.filter(a => a.symbol === q.symbol && a.isActive).map(alert => (
+                    <span key={alert.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[9px] text-blue-300 font-mono-num font-bold">
+                      <BellRing className="w-2.5 h-2.5" />
+                      {alert.condition === 'GREATER_THAN' ? '≥' : '≤'} ₹{alert.targetPrice.toFixed(2)}
+                      <button onClick={(e) => { e.stopPropagation(); onRemoveAlert?.(alert.id); }} className="hover:text-rose-400 ml-0.5">
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              
               {/* Quick Action buttons on hover/select */}
               <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-[#1d2335]/40">
-                <span className="text-[10px] text-slate-400 font-mono-num font-medium">
-                  Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L
-                </span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-col gap-1 w-1/3">
+                  <span className="text-[10px] text-slate-400 font-mono-num font-medium">
+                    Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-1 justify-end">
+                  {alertTargetSymbol === q.symbol ? (
+                     <div className="flex items-center gap-1">
+                        <input 
+                          type="number" 
+                          autoFocus
+                          value={alertPrice}
+                          onChange={(e) => setAlertPrice(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="Target ₹"
+                          className="w-16 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-white"
+                        />
+                        <button 
+                          onClick={(e) => {
+                             e.stopPropagation();
+                             if (onAddAlert && alertPrice) {
+                               onAddAlert(q.symbol, q.instrumentKey, Number(alertPrice), Number(alertPrice) > q.ltp ? 'GREATER_THAN' : 'LESS_THAN');
+                             }
+                             setAlertTargetSymbol(null);
+                          }}
+                          className="px-1.5 py-0.5 rounded bg-blue-500 hover:bg-blue-600 text-white text-[9px] font-bold"
+                        >OK</button>
+                        <button onClick={(e) => { e.stopPropagation(); setAlertTargetSymbol(null); }} className="text-slate-500 hover:text-white"><X className="w-3 h-3"/></button>
+                     </div>
+                  ) : (
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setAlertTargetSymbol(q.symbol); 
+                        setAlertPrice(q.ltp.toFixed(2));
+                      }}
+                      className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition"
+                      title="Set Alert"
+                    >
+                      <Bell className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   {q.segment === 'INDEX' ? (
                    <span className="text-[10px] text-slate-500 italic mr-2">{language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ഉപയോഗിക്കുക' : 'Trade via Options'}</span>
                   ) : (

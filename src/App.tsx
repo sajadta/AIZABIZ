@@ -1,6 +1,6 @@
 import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot } from 'lucide-react';
+import { AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot, BellRing } from 'lucide-react';
 import { 
   Header 
 } from './components/Header';
@@ -54,6 +54,7 @@ import {
 import { translations } from './translations';
 import { analyzeTradingSignals, enrichCandlesWithIndicators } from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
+import { PriceAlert } from './types';
 
 export default function App() {
   // Localization & Mode
@@ -75,8 +76,12 @@ export default function App() {
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
   const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiMarketAnalysis | null>(null);
+  const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>([]);
+  const [activeToast, setActiveToast] = useState<{message: string, type: 'SUCCESS'|'ERROR'|'INFO'|'ALERT'} | null>(null);
   const [isWsConnected, setIsWsConnected] = useState<boolean>(true);
   const wsRef = useRef<WebSocket | null>(null);
+  const priceAlertsRef = useRef<PriceAlert[]>([]);
+  useEffect(() => { priceAlertsRef.current = priceAlerts; }, [priceAlerts]);
   const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
     geminiApiKey: '',
     apiKey: '',
@@ -436,7 +441,28 @@ export default function App() {
                     
                     setQuotes(prev => {
                        const map = new Map(prev.map(q => [q.instrumentKey, q]));
-                       list.forEach((q: any) => map.set(q.instrumentKey, q));
+                       list.forEach((q: any) => {
+                           map.set(q.instrumentKey, q);
+                           
+                           // Check alerts
+                           let alertTriggered = false;
+                           const currentAlerts = [...priceAlertsRef.current];
+                           currentAlerts.forEach(alert => {
+                             if (alert.isActive && (alert.instrumentKey === q.instrumentKey || alert.symbol === q.symbol)) {
+                               if ((alert.condition === 'GREATER_THAN' && q.ltp >= alert.targetPrice) || 
+                                   (alert.condition === 'LESS_THAN' && q.ltp <= alert.targetPrice)) {
+                                 alert.isActive = false;
+                                 alertTriggered = true;
+                                 if (soundEnabled) soundEngine.play('ALERT');
+                                 setActiveToast({ message: `${alert.symbol} alert triggered at ₹${q.ltp}! (Target: ₹${alert.targetPrice})`, type: 'SUCCESS' });
+                                 setTimeout(() => setActiveToast(null), 5000);
+                               }
+                             }
+                           });
+                           if (alertTriggered) {
+                              setPriceAlerts(currentAlerts);
+                           }
+                       });
                        return Array.from(map.values());
                     });
                     
@@ -503,6 +529,15 @@ export default function App() {
   }, [selectedSymbol, selectedInstrumentKey, interval, fetchCandles, fetchOptionChain]);
 
   // Update Bot Config Handler
+  const handleAddAlert = (symbol: string, instrumentKey: string, targetPrice: number, condition: 'GREATER_THAN'|'LESS_THAN') => {
+    setPriceAlerts(prev => [...prev, { id: Date.now().toString(), symbol, instrumentKey, targetPrice, condition, isActive: true }]);
+    setActiveToast({ message: `Alert set for ${symbol} at ₹${targetPrice}`, type: 'INFO' });
+    setTimeout(() => setActiveToast(null), 3000);
+  };
+  const handleRemoveAlert = (id: string) => {
+    setPriceAlerts(prev => prev.filter(a => a.id !== id));
+  };
+
   const handleUpdateBotConfig = async (newConfig: Partial<BotConfig>) => {
     try {
       // Always sync the currently selected symbol to the backend bot when updating config
@@ -626,6 +661,20 @@ export default function App() {
 
   return (
     <div className="h-screen h-[100dvh] w-full relative overflow-x-hidden">
+
+      {/* Toast Notification */}
+      {activeToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className={`px-4 py-2 rounded-full shadow-lg border text-xs font-bold flex items-center gap-2 ${
+            activeToast.type === 'SUCCESS' ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-400' :
+            activeToast.type === 'ERROR' ? 'bg-rose-950/80 border-rose-500/50 text-rose-400' :
+            'bg-blue-950/80 border-blue-500/50 text-blue-400'
+          }`}>
+             {activeToast.type === 'SUCCESS' && <BellRing className="w-4 h-4 animate-pulse" />}
+             {activeToast.message}
+          </div>
+        </div>
+      )}
 
       {showSetupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">

@@ -292,3 +292,12 @@ export interface GeminiMarketAnalysis {
 }
 
 export type Language = 'en' | 'ml';
+
+export interface PriceAlert {
+  id: string;
+  symbol: string;
+  instrumentKey: string;
+  targetPrice: number;
+  condition: 'GREATER_THAN' | 'LESS_THAN';
+  isActive: boolean;
+}
