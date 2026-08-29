@@ -625,7 +625,7 @@ export default function App() {
   const t = translations[language];
 
   return (
-    <div className="h-screen w-full relative overflow-x-hidden">
+    <div className="h-screen h-[100dvh] w-full relative overflow-x-hidden">
 
       {showSetupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
