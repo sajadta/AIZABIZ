@@ -243,7 +243,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-[#0e1422] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-6">
+      <div className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-6">
         
         {/* Header */}
         <div className="p-4 sm:p-5 bg-[#090d16] border-b border-slate-800 flex items-center justify-between">
@@ -275,13 +275,13 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         </div>
 
         {/* Tab Selection */}
-        <div className="grid grid-cols-2 p-2 bg-[#0a0f1b] border-b border-slate-800/80 text-xs font-bold">
+        <div className="grid grid-cols-2 p-2 bg-[#0a0f1b] border-b border-slate-800 text-xs font-bold">
           <button
             onClick={() => setActiveTab('DAILY_TOKEN')}
             className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 ${
               activeTab === 'DAILY_TOKEN'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-950'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
             }`}
           >
             <Zap className="w-4 h-4 text-emerald-300" />
@@ -293,7 +293,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             className={`py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 ${
               activeTab === 'API_KEYS'
                 ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-blue-950'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80'
             }`}
           >
             <Key className="w-4 h-4 text-indigo-300" />
@@ -399,7 +399,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               </div>
 
               {/* Step by step manual generation guide for traders */}
-              <div className="p-3.5 rounded-xl bg-[#080d1a] border border-slate-800 text-[11px] text-slate-300 space-y-2 leading-relaxed">
+              <div className="p-3.5 rounded-xl bg-[#080d1a] border border-slate-800 text-[11px] text-slate-200 space-y-2 leading-relaxed">
                 <div className="flex items-center gap-1.5 font-bold text-emerald-400 text-xs">
                   <Sparkles className="w-4 h-4" />
                   <span>{language === 'ml' ? 'ടോക്കൺ എങ്ങനെ മാനുവൽ ആയി നിർമ്മിക്കാം?' : 'How to generate Daily Token manually?'}</span>
@@ -419,7 +419,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold border border-slate-800 transition"
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-800 transition"
                 >
                   {t.cancel}
                 </button>
@@ -450,7 +450,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               
               {/* Upstox API Key */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-xs font-bold text-slate-200 block mb-1">
                   {t.apiKey} (Client ID)
                 </label>
                 <input
@@ -464,7 +464,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
               {/* Upstox API Secret */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-xs font-bold text-slate-200 block mb-1">
                   {t.apiSecret}
                 </label>
                 <input
@@ -478,7 +478,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
               {/* Redirect URI */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-xs font-bold text-slate-200 block mb-1">
                   {t.redirectUri}
                 </label>
                 <input
@@ -498,7 +498,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
                 {/* Step 1: Open Login Dialog */}
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-slate-300">
+                  <span className="text-xs text-slate-200">
                     {language === 'ml' ? '1. Upstox ലോഗിൻ വിൻഡോ തുറക്കുക:' : '1. Open Login Window:'}
                   </span>
                   <button
@@ -513,7 +513,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
                 {/* Step 2: Paste Code */}
                 <div>
-                  <label className="text-[11px] text-slate-300 block mb-1">
+                  <label className="text-[11px] text-slate-200 block mb-1">
                     {language === 'ml' ? '2. ബ്രൗസർ URL-ൽ നിന്നുള്ള "code=" ഇവിടെ പേസ്റ്റ് ചെയ്യുക:' : '2. Paste auth "code=" parameter from redirected URL:'}
                   </label>
                   <div className="flex items-center gap-2">
@@ -542,7 +542,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold border border-slate-800 transition"
+                  className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-800 transition"
                 >
                   {t.cancel}
                 </button>

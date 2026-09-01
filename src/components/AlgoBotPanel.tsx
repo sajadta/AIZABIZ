@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { BotConfig, BotLog, TradingSignal, StrategyKey, Language } from '../types';
 import { translations } from '../translations';
+import { DiagnosticsModal } from './DiagnosticsModal';
 
 interface AlgoBotPanelProps {
   botConfig: BotConfig;
@@ -45,6 +46,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 }) => {
     const t = translations[language];
   const [scanMessageIndex, setScanMessageIndex] = useState(0);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   
   useEffect(() => {
     if (!botConfig.enabled) return;
@@ -140,7 +142,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Bot Master Header */}
-      <div className="pb-3 border-b border-slate-800/80 flex items-center justify-between gap-3 flex-wrap">
+      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2.5">
           <div className={`p-2 rounded-xl border transition-all ${
             botConfig.enabled
@@ -198,7 +200,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-800/80 bg-[#070a14]/60 px-1 pt-2.5 gap-2 text-xs font-black overflow-x-auto scrollbar-none">
+      <div className="flex border-b border-slate-800 bg-black/20/60 px-1 pt-2.5 gap-2 text-xs font-black overflow-x-auto scrollbar-none">
         <button
           onClick={() => setActiveTab('SIGNALS')}
           className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
@@ -246,6 +248,18 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           <Terminal className="w-3.5 h-3.5" />
           <span>{language === 'ml' ? 'ലോഗ്' : 'Bot Logs'}</span>
         </button>
+        <button
+          onClick={() => setShowDiagnostics(true)}
+          className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
+            showDiagnostics
+              ? 'border-indigo-400 text-indigo-400'
+              : 'border-transparent text-indigo-400/70 hover:text-indigo-300'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Diagnostics</span>
+        </button>
+
       </div>
 
       {/* Content Area */}
@@ -255,7 +269,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
         {activeTab === 'SIGNALS' && (
           <div className="space-y-3">
             {botConfig.enabled && (
-               <div className="p-4 mb-4 text-center text-slate-300 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center gap-3">
+               <div className="p-4 mb-4 text-center text-slate-200 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center gap-3">
                  <Activity className="w-5 h-5 text-emerald-500 animate-pulse" />
                  <p className="text-xs font-semibold animate-pulse">
                    {language === 'ml' ? scanMessagesMl[scanMessageIndex] : scanMessagesEn[scanMessageIndex]}
@@ -290,7 +304,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             ? 'bg-emerald-500 text-slate-950'
                             : sig.signalType === 'SELL'
                             ? 'bg-rose-500 text-white'
-                            : 'bg-slate-700 text-slate-300'
+                            : 'bg-slate-700 text-slate-200'
                         }`}>
                           {sig.symbol.includes('CE') || sig.symbol.includes('PE') ? 'BUY' : sig.signalType}
                         </span>
@@ -401,7 +415,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   )}
 
                   {/* Rationale explanation */}
-                  <div className="mt-2.5 p-2 rounded-lg bg-[#070a12] border border-slate-800/80 text-[11px] text-slate-300">
+                  <div className="mt-2.5 p-2 rounded-lg bg-[#070a12] border border-slate-800 text-[11px] text-slate-200">
                     <span className="font-bold text-slate-400 mr-1">
                       {language === 'ml' ? 'കാരണം:' : 'Algorithmic Rationale:'}
                     </span>
@@ -433,7 +447,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           <div className="space-y-4">
             
             {/* Trade Mode & Asset Class Selection */}
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
               <h4 className="text-xs font-extrabold text-white flex items-center gap-1.5">
                 <Sliders className="w-4 h-4 text-emerald-400" />
                 <span>{language === 'ml' ? 'ട്രേഡ് മോഡും ലിമിറ്റുകളും' : 'Trade Mode & Daily Limits'}</span>
@@ -444,19 +458,19 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                 <div className="flex bg-slate-950 rounded-lg p-1 border border-slate-800">
                   <button 
                     onClick={() => onUpdateBotConfig({ tradeMode: 'OPTIONS_ONLY' })}
-                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'OPTIONS_ONLY' ? 'bg-fuchsia-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'OPTIONS_ONLY' ? 'bg-fuchsia-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   >
                     OPTIONS ONLY
                   </button>
                   <button 
                     onClick={() => onUpdateBotConfig({ tradeMode: 'STOCKS_ONLY' })}
-                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'STOCKS_ONLY' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'STOCKS_ONLY' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   >
                     STOCKS ONLY
                   </button>
                   <button 
                     onClick={() => onUpdateBotConfig({ tradeMode: 'BOTH' })}
-                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'BOTH' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                    className={`flex-1 text-[11px] py-1.5 font-bold rounded-md transition ${botConfig.tradeMode === 'BOTH' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                   >
                     BOTH
                   </button>
@@ -513,7 +527,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
             {/* Strategy Selection */}
             <div>
-              <label className="text-xs font-bold text-slate-300 block mb-2">
+              <label className="text-xs font-bold text-slate-200 block mb-2">
                 {language === 'ml' ? 'അൽഗോരിതം സ്ട്രാറ്റജി തിരഞ്ഞെടുക്കുക' : 'Select Core Algorithmic Strategy'}
               </label>
               <div className="space-y-2">
@@ -524,7 +538,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                     className={`p-3 rounded-xl border cursor-pointer transition ${
                       botConfig.selectedStrategy === strat.key
                         ? 'bg-indigo-950/30 border-indigo-500/60 shadow-md'
-                        : 'bg-slate-900/60 border-slate-800 hover:bg-slate-900'
+                        : 'bg-slate-900/80 border-slate-800 hover:bg-slate-900'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -566,7 +580,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   )}
                 </div>
               </div>
-              <p className="text-[11px] text-slate-300">
+              <p className="text-[11px] text-slate-200">
                 {language === 'ml' 
                   ? 'നിങ്ങൾ നിശ്ചയിച്ച നഷ്ടപരിധി (ഉദാ: ₹500) എത്തിയാൽ ബോട്ട് ഉടൻ തന്നെ എല്ലാ പൊസിഷനുകളും ക്ലോസ് ചെയ്യുകയും ട്രേഡിങ്ങ് നിർത്തുകയും ചെയ്യും.'
                   : 'Emergency auto square-off and bot halt if total intraday loss exceeds this limit.'}
@@ -582,7 +596,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                     className={`p-2 rounded-lg text-xs font-mono font-bold border transition ${
                       botConfig.dailyMaxLossLimit === amount
                         ? 'bg-rose-600 text-white border-rose-400 shadow-md shadow-rose-950/50'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
+                        : 'bg-slate-950 text-slate-200 border-slate-800 hover:bg-slate-800'
                     }`}
                   >
                     ₹{amount}
@@ -592,7 +606,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
               {/* Custom Value Input */}
               <div className="pt-2 border-t border-rose-950/40 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold text-slate-300">
+                <span className="text-[11px] font-bold text-slate-200">
                   {language === 'ml' ? 'കസ്റ്റം പരമാവധി നഷ്ട തുക (₹):' : 'Custom Loss Limit (₹):'}
                 </span>
                 <div className="flex items-center gap-1.5 w-32">
@@ -684,7 +698,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
               </div>
 
               {/* Trailing Stop Loss toggle */}
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-white block">
                     {language === 'ml' ? 'ട്രെയിലിംഗ് സ്റ്റോപ്പ് ലോസ് (Trailing SL)' : 'Dynamic Trailing Stop Loss'}
@@ -702,7 +716,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
               </div>
 
               {/* MTF Confluence toggle */}
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-white block">
                     {language === 'ml' ? 'മൾട്ടി-ടൈംഫ്രെയിം കൺഫർമേഷൻ (5m + 15m)' : 'Multi-Timeframe Confirmation (5m + 15m)'}
@@ -720,7 +734,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
               </div>
 
               {/* Option Strike Recommendation toggle */}
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                 <div>
                   <span className="text-xs font-bold text-white block">
                     {language === 'ml' ? 'ഓപ്ഷൻ സ്ട്രൈക്ക് ഓട്ടോ-സെലക്ടർ (ATM CE/PE)' : 'Auto ATM Option Strike Selector'}
@@ -753,7 +767,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                     <h4 className="text-xs sm:text-sm font-extrabold text-white">
                       {language === 'ml' ? 'ടെലിഗ്രാം ഇൻസ്റ്റന്റ് ട്രേഡ് അലേർട്ടുകൾ' : 'Telegram Instant Trade Alerts'}
                     </h4>
-                    <p className="text-[10px] text-slate-300">
+                    <p className="text-[10px] text-slate-200">
                       {language === 'ml' ? 'സിഗ്നലുകളും ഓർഡറുകളും ഉടൻ നിങ്ങളുടെ ഫോണിലേക്ക് ലഭിക്കും' : 'Get instant trade signals, entries, and SL/TP alerts on Telegram'}
                     </p>
                   </div>
@@ -769,7 +783,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
               {/* Bot Token input */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-xs font-bold text-slate-200 block mb-1">
                   {language === 'ml' ? 'ടെലിഗ്രാം ബോട്ട് ടോക്കൺ (Bot Token):' : 'Telegram Bot Token:'}
                 </label>
                 <input
@@ -783,7 +797,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
               {/* Chat ID input */}
               <div>
-                <label className="text-xs font-bold text-slate-300 block mb-1">
+                <label className="text-xs font-bold text-slate-200 block mb-1">
                   {language === 'ml' ? 'ടെലിഗ്രാം ചാറ്റ് ഐഡി (Chat ID):' : 'Telegram Chat ID:'}
                 </label>
                 <input
@@ -824,8 +838,8 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
             </div>
 
             {/* Quick Setup Instructions Card */}
-            <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-2">
-              <h5 className="font-bold text-slate-300 flex items-center gap-1.5">
+            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs space-y-2">
+              <h5 className="font-bold text-slate-200 flex items-center gap-1.5">
                 <Info className="w-3.5 h-3.5 text-sky-400" />
                 <span>{language === 'ml' ? 'ടെലിഗ്രാം ബോട്ട് എങ്ങനെ സെറ്റപ്പ് ചെയ്യാം?' : 'How to set up Telegram Bot in 1 minute:'}</span>
               </h5>

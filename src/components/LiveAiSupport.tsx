@@ -112,7 +112,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0e17] rounded-2xl border border-slate-800 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-900/80 rounded-2xl border border-slate-800 overflow-hidden">
       {/* Header */}
       <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
         <div className="flex items-center gap-2">
@@ -143,7 +143,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
               msg.sender === 'user' 
                 ? 'bg-indigo-600 text-white rounded-br-sm' 
                 : msg.sender === 'system'
-                ? 'bg-slate-800 border border-slate-700 text-slate-300 rounded-bl-sm font-mono whitespace-pre-wrap'
+                ? 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm font-mono whitespace-pre-wrap'
                 : 'bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-bl-sm'
             }`}>
               {msg.sender === 'ai' && <Bot className="w-3.5 h-3.5 mb-1.5 text-indigo-400" />}

@@ -37,7 +37,7 @@ export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0e1422] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+      <div className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
         <div className="p-5 border-b border-slate-800/60 bg-gradient-to-r from-indigo-900/40 to-slate-900 text-center">
           <div className="w-12 h-12 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
             <Shield className="w-6 h-6 text-indigo-400" />

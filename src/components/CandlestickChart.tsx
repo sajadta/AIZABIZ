@@ -162,17 +162,24 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     if (!seriesRef.current.candlestick || displayCandles.length === 0) return;
 
-    // Prepare data
-    const candlestickData = displayCandles.map(c => ({
-      time: (c.timestamp / 1000) as any,
+    // Prepare data - ensure unique timestamps and integers
+    const uniqueCandlesMap = new Map();
+    displayCandles.forEach(c => {
+       uniqueCandlesMap.set(Math.floor(c.timestamp / 1000), c);
+    });
+    
+    const uniqueCandles = Array.from(uniqueCandlesMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+    const candlestickData = uniqueCandles.map(c => ({
+      time: Math.floor(c.timestamp / 1000) as any,
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close,
     }));
 
-    const volumeData = displayCandles.map(c => ({
-      time: (c.timestamp / 1000) as any,
+    const volumeData = uniqueCandles.map(c => ({
+      time: Math.floor(c.timestamp / 1000) as any,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
     }));
@@ -187,8 +194,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const supertrendData: any[] = [];
     const markers: any[] = [];
 
-    displayCandles.forEach((c) => {
-      const time = (c.timestamp / 1000) as any;
+    uniqueCandles.forEach((c) => {
+      const time = Math.floor(c.timestamp / 1000) as any;
       if (c.ema9) ema9Data.push({ time, value: c.ema9 });
       if (c.ema21) ema21Data.push({ time, value: c.ema21 });
       if (c.ema50) ema50Data.push({ time, value: c.ema50 });
@@ -227,9 +234,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const isPositive = currentChange >= 0;
 
   return (
-    <div className="flex flex-col h-full bg-[#0b0f19] text-slate-200">
+    <div className="flex flex-col h-full bg-slate-900/80 text-slate-200">
       {/* Header Controls */}
-      <div className="flex flex-wrap items-center justify-between p-3 border-b border-[#1d2335] bg-[#070a12] gap-3">
+      <div className="flex flex-wrap items-center justify-between p-3 border-b border-slate-800 bg-[#070a12] gap-3">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <h2 className="text-lg font-bold text-slate-100">{symbol}</h2>
@@ -322,12 +329,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </div>
               <div className="flex items-center gap-2 mb-2">
                  <span className="text-xs text-slate-400">Action:</span>
-                 <span className={`text-sm font-black ${signal.action === 'BUY' ? 'text-emerald-400' : signal.action === 'SELL' ? 'text-rose-400' : 'text-slate-300'}`}>
+                 <span className={`text-sm font-black ${signal.action === 'BUY' ? 'text-emerald-400' : signal.action === 'SELL' ? 'text-rose-400' : 'text-slate-200'}`}>
                     {signal.action}
                  </span>
                  <span className="text-xs text-slate-400 ml-auto">Conf: {signal.confidence}%</span>
               </div>
-              <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed">
+              <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed">
                  {signal.reason}
               </p>
            </div>

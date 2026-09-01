@@ -14,7 +14,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
   onSelectSymbol,
 }) => {
   return (
-    <div className="bg-[#070a11] border-b border-slate-800/60 overflow-x-auto no-scrollbar py-1.5 px-3">
+    <div className="bg-black/20 border-b border-slate-800/60 overflow-x-auto no-scrollbar py-1.5 px-3">
       <div className="flex items-center gap-2 sm:gap-3 min-w-max">
         {quotes.map((q) => {
           const isSelected = q.symbol === selectedSymbol;
@@ -27,7 +27,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
               className={`flex items-center gap-2 px-3 py-1 rounded-lg border text-left transition-all font-mono ${
                 isSelected
                   ? 'bg-slate-800/90 border-slate-600 shadow-sm'
-                  : 'bg-slate-900/50 border-slate-800/80 hover:bg-slate-800/60 hover:border-slate-700'
+                  : 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700'
               } ${q.tickFlash === 'up' ? 'flash-up' : q.tickFlash === 'down' ? 'flash-down' : ''}`}
             >
               <div className="flex flex-col">

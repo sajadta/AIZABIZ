@@ -1,0 +1,109 @@
+/* Dynamic Theme Overrides */
+.theme-premium_dark {
+  --theme-bg-base: #080c14; --theme-bg-chart: #070a12; --theme-bg-panel: #0b0f19; --theme-bg-card: #0f172a; --theme-bg-element: #1e293b;
+  --theme-border-main: #1d2335; --theme-border-sec: #1e293b; --theme-border-light: #334155;
+  --theme-text-primary: #f1f5f9; --theme-text-secondary: #cbd5e1; --theme-text-muted: #94a3b8;
+}
+
+.theme-pro_terminal {
+  --theme-bg-base: #000000; --theme-bg-chart: #000000; --theme-bg-panel: #0a0a0a; --theme-bg-card: #121212; --theme-bg-element: #1a1a1a;
+  --theme-border-main: #222222; --theme-border-sec: #2a2a2a; --theme-border-light: #333333;
+  --theme-text-primary: #ffffff; --theme-text-secondary: #cccccc; --theme-text-muted: #888888;
+}
+
+.theme-clean_light {
+  --theme-bg-base: #f8fafc; --theme-bg-chart: #f1f5f9; --theme-bg-panel: #ffffff; --theme-bg-card: #ffffff; --theme-bg-element: #e2e8f0;
+  --theme-border-main: #cbd5e1; --theme-border-sec: #e2e8f0; --theme-border-light: #94a3b8;
+  --theme-text-primary: #0f172a; --theme-text-secondary: #334155; --theme-text-muted: #64748b;
+}
+
+.theme-cyberpunk {
+  --theme-bg-base: #05010a; --theme-bg-chart: #0a0216; --theme-bg-panel: #130428; --theme-bg-card: #1f0740; --theme-bg-element: #32115e;
+  --theme-border-main: #3d1466; --theme-border-sec: #4d1880; --theme-border-light: #6a22b0;
+  --theme-text-primary: #f0c2ff; --theme-text-secondary: #d694ff; --theme-text-muted: #a366cc;
+}
+
+.theme-ocean_blue {
+  --theme-bg-base: #020b14; --theme-bg-chart: #03111f; --theme-bg-panel: #071c33; --theme-bg-card: #0a2747; --theme-bg-element: #0f3866;
+  --theme-border-main: #144985; --theme-border-sec: #195aa3; --theme-border-light: #247ddb;
+  --theme-text-primary: #e0f2fe; --theme-text-secondary: #bae6fd; --theme-text-muted: #7dd3fc;
+}
+
+.theme-forest_green {
+  --theme-bg-base: #031206; --theme-bg-chart: #051a09; --theme-bg-panel: #082b10; --theme-bg-card: #0c3d17; --theme-bg-element: #125421;
+  --theme-border-main: #1a752f; --theme-border-sec: #22993d; --theme-border-light: #2bc24e;
+  --theme-text-primary: #dcfce7; --theme-text-secondary: #bbf7d0; --theme-text-muted: #86efac;
+}
+
+.theme-sunset_orange {
+  --theme-bg-base: #1c0604; --theme-bg-chart: #260a06; --theme-bg-panel: #3d0d08; --theme-bg-card: #54110a; --theme-bg-element: #73170d;
+  --theme-border-main: #8a1f12; --theme-border-sec: #ab2818; --theme-border-light: #d43420;
+  --theme-text-primary: #ffedd5; --theme-text-secondary: #fed7aa; --theme-text-muted: #fdba74;
+}
+
+.theme-midnight_purple {
+  --theme-bg-base: #0f051c; --theme-bg-chart: #140726; --theme-bg-panel: #1f0b3d; --theme-bg-card: #2d1059; --theme-bg-element: #3e167a;
+  --theme-border-main: #511d9c; --theme-border-sec: #6525c2; --theme-border-light: #8338f5;
+  --theme-text-primary: #f3e8ff; --theme-text-secondary: #e9d5ff; --theme-text-muted: #d8b4fe;
+}
+
+.theme-nordic_frost {
+  --theme-bg-base: #f0f4f8; --theme-bg-chart: #e6edf4; --theme-bg-panel: #ffffff; --theme-bg-card: #ffffff; --theme-bg-element: #d9e2ec;
+  --theme-border-main: #bcccdc; --theme-border-sec: #d9e2ec; --theme-border-light: #9fb3c8;
+  --theme-text-primary: #102a43; --theme-text-secondary: #334e68; --theme-text-muted: #627d98;
+}
+
+.theme-retro_vaporwave {
+  --theme-bg-base: #0b0217; --theme-bg-chart: #130428; --theme-bg-panel: #1e093d; --theme-bg-card: #2b0e54; --theme-bg-element: #3b1473;
+  --theme-border-main: #ff00ff; --theme-border-sec: #c400c4; --theme-border-light: #ff66ff;
+  --theme-text-primary: #00ffff; --theme-text-secondary: #ccffff; --theme-text-muted: #80ffff;
+}
+
+body[class*="theme-"]:not(.theme-premium_dark) {
+  background-color: var(--theme-bg-base) !important;
+  color: var(--theme-text-primary) !important;
+}
+
+body[class*="theme-"]:not(.theme-premium_dark) .bg-\[\#080c14\] { background-color: var(--theme-bg-base) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .bg-\[\#070a12\] { background-color: var(--theme-bg-chart) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .bg-\[\#0b0f19\] { background-color: var(--theme-bg-panel) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .bg-slate-900,
+body[class*="theme-"]:not(.theme-premium_dark) .bg-slate-900\/90 { background-color: var(--theme-bg-card) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .bg-slate-800,
+body[class*="theme-"]:not(.theme-premium_dark) .bg-slate-800\/80,
+body[class*="theme-"]:not(.theme-premium_dark) .bg-slate-800\/50 { background-color: var(--theme-bg-element) !important; }
+
+body[class*="theme-"]:not(.theme-premium_dark) .border-\[\#1d2335\] { border-color: var(--theme-border-main) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .border-slate-800,
+body[class*="theme-"]:not(.theme-premium_dark) .border-slate-800\/80,
+body[class*="theme-"]:not(.theme-premium_dark) .border-slate-800\/50 { border-color: var(--theme-border-sec) !important; }
+body[class*="theme-"]:not(.theme-premium_dark) .border-slate-700 { border-color: var(--theme-border-light) !important; }
+
+body[class*="theme-"]:not(.theme-premium_dark) .text-slate-100,
+body[class*="theme-"]:not(.theme-premium_dark) .text-white { color: var(--theme-text-primary) !important; }
+
+body[class*="theme-"]:not(.theme-premium_dark) .text-slate-200,
+body[class*="theme-"]:not(.theme-premium_dark) .text-slate-300 { color: var(--theme-text-secondary) !important; }
+
+body[class*="theme-"]:not(.theme-premium_dark) .text-slate-400,
+body[class*="theme-"]:not(.theme-premium_dark) .text-slate-500 { color: var(--theme-text-muted) !important; }
+
+/* Special overrides for Light Themes */
+.theme-clean_light .text-emerald-400, .theme-nordic_frost .text-emerald-400 { color: #059669 !important; }
+.theme-clean_light .text-rose-400, .theme-nordic_frost .text-rose-400 { color: #e11d48 !important; }
+.theme-clean_light .bg-emerald-500\/10, .theme-nordic_frost .bg-emerald-500\/10 { background-color: #d1fae5 !important; border-color: #34d399 !important; }
+.theme-clean_light .bg-rose-500\/10, .theme-nordic_frost .bg-rose-500\/10 { background-color: #ffe4e6 !important; border-color: #fb7185 !important; }
+
+/* For gradient texts in Header for Light themes */
+.theme-clean_light .bg-gradient-to-r.from-white, .theme-nordic_frost .bg-gradient-to-r.from-white {
+  background: none !important;
+  color: var(--theme-text-primary) !important;
+  -webkit-text-fill-color: var(--theme-text-primary) !important;
+}
+
+/* Ensure modlas text is legible */
+.theme-clean_light h2, .theme-nordic_frost h2,
+.theme-clean_light h3, .theme-nordic_frost h3,
+.theme-clean_light span, .theme-nordic_frost span {
+  color: inherit;
+}

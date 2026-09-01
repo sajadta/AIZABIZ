@@ -36,6 +36,7 @@ import {
 } from './components/AndroidInstallModal';
 import { LiveAiSupport } from './components/LiveAiSupport';
 
+
 import { 
   StockQuote, 
   CandleData, 
@@ -159,7 +160,7 @@ export default function App() {
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
+      const [aiLoading, setAiLoading] = useState(false);
   const [optionLoading, setOptionLoading] = useState(false);
 
   // Active Bottom Section Tab
@@ -493,7 +494,7 @@ export default function App() {
 
     connectWebSocket();
 
-    const quoteInterval = window.setInterval(fetchQuotes, 10000); // fallback polling if WS dies, or just as a keepalive
+    const quoteInterval = window.setInterval(fetchQuotes, 1500); // fallback polling if WS dies, or just as a keepalive
 
     
     const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 3000);
@@ -507,6 +508,17 @@ export default function App() {
     };
 
   }, [fetchQuotes, fetchPositionsAndOrders, fetchBotState, fetchApiConfig]);
+
+
+  // Subscribe to position instrument keys
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && positions.length > 0) {
+        const keys = positions.map(p => p.instrumentKey).filter(Boolean);
+        if (keys.length > 0) {
+             wsRef.current.send(JSON.stringify({ type: 'SUBSCRIBE', keys }));
+        }
+    }
+  }, [positions]);
 
 // When selected symbol or timeframe changes, refresh chart & option chain
   useEffect(() => {
@@ -523,7 +535,7 @@ export default function App() {
       if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
          fetchOptionChain(selectedSymbol);
       }
-    }, 10000);
+    }, 3000);
 
     return () => window.clearInterval(chartInterval);
   }, [selectedSymbol, selectedInstrumentKey, interval, fetchCandles, fetchOptionChain]);
@@ -659,6 +671,33 @@ export default function App() {
 
   const t = translations[language];
 
+  
+  const enrichedPositions = positions.map(p => {
+     const quote = quotes.find(q => q.instrumentKey === p.instrumentKey || q.symbol === p.symbol);
+     if (quote && quote.ltp) {
+        const ltp = quote.ltp;
+        const invested = p.quantity * p.buyPrice;
+        const currentVal = p.quantity * ltp;
+        const pnl = currentVal - invested;
+        const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
+        return { ...p, currentLTP: ltp, pnl, pnlPercent };
+     }
+     return p;
+  });
+
+  const enrichedHoldings = holdings.map(h => {
+     const quote = quotes.find(q => q.instrumentKey === h.instrumentKey || q.symbol === h.symbol);
+     if (quote && quote.ltp) {
+        const ltp = quote.ltp;
+        const invested = h.quantity * h.buyPrice;
+        const currentVal = h.quantity * ltp;
+        const pnl = currentVal - invested;
+        const pnlPercent = invested > 0 ? (pnl / invested) * 100 : 0;
+        return { ...h, currentLTP: ltp, pnl, pnlPercent };
+     }
+     return h;
+  });
+
   return (
     <div className="h-screen h-[100dvh] w-full relative overflow-x-hidden">
 
@@ -717,7 +756,7 @@ export default function App() {
           onOpenApiSettings={() => setIsApiModalOpen(true)}
           onOpenAndroidInstall={() => setIsAndroidModalOpen(true)}
           apiConfig={apiConfig}
-        />
+          />
         {(!isWsConnected || !apiConfig.accessToken || apiConfig.accessToken === '') && !showSetupModal && (
           <div className="bg-red-900/50 border-b border-red-500/50 text-red-200 px-4 py-2 text-sm flex items-center justify-center gap-2">
              <AlertTriangle size={16} />
@@ -733,9 +772,10 @@ export default function App() {
           }}
         />
         
+        
         {appTab === 'MARKETS' && (
           <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
-            <div className="w-full sm:w-80 border-b sm:border-b-0 sm:border-r border-[#1d2335] bg-[#0b0f19] flex flex-col hide-scrollbar overflow-y-auto max-h-[35vh] sm:max-h-none shrink-0">
+            <div className="w-full sm:w-80 border-b sm:border-b-0 sm:border-r border-slate-800 bg-slate-900/80 flex flex-col hide-scrollbar overflow-y-auto max-h-[35vh] sm:max-h-none shrink-0">
               <Watchlist 
                  quotes={quotes}
                  selectedSymbol={selectedSymbol}
@@ -748,7 +788,7 @@ export default function App() {
               />
             </div>
             <div className="flex-1 flex flex-col bg-[#070a12]">
-              <div className="flex-1 border-b border-[#1d2335] p-2 relative">
+              <div className="h-[40vh] md:h-[60vh] p-2 relative shrink-0">
                  <CandlestickChart 
                     candles={candles || []}
                     symbol={selectedSymbol}
@@ -760,12 +800,12 @@ export default function App() {
                     onGenerateAiAnalysis={() => {}}
                  />
               </div>
-              <div className="h-64 overflow-y-auto hide-scrollbar p-2 bg-[#0b0f19]">
+              <div className="flex-1 overflow-y-auto hide-scrollbar p-2 bg-slate-900/80 border-t border-slate-800">
                  <OrderBookPositions 
-                    positions={positions}
+                    positions={enrichedPositions}
                     orders={orders}
                     language={language}
-                    totalPnL={positions.reduce((acc, p) => acc + (p.pnl || 0), 0)}
+                    totalPnL={enrichedPositions.reduce((acc, p) => acc + (p.pnl || 0), 0)}
                     onSquareOffPosition={handleSquareOffPosition}
                     onSquareOffAll={handleSquareOffAll}
                  />
@@ -781,13 +821,13 @@ export default function App() {
               botLogs={botLogs}
               signals={signals}
               language={language}
-              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price, sig.stopLoss, sig.target1)}
+              onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price)}
             />
           </div>
         )}
 
         {appTab === 'OPTIONS' && (
-          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px]">
             <OptionChainView
               data={optionChainData}
               quotes={quotes}
@@ -805,7 +845,7 @@ export default function App() {
         )}
 
         {appTab === 'PORTFOLIO' && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-200 flex flex-col flex-1 h-full min-h-[600px]">
+          <div className="space-y-4 flex flex-col flex-1 h-full min-h-[600px] p-2">
             {/* Margin Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
               <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800">
@@ -827,20 +867,20 @@ export default function App() {
             </div>
 
             {/* Positions */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar bg-[#0b0f19] border border-slate-800 rounded-2xl p-3">
+            <div className="flex-1 overflow-y-auto hide-scrollbar bg-slate-900/80 border border-slate-800 rounded-2xl p-3">
               <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center justify-between">
-                <span>Active Positions ({positions.length})</span>
+                <span>Active Positions ({enrichedPositions.length})</span>
               </h3>
-              {positions.length === 0 ? (
+              {enrichedPositions.length === 0 ? (
                 <p className="text-xs text-slate-500 italic text-center mt-4">No active positions.</p>
               ) : (
                 <div className="space-y-2">
-                  {positions.map((p, i) => {
+                  {enrichedPositions.map((p, i) => {
                     const invested = (p.quantity || 0) * (p.buyPrice || 0);
                     const currentVal = (p.quantity || 0) * (p.currentLTP || 0);
                     const approxBrokerage = 40; // ₹20 buy, ₹20 sell approx
                     return (
-                    <div key={i} className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+                    <div key={i} className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-xs font-bold text-slate-200">{p.symbol}</p>
@@ -853,7 +893,7 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex justify-between border-t border-slate-800/60 pt-2 text-[9px] text-slate-400">
+                      <div className="flex justify-between border-t border-slate-800 pt-2 text-[9px] text-slate-400">
                          <div>Used Amt: <span className="text-slate-300">₹{invested.toFixed(2)}</span></div>
                          <div>Current: <span className="text-slate-300">₹{currentVal.toFixed(2)}</span></div>
                          <div>Est. Brokerage/Tax: <span className="text-amber-400/80">~₹{approxBrokerage.toFixed(2)}</span></div>
@@ -865,19 +905,19 @@ export default function App() {
             </div>
 
             {/* Holdings */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar bg-[#0b0f19] border border-slate-800 rounded-2xl p-3">
+            <div className="flex-1 overflow-y-auto hide-scrollbar bg-slate-900/80 border border-slate-800 rounded-2xl p-3">
               <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center justify-between">
-                <span>Long-term Holdings ({holdings.length})</span>
+                <span>Long-term Holdings ({enrichedHoldings.length})</span>
               </h3>
-              {holdings.length === 0 ? (
+              {enrichedHoldings.length === 0 ? (
                 <p className="text-xs text-slate-500 italic text-center mt-4">No holdings found.</p>
               ) : (
                 <div className="space-y-2">
-                  {holdings.map((h, i) => {
+                  {enrichedHoldings.map((h, i) => {
                     const invested = (h.quantity || 0) * (h.buyPrice || 0);
                     const currentVal = (h.quantity || 0) * (h.currentLTP || 0);
                     return (
-                    <div key={i} className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+                    <div key={i} className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-xs font-bold text-slate-200">{h.symbol}</p>
@@ -890,7 +930,7 @@ export default function App() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex justify-between border-t border-slate-800/60 pt-2 text-[9px] text-slate-400">
+                      <div className="flex justify-between border-t border-slate-800 pt-2 text-[9px] text-slate-400">
                          <div>Invested Amt: <span className="text-slate-300">₹{invested.toFixed(2)}</span></div>
                          <div>Current Value: <span className="text-slate-300">₹{currentVal.toFixed(2)}</span></div>
                          <div>Est. Taxes (STT/Charges): <span className="text-amber-400/80">~₹{(invested * 0.001).toFixed(2)}</span></div>
@@ -903,15 +943,14 @@ export default function App() {
           </div>
         )}
 
-        
         {appTab === 'SUPPORT' && (
-          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px]">
             <LiveAiSupport apiConfig={apiConfig} quotesCount={quotes.length} />
           </div>
         )}
 
         {appTab === 'AI' && (
-          <div className="flex-1 h-full min-h-[600px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <div className="flex-1 h-full min-h-[600px]">
             <GeminiAiAdvisor
               analysis={geminiAnalysis}
               loading={aiLoading}
@@ -923,8 +962,10 @@ export default function App() {
         )}
         
 
+            
+
       {/* App Mobile Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 w-full bg-[#0a0e17]/95 backdrop-blur-md border-t border-slate-800/80 pb-safe z-50">
+      <nav className="fixed bottom-0 w-full bg-[#0b0f19] backdrop-blur-md border-t border-slate-800/80 pb-safe z-50">
         <div className="flex justify-around items-center h-16 max-w-md mx-auto px-2">
           <button onClick={() => setAppTab('MARKETS')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'MARKETS' ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-400'}`}>
             <Activity className="w-5 h-5" />
@@ -980,7 +1021,6 @@ export default function App() {
         onClose={() => setIsAndroidModalOpen(false)}
         language={language}
       />
-
-        </div>
+      </div>
   );
 }

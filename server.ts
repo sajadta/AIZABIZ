@@ -48,8 +48,24 @@ app.get('/api/bot/config', (req, res)  => res.json(botConfig));
 app.post('/api/bot/config', (req, res)  => {
   botConfig = { ...botConfig, ...req.body };
   botLogs.unshift({ id: Date.now() .toString(), time: new Date() .toLocaleTimeString(), message: 'Bot configuration updated.', type: 'INFO' });
+if(botLogs.length > 200) botLogs.length = 200;
   res.json(botConfig);
 });
+
+app.get('/api/bot/diagnostics', (req, res) => {
+    res.json({
+        systemTime: new Date().toISOString(),
+        botEnabled: botConfig.enabled,
+        tradingMode: botConfig.mode,
+        hasUpstoxToken: !!upstoxConfig.accessToken,
+        upstoxWsConnected: typeof upstoxWsConnected !== 'undefined' ? upstoxWsConnected : false,
+        subscribedKeysCount: typeof subscribedKeys !== 'undefined' ? subscribedKeys.size : 0,
+        activePaperPositions: typeof paperPositions !== 'undefined' ? paperPositions.length : 0,
+        liveQuotesTracked: typeof globalLiveQuotes !== 'undefined' ? Object.keys(globalLiveQuotes).length : 0,
+        lastQuoteTime: typeof globalLiveQuotes !== 'undefined' && globalLiveQuotes['last_update'] ? globalLiveQuotes['last_update'] : null
+    });
+});
+
 app.get('/api/bot/logs', (req, res)  => res.json(botLogs.slice(0, 50)));
 app.get('/api/bot/signals', (req, res)  => res.json(botSignals.slice(0, 20)));
 
@@ -107,6 +123,7 @@ setInterval(async ()  => {
               headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'Api-Version': '2.0' }
             });
             const qData = await qRes.json();
+            
             if (qData?.data)  {
                liveQuotesMap = qData.data;
                const mainKey = (botConfig as any).selectedInstrumentKey || 'NSE_INDEX|Nifty 50';
@@ -117,17 +134,34 @@ setInterval(async ()  => {
         } catch(e) {}
     }
     
+    // Merge with global WS quotes
+    for (const k in globalLiveQuotes) {
+        if (!liveQuotesMap[k]) liveQuotesMap[k] = globalLiveQuotes[k];
+    }
+
+    
+    const nowIst = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+    // Only trigger EOD square off between 15:15 and 15:30 to prevent API spam after market hours
+    const isEodSquareOff = nowIst.getHours() === 15 && nowIst.getMinutes() >= 15 && nowIst.getMinutes() < 30;
+
     for (let pos of activePositions)  {
-      if (pos.type === 'BUY' && pos.symbol.includes('CE')  || pos.symbol.includes('PE'))  {
-         // It'scan option. We need option LTP. 
-         // For now, simulate option price  movement based on Index  movement if we don't have live option quotes.
-         const ltp = pos.currentLTP || pos.buyPrice; // updated via frontend paper-sync or live sync
-         // Track highest LTP for trailing stop loss
+      if (liveQuotesMap[pos.instrumentKey] && liveQuotesMap[pos.instrumentKey].last_price) {
+          pos.currentLTP = liveQuotesMap[pos.instrumentKey].last_price;
+          pos.pnl = (pos.currentLTP - pos.buyPrice) * pos.quantity;
+      }
+
+      if ((pos.type === 'BUY' && (pos.symbol.includes('CE')  || pos.symbol.includes('PE'))) || pos.isOption)  {
+         const ltp = pos.currentLTP || pos.buyPrice; 
          pos.highestLTP = Math.max(pos.highestLTP || pos.buyPrice, ltp);
          
-         const pnlPercent = ((ltp - pos.buyPrice) / pos.buyPrice) * 100;
+         const pnlPercent = pos.buyPrice > 0 ? ((ltp - pos.buyPrice) / pos.buyPrice) * 100 : 0;
          let shouldSell = false;
          let sellReason = '';
+
+         if (isEodSquareOff) {
+             shouldSell = true;
+             sellReason = `End of day Auto Square-Off at 15:15 IST for ${pos.symbol}.`;
+         }
 
          // 1. Static Target Check
          if (pnlPercent >= botConfig.targetProfitPercent && !botConfig.trailingStopLoss) {
@@ -160,14 +194,16 @@ setInterval(async ()  => {
 
          if (shouldSell) {
              botLogs.unshift({ id: Date.now().toString(), time: new Date().toLocaleTimeString(), message: sellReason, type: pnlPercent > 0 ? 'SUCCESS' : 'ERROR' });
-             if (botConfig.mode === 'PAPER_TRADING')  {
+if (botLogs.length > 200) botLogs.length = 200;
+if (botConfig.mode === 'PAPER_TRADING')  {
                  const closedPos = paperPositions.find(p => p.id === pos.id);
                  if (closedPos) {
                      closedPos.sellPrice = closedPos.currentLTP;
                      closedPos.realizedPnL = closedPos.pnl;
                      closedPos.closeTime = new Date().toISOString();
                      paperTradeHistory.unshift(closedPos);
-                 }
+if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
+}
                  paperPositions = paperPositions.filter(p => p.id !== pos.id);
              } else if (botConfig.mode === 'UPSTOX_LIVE')  {
                  // Place sell order via Upstox API
@@ -198,14 +234,16 @@ setInterval(async ()  => {
              }
          } else if (pnlPercent <= -botConfig.stopLossPercent)  {
              botLogs.unshift({ id: Date.now() .toString(), time: new Date() .toLocaleTimeString(), message: `Stop Loss hit (${pnlPercent.toFixed(2) }%)  for ${pos.symbol}. Squaring off.`, type: 'ERROR' });
-             if (botConfig.mode === 'PAPER_TRADING')  {
+if (botLogs.length > 200) botLogs.length = 200;
+if (botConfig.mode === 'PAPER_TRADING')  {
                  const closedPos = paperPositions.find(p => p.id === pos.id);
                  if (closedPos) {
                      closedPos.sellPrice = closedPos.currentLTP;
                      closedPos.realizedPnL = closedPos.pnl;
                      closedPos.closeTime = new Date().toISOString();
                      paperTradeHistory.unshift(closedPos);
-                 }
+if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
+}
                  paperPositions = paperPositions.filter(p => p.id !== pos.id);
              } else if (botConfig.mode === 'UPSTOX_LIVE')  {
                  // Place sell order via Upstox API
@@ -240,12 +278,19 @@ setInterval(async ()  => {
 
     // 2. If no positions, look for entry
     if (activePositions.length === 0 && token)  {
-       const scanIndices = [
+       let scanIndices = [
           { key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' },
           { key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' },
           { key: 'BSE_INDEX|SENSEX', symbol: 'SENSEX' },
           { key: 'NSE_INDEX|Nifty Fin Service', symbol: 'NIFTY FIN SERVICE' }
        ];
+       
+       if ((botConfig as any).selectedInstrumentKey) {
+          const matching = scanIndices.find(x => x.key === (botConfig as any).selectedInstrumentKey);
+          if (matching) {
+              scanIndices = [matching];
+          }
+       }
        
        for (const idx of scanIndices) {
           const today = new Date();
@@ -262,6 +307,8 @@ setInterval(async ()  => {
                     timeStr: new Date(c[0]).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }),
                     open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5]
                  })).reverse();
+                 
+                 if (rawCandles.length === 0) continue;
                  
                  const enriched = enrichCandlesWithIndicators(rawCandles);
                  
@@ -281,7 +328,7 @@ setInterval(async ()  => {
                  if (token) {
                      try {
                          // Get index instrument key
-                         const idxKey = (botConfig as any).selectedInstrumentKey || 'NSE_INDEX|Nifty 50';
+                         const idxKey = idx.key;
                          // Get expiry dates
                          const contractRes = await fetch(`https://api.upstox.com/v2/option/contract?instrument_key=${encodeURIComponent(idxKey)}`, {
                              headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
@@ -312,14 +359,9 @@ setInterval(async ()  => {
                                          if (opt && opt.market_data && opt.market_data.ltp) {
                                              const realOptionPrice = opt.market_data.ltp;
                                              // Re-run the analyzer with real option price
-                                             signal = analyzeTradingSignals(
-                                                 (botConfig as any).selectedSymbol || 'NIFTY 50', 
-                                                 (botConfig as any).selectedSymbol || 'NIFTY 50', 
-                                                 idxKey, 
+                                             signal = analyzeTradingSignals(idx.symbol, idx.symbol, idxKey, 
                                                  enriched, 
-                                                 currentLiveQuote, 
-                                                 botConfig.selectedStrategy as any, 
-                                                 realOptionPrice
+                                                 liveLtp, botConfig.selectedStrategy as any, realOptionPrice
                                              );
                                              // Also update the instrument key in the signal for future use
                                              if (opt.instrument_key) {
@@ -333,12 +375,17 @@ setInterval(async ()  => {
                      } catch(e) { console.error("Option Fetch Error: ", e); }
                  }
                  
+                 
                  // Prevent spamming the same signal
                  const lastSignal = botSignals[0];
                  if (!lastSignal || lastSignal.symbol !== signal.symbol || lastSignal.signalType !== signal.signalType) {
                      botSignals.unshift(signal);
                      if (botSignals.length > 50) botSignals.length = 50;
+                 } else {
+                     lastSignal.price = signal.price;
+                     lastSignal.timestamp = signal.timestamp;
                  }
+
              }
 
              if (signal && (signal.signalType === 'BUY' || signal.signalType === 'SELL') && signal.confidenceScore >= botConfig.minConfidence) {
@@ -347,6 +394,7 @@ setInterval(async ()  => {
                 const optionSymbol = signal.symbol;
                 
                 botLogs.unshift({ id: Date.now() .toString(), time: new Date() .toLocaleTimeString(), message: `Signal Detected: ${isBullish ? 'BULLISH': 'BEARISH'}. Buying ${optionSymbol} at market.`, type: 'TRADE' });
+if(botLogs.length > 200) botLogs.length = 200;
                 
                 if (botConfig.mode === 'PAPER_TRADING')  {
                    // Fetch real option price
@@ -358,7 +406,12 @@ setInterval(async ()  => {
                    paperPositions.push({ id: 'POS'+Date.now(), symbol: optionSymbol, instrumentKey: optInstrumentKey, quantity: botQty, buyPrice: optionPrice, currentLTP: optionPrice, pnl: 0, type: 'BUY', isOption: true });
                 } else if (botConfig.mode === 'UPSTOX_LIVE' && token) {
                     try {
-                        const optInstrumentKey = 'NSE_FO|' + optionSymbol;
+                        const optInstrumentKey = signal.instrumentKey || 'NSE_FO|' + optionSymbol;
+                        const lotSize = await getDynamicLotSize(optionSymbol, token);
+                        let targetQuantity = botConfig.tradeQuantity || lotSize;
+                        targetQuantity = Math.max(1, Math.floor(targetQuantity / lotSize)) * lotSize;
+                        if (targetQuantity === 0) targetQuantity = lotSize; // Fallback to 1 lot
+
                         await fetch('https://api.upstox.com/v2/order/place', {
                             method: 'POST',
                             headers: {
@@ -368,7 +421,7 @@ setInterval(async ()  => {
                                 'Api-Version': '2.0'
                             },
                             body: JSON.stringify({
-                                quantity: botConfig.tradeQuantity || 50,
+                                quantity: targetQuantity,
                                 product: 'D', 
                                 validity: 'DAY',
                                 price: 0,
@@ -385,6 +438,7 @@ setInterval(async ()  => {
                         console.error('Error placing auto buy order:', err);
                     }
                 }
+                break; // Prevent taking multiple trades across different indices in the same tick
              }
           }
        } catch (innerErr) {
@@ -964,7 +1018,7 @@ app.get('/api/upstox/brokerage', async (req: Request, res: Response) => {
            return res.json(data);
         } else {
            const err = await response.text();
-           console.error('Upstox Brokerage API failed:', err);
+           if (!err.includes("Invalid Instrument key")) console.error("Upstox Brokerage API failed:", err);
         }
       } catch (err) {
         console.error('Error fetching from upstox:', err);
@@ -1372,6 +1426,7 @@ app.post('/api/trading/order', async (req: Request, res: Response)  => {
 let paperOrders: any[] = [];
 let paperPositions: any[] = [];
 let paperTradeHistory: any[] = [];
+const globalLiveQuotes: Record<string, any> = {};
 
 app.get('/api/trading/history', async (req: Request, res: Response)  => {
    const mode = req.query.mode;
@@ -1449,7 +1504,8 @@ app.post('/api/trading/squareoff/:positionId', (req: Request, res: Response)  =>
         closedPos.realizedPnL = closedPos.pnl;
         closedPos.closeTime = new Date().toISOString();
         paperTradeHistory.unshift(closedPos);
-        return res.json({ success: true });
+if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
+return res.json({ success: true });
      }
   }
   res.json({ success: false, error: 'Square off  ust bemexecuted directly via Upstox API with specific order parameters.' });
@@ -1463,6 +1519,7 @@ app.post('/api/trading/squareoff-all', (req: Request, res: Response)  => {
         p.realizedPnL = p.pnl;
         p.closeTime = new Date().toISOString();
         paperTradeHistory.unshift(p);
+if(paperTradeHistory.length > 200) paperTradeHistory.length = 200;
      });
      paperPositions = [];
      return res.json({ success: true });
@@ -1478,7 +1535,7 @@ app.post('/api/trading/paper-sync', (req: Request, res: Response)  => {
    const { quotes } = req.body;
    if (quotes && Array.isArray(quotes))  {
       paperPositions = paperPositions.map(pos => {
-         const q = quotes.find((x: any)  => x.symbol === pos.symbol);
+         const q = quotes.find((x: any)  => x.instrumentKey === pos.instrumentKey);
          if (q)  {
             pos.currentLTP = q.ltp;
             pos.pnl = (q.ltp - pos.buyPrice)  * pos.quantity;
@@ -1754,14 +1811,16 @@ function ensureUpstoxStreamer() {
         });
 
         upstoxStreamer.on('message', (data) => {
+           
            try {
+               
                const parsed = typeof data === 'string' ? JSON.parse(data) : (Buffer.isBuffer(data) ? JSON.parse(data.toString()) : data);
                if (parsed && parsed.feeds) {
                    const quotesList = [];
                    for (const [key, feed] of Object.entries(parsed.feeds)) {
                        let ltp = 0; let close = 0; let volume = 0; let open = 0; let high = 0; let low = 0;
                        
-                       const ff = (feed as any).ff || (feed as any).optionGreeks || (feed as any).ltpc;
+                       const ff = (feed as any).fullFeed || (feed as any).ff || (feed as any).optionGreeks || (feed as any).ltpc || feed;
                        if (ff) {
                            const dataBlock = ff.indexFF || ff.marketFF || ff;
                            const ltpc = dataBlock.ltpc || dataBlock;
@@ -1780,8 +1839,12 @@ function ensureUpstoxStreamer() {
                        const parts = key.split(/[:|]/);
                        const symbolDisplay = (parts.length > 1 ? parts[1] : key).toUpperCase();
                        
+                       
                        if (ltp > 0) {
+                           globalLiveQuotes[key] = { last_price: ltp };
+                           globalLiveQuotes['last_update'] = new Date().toISOString();
                            quotesList.push({
+
                                symbol: symbolDisplay,
                                instrumentKey: key,
                                ltp, change, changePercent,
@@ -1798,7 +1861,7 @@ function ensureUpstoxStreamer() {
                        });
                    }
                }
-           } catch(e) { }
+           } catch(e) { console.error('WS MSG ERROR:', e); }
         });
 
         upstoxStreamer.on('error', (err) => {
@@ -1886,3 +1949,12 @@ async function setupVite()  {
 }
 
 setupVite();
+
+app.get('/api/debug-state', (req, res) => {
+    res.json({
+        upstoxConfig,
+        botConfig,
+        paperPositions,
+        botLogs: botLogs.slice(0, 5)
+    });
+});

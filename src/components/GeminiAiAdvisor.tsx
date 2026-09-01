@@ -34,7 +34,7 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="pb-3 border-b border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/40 shadow-sm shadow-purple-950/40">
             <Sparkles className="w-4 h-4 text-purple-300 animate-pulse" />
@@ -97,7 +97,7 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
                 ? 'bg-emerald-950/25 border-emerald-500/40 text-emerald-300'
                 : analysis.sentiment.includes('BEARISH')
                 ? 'bg-rose-950/25 border-rose-500/40 text-rose-300'
-                : 'bg-slate-900 border-slate-800 text-slate-300'
+                : 'bg-slate-900 border-slate-800 text-slate-200'
             }`}>
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl ${
@@ -170,12 +170,12 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
 
             {/* Technical Reasons */}
             <div className="space-y-1.5">
-              <h4 className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
+              <h4 className="text-xs font-extrabold text-slate-200 uppercase tracking-wider">
                 {language === 'ml' ? 'സാങ്കേതിക അനുകൂല ഘടകങ്ങൾ' : 'Key Technical Rationale'}
               </h4>
               <div className="space-y-1">
                 {(language === 'ml' ? analysis.technicalReasonsMalayalam : analysis.technicalReasons).map((reason, idx) => (
-                  <div key={idx} className="flex items-start gap-2 text-xs text-slate-300 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                  <div key={idx} className="flex items-start gap-2 text-xs text-slate-200 bg-slate-900/80 p-2 rounded-lg border border-slate-800">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                     <span>{reason}</span>
                   </div>

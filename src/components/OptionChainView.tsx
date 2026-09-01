@@ -38,11 +38,11 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
 
   if (!data || (data as any).error) {
     return (
-      <div className="bg-[#0b0f19] rounded-2xl border border-slate-800 p-8 text-center flex flex-col items-center justify-center h-full">
+      <div className="bg-slate-900/80 rounded-2xl border border-slate-800 p-8 text-center flex flex-col items-center justify-center h-full">
         <Layers className="w-8 h-8 mx-auto mb-2 text-slate-600" />
         <p className="text-sm font-semibold text-rose-400 mb-2">{(data as any)?.error || (language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ലഭ്യമായില്ല' : 'Option Chain Unavailable')}</p>
         <p className="text-xs text-slate-500 max-w-xs">{language === 'ml' ? 'Upstox API യുമായി കണക്ട് ചെയ്യുക.' : 'Please connect your Upstox API to view live option chain.'}</p>
-        <button onClick={onRefresh} className="mt-4 flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-colors">
+        <button onClick={onRefresh} className="mt-4 flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-bold transition-colors">
            <RefreshCw size={14} /> {language === 'ml' ? 'വീണ്ടും ശ്രമിക്കുക' : 'Retry'}
         </button>
       </div>
@@ -52,7 +52,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="pb-3 border-b border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-2 flex-wrap">
         <div>
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
@@ -76,7 +76,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
           <select
             value={selectedExpiry || data.selectedExpiry}
             onChange={(e) => setSelectedExpiry(e.target.value)}
-            className="bg-[#070a14] border border-slate-800 rounded-xl px-3 py-1 text-xs text-white font-mono-num font-bold focus:outline-none focus:border-indigo-500 shadow-inner"
+            className="bg-black/20 border border-slate-800 rounded-xl px-3 py-1 text-xs text-white font-mono-num font-bold focus:outline-none focus:border-indigo-500 shadow-inner"
           >
             {data.expiryDates.map((exp) => (
               <option key={exp} value={exp}>
@@ -87,7 +87,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
 
           <button
             onClick={onRefresh}
-            className="p-1.5 rounded-xl bg-[#070a14] hover:bg-slate-800 border border-slate-800 text-slate-300 transition shadow-inner"
+            className="p-1.5 rounded-xl bg-black/20 hover:bg-slate-800 border border-slate-800 text-slate-200 transition shadow-inner"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -114,7 +114,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               <th className="py-1 px-2 text-right">OI (k)</th>
               <th className="py-1 px-2 text-right">IV</th>
               <th className="py-1 px-2 text-right border-r border-slate-800 text-emerald-400 font-bold">LTP</th>
-              <th className="py-1 px-2 text-center bg-slate-900 text-slate-300 border-r border-slate-800">Price</th>
+              <th className="py-1 px-2 text-center bg-slate-900 text-slate-200 border-r border-slate-800">Price</th>
               <th className="py-1 px-2 text-left text-rose-400 font-bold">LTP</th>
               <th className="py-1 px-2 text-left">IV</th>
               <th className="py-1 px-2 text-left">OI (k)</th>
@@ -143,7 +143,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   </td>
                   <td className={`py-1.5 px-2 text-right font-bold text-emerald-400 border-r border-slate-800 ${isITMCall ? 'bg-emerald-950/15' : ''}`}>
                     <div className="flex items-center justify-end gap-2">
-                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, s.callLTP)}>₹{Number(s.callLTP || 0).toFixed(1)}</span>
+                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, getLtp(s.callInstrumentKey, s.callLTP))}>₹{Number(getLtp(s.callInstrumentKey, s.callLTP) || 0).toFixed(1)}</span>
                        {onViewChart && <LineChart className="w-3.5 h-3.5 text-slate-500 hover:text-emerald-400 cursor-pointer" onClick={(e) => { e.stopPropagation(); onViewChart(`${data.underlyingSymbol} ${s.strikePrice} CE`, s.callInstrumentKey); }} />}
                     </div>
                   </td>
@@ -159,7 +159,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   <td className={`py-1.5 px-2 text-left font-bold text-rose-400 ${isITMPut ? 'bg-rose-950/15' : ''}`}>
                     <div className="flex items-center justify-start gap-2">
                        {onViewChart && <LineChart className="w-3.5 h-3.5 text-slate-500 hover:text-rose-400 cursor-pointer" onClick={(e) => { e.stopPropagation(); onViewChart(`${data.underlyingSymbol} ${s.strikePrice} PE`, s.putInstrumentKey); }} />}
-                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} PE`, s.putLTP)}>₹{Number(s.putLTP || 0).toFixed(1)}</span>
+                       <span className="cursor-pointer hover:underline" onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} PE`, getLtp(s.putInstrumentKey, s.putLTP))}>₹{Number(getLtp(s.putInstrumentKey, s.putLTP) || 0).toFixed(1)}</span>
                     </div>
                   </td>
                   <td className={`py-1.5 px-2 text-left text-slate-500 ${isITMPut ? 'bg-rose-950/10' : ''}`}>

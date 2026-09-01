@@ -1,5 +1,4 @@
 @import "tailwindcss";
-
 @layer base {
   * {
     border-color: rgba(255, 255, 255, 0.08);
@@ -10,6 +9,8 @@
     padding-bottom: env(safe-area-inset-bottom);
     overscroll-behavior-y: none;
     -webkit-overflow-scrolling: touch;
+    background-color: #05080f;
+    color: #f1f5f9;
   }
   .font-mono {
     font-family: 'JetBrains Mono', monospace;
@@ -40,16 +41,13 @@
   0% { background-color: rgba(16, 185, 129, 0.35); }
   100% { background-color: transparent; }
 }
-
 @keyframes flashRed {
   0% { background-color: rgba(239, 68, 68, 0.35); }
   100% { background-color: transparent; }
 }
-
 .flash-up {
   animation: flashGreen 0.7s ease-out;
 }
-
 .flash-down {
   animation: flashRed 0.7s ease-out;
 }
@@ -58,15 +56,12 @@
 .glow-emerald {
   box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.3);
 }
-
 .glow-rose {
   box-shadow: 0 0 20px -5px rgba(244, 63, 94, 0.3);
 }
-
 .glow-cyan {
   box-shadow: 0 0 20px -5px rgba(6, 182, 212, 0.3);
 }
-
 
 /* App-like utilities */
 .hide-scrollbar::-webkit-scrollbar {

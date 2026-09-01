@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, TrendingUp, TrendingDown, Layers, ChevronRight, Zap, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Layers, ChevronRight, Zap, ArrowUpRight, ArrowDownRight, Bell, BellRing , X } from 'lucide-react';
 import { StockQuote, Language } from '../types';
 import { translations } from '../translations';
 
@@ -9,7 +9,7 @@ interface WatchlistProps {
   onSelectSymbol: (symbol: string, instrumentKey?: string) => void;
   language: Language;
   onOpenOrderModal: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
-  priceAlerts?: PriceAlert[];
+  priceAlerts?: any[];
   onAddAlert?: (symbol: string, instrumentKey: string, targetPrice: number, condition: 'GREATER_THAN'|'LESS_THAN') => void;
   onRemoveAlert?: (id: string) => void;
 }
@@ -40,7 +40,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header & Search */}
-      <div className="pb-3 border-b border-[#1d2335]">
+      <div className="pb-3 border-b border-slate-800">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -64,7 +64,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={language === 'ml' ? 'ഓഹരികൾ തിരയുക (Search)...' : 'Search symbol, index, stock...'}
-            className="w-full bg-[#070a14]/90 border border-[#1d2335]/90 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
+            className="w-full bg-black/20/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
           />
         </div>
 
@@ -101,7 +101,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected
                   ? 'bg-gradient-to-r from-slate-850 to-slate-900 border-emerald-500/50 shadow-md shadow-emerald-950/30 ring-1 ring-emerald-500/20'
-                  : 'bg-transparent border-transparent hover:bg-[#111624]/60 hover:border-[#1d2335]'
+                  : 'bg-[#070a12] border-transparent hover:bg-[#111624]/60 hover:border-slate-800'
               } ${q.tickFlash === 'up' ? 'flash-up' : q.tickFlash === 'down' ? 'flash-down' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -147,7 +147,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               {/* Day High / Low mini range bar */}
               <div className="mt-2.5 flex items-center justify-between text-[9px] text-slate-500 font-mono-num">
                 <span>L: ₹{Number(q.low || 0).toFixed(1)}</span>
-                <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-[#1d2335]/60">
+                <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-slate-800/60">
                   <div
                     className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
                     style={{ width: `${Math.max(5, Math.min(95, currentPos))}%` }}
@@ -172,7 +172,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               )}
               
               {/* Quick Action buttons on hover/select */}
-              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-[#1d2335]/40">
+              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-slate-800/40">
                 <div className="flex flex-col gap-1 w-1/3">
                   <span className="text-[10px] text-slate-400 font-mono-num font-medium">
                     Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L

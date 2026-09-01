@@ -156,16 +156,16 @@ const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, ind
   const net = estCharges !== null ? gross - estCharges : gross;
 
   return (
-      <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800/80 flex flex-col gap-3 opacity-90 hover:opacity-100 transition">
+      <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 flex flex-col gap-3 opacity-90 hover:opacity-100 transition">
         <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-extrabold text-white">
               {pos.symbol}
             </span>
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-slate-800 text-slate-300 border-slate-700">
+            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-slate-800 text-slate-200 border-slate-700">
               CLOSED
             </span>
             <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
-              Qty: <strong className="text-slate-300">{pos.quantity}</strong>
+              Qty: <strong className="text-slate-200">{pos.quantity}</strong>
             </span>
         </div>
 
@@ -210,7 +210,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header & Tabs */}
-      <div className="pb-3 border-b border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">
@@ -221,7 +221,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
             </h3>
           </div>
 
-          <div className="flex bg-[#070a14] p-0.5 rounded-xl border border-slate-800 text-xs font-black shadow-inner">
+          <div className="flex bg-black/20 p-0.5 rounded-xl border border-slate-800 text-xs font-black shadow-inner">
             <button
               onClick={() => setActiveTab('POSITIONS')}
               className={`px-3 py-1 rounded-lg transition ${
@@ -316,7 +316,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
               orders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between text-xs font-mono"
+                  className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between text-xs font-mono"
                 >
                   <div className="flex items-center gap-2.5">
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
