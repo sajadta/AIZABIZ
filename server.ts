@@ -277,7 +277,18 @@ if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
     }
 
     // 2. If no positions, look for entry
-    if (activePositions.length === 0 && token)  {
+    // Check Circuit Breaker
+    let todayRealizedPnL = paperTradeHistory.reduce((acc, trade) => acc + (trade.realizedPnL || 0), 0);
+    if (todayRealizedPnL <= -botConfig.dailyMaxLossLimit) {
+        if (!botConfig.dailyLossLocked) {
+            botConfig.dailyLossLocked = true;
+            botConfig.enabled = false;
+            botLogs.unshift({ id: Date.now().toString(), time: new Date().toLocaleTimeString(), message: `Circuit Breaker: Daily max loss limit (₹${botConfig.dailyMaxLossLimit}) reached. Bot disabled for the day.`, type: 'ERROR' });
+        }
+    }
+    
+    // 2. If no positions, look for entry
+    if (activePositions.length === 0 && token && !botConfig.dailyLossLocked)  {
        let scanIndices = [
           { key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' },
           { key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' },
@@ -1572,7 +1583,7 @@ Return your response STRICTLY as a JSON object adhering to the schema.
 Provide both English and Malayalam (മലയാളം)  explanations for the user.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1677,7 +1688,7 @@ app.post('/api/gemini/chat', async (req: Request, res: Response)  => {
     Help the user troubleshoot or provide guidance on using the app. Reply in the same language they used (Malayalam or English) . Keep it concise.`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
     });
     

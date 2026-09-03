@@ -54,11 +54,13 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   useEffect(() => {
-    setApiKey(config.apiKey);
-    setApiSecret(config.apiSecret);
-    setAccessToken(config.accessToken || '');
-    if (config.redirectUri) setRedirectUri(config.redirectUri);
-  }, [config, isOpen]);
+    if (isOpen) {
+      setApiKey(config.apiKey || '');
+      setApiSecret(config.apiSecret || '');
+      setAccessToken(config.accessToken || '');
+      if (config.redirectUri) setRedirectUri(config.redirectUri);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
