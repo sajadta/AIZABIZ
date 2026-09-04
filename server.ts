@@ -1199,9 +1199,9 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
 
       return res.json({ success: true, symbol, interval, candles });
     }
-    return res.json({ success: true, symbol, interval, candles: [] });
+    return res.json({ success: false, symbol, interval, candles: [], error: data.errors || data.message || 'API returned no candles', raw: data });
   } catch (err: any)  {
-    return res.json({ success: true, symbol, interval, candles: [] }); 
+    return res.status(500).json({ success: false, symbol, interval, error: err.message }); 
   }
 });
 

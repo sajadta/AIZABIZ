@@ -205,11 +205,19 @@ export default function App() {
       const res = await fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&instrumentKey=${encodeURIComponent(instKey)}&interval=${tf}`);
       if (res.ok) {
         const data = await res.json();
+        if (data.success === false && data.error) {
+           console.error("Upstox Candles API Error:", data.error, data.raw);
+           setActiveToast({ message: `Chart Error: ${JSON.stringify(data.error)}`, type: 'ERROR' });
+        }
         const list = Array.isArray(data) ? data : (data.candles || []);
         setCandles(enrichCandlesWithIndicators(list));
+      } else {
+        const errText = await res.text();
+        console.error("Upstox Candles HTTP Error:", errText);
+        setActiveToast({ message: `Chart HTTP Error: ${res.status}`, type: 'ERROR' });
       }
-    } catch {
-      // Soft handling
+    } catch (err: any) {
+      console.error("Upstox Candles Fetch Error:", err);
     }
   }, []);
 
@@ -752,11 +760,16 @@ export default function App() {
           language={language} 
           setLanguage={setLanguage}
           soundEnabled={soundEnabled}
-          toggleSound={() => setSoundEnabled(!soundEnabled)}
+          setSoundEnabled={setSoundEnabled}
           onOpenApiSettings={() => setIsApiModalOpen(true)}
-          onOpenAndroidInstall={() => setIsAndroidModalOpen(true)}
+          onOpenAndroidModal={() => setIsAndroidModalOpen(true)}
           apiConfig={apiConfig}
-          />
+          isWsConnected={isWsConnected}
+          activePositionsCount={enrichedPositions.length}
+          onSquareOffAll={handleSquareOffAll}
+          totalPnL={totalPnL}
+          dailyProfit={tradeHistory.reduce((a, b) => a + (b.realizedPnL || 0) - 40, 0)}
+        />
         {(!isWsConnected || !apiConfig.accessToken || apiConfig.accessToken === '') && !showSetupModal && (
           <div className="bg-red-900/50 border-b border-red-500/50 text-red-200 px-4 py-2 text-sm flex items-center justify-center gap-2">
              <AlertTriangle size={16} />
