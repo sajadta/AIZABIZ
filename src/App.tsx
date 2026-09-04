@@ -1,6 +1,6 @@
 import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot, BellRing } from 'lucide-react';
+import { FileText, AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot, BellRing } from 'lucide-react';
 import { 
   Header 
 } from './components/Header';
@@ -165,7 +165,7 @@ export default function App() {
 
   // Active Bottom Section Tab
   
-  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'SUPPORT'>('MARKETS');
+  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'ORDERS' | 'SUPPORT'>('MARKETS');
   const [marketView, setMarketView] = useState<'SINGLE' | 'GRID'>('SINGLE');
 
   const [bottomTab, setBottomTab] = useState<'BOT' | 'ORDERS' | 'OPTIONS' | 'AI'>('BOT');
@@ -788,7 +788,7 @@ export default function App() {
               />
             </div>
             <div className="flex-1 flex flex-col bg-[#070a12]">
-              <div className="h-[40vh] md:h-[60vh] p-2 relative shrink-0">
+              <div className="flex-1 p-2 relative">
                  <CandlestickChart 
                     candles={candles || []}
                     symbol={selectedSymbol}
@@ -800,16 +800,7 @@ export default function App() {
                     onGenerateAiAnalysis={() => {}}
                  />
               </div>
-              <div className="flex-1 overflow-y-auto hide-scrollbar p-2 bg-slate-900/80 border-t border-slate-800">
-                 <OrderBookPositions 
-                    positions={enrichedPositions}
-                    orders={orders}
-                    language={language}
-                    totalPnL={enrichedPositions.reduce((acc, p) => acc + (p.pnl || 0), 0)}
-                    onSquareOffPosition={handleSquareOffPosition}
-                    onSquareOffAll={handleSquareOffAll}
-                 />
-              </div>
+              
             </div>
           </div>
         )}
@@ -844,6 +835,22 @@ export default function App() {
           </div>
         )}
 
+        {appTab === 'ORDERS' && (
+          <div className="flex-1 flex flex-col h-full bg-slate-900/80 p-2">
+            <div className="flex-1 bg-slate-900/90 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+               <OrderBookPositions 
+                  positions={enrichedPositions}
+                  orders={orders}
+                  tradeHistory={tradeHistory}
+                  language={language}
+                  totalPnL={enrichedPositions.reduce((acc, p) => acc + (p.pnl || 0), 0)}
+                  onSquareOffPosition={handleSquareOffPosition}
+                  onSquareOffAll={handleSquareOffAll}
+               />
+            </div>
+          </div>
+        )}
+        
         {appTab === 'PORTFOLIO' && (
           <div className="space-y-4 flex flex-col flex-1 h-full min-h-[600px] p-2">
             {/* Margin Cards */}
@@ -866,51 +873,15 @@ export default function App() {
               </div>
             </div>
 
-            {/* Positions */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar bg-slate-900/80 border border-slate-800 rounded-2xl p-3">
-              <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center justify-between">
-                <span>Active Positions ({enrichedPositions.length})</span>
-              </h3>
-              {enrichedPositions.length === 0 ? (
-                <p className="text-xs text-slate-500 italic text-center mt-4">No active positions.</p>
-              ) : (
-                <div className="space-y-2">
-                  {enrichedPositions.map((p, i) => {
-                    const invested = (p.quantity || 0) * (p.buyPrice || 0);
-                    const currentVal = (p.quantity || 0) * (p.currentLTP || 0);
-                    const approxBrokerage = 40; // ₹20 buy, ₹20 sell approx
-                    return (
-                    <div key={i} className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-xs font-bold text-slate-200">{p.symbol}</p>
-                          <p className="text-[10px] text-slate-400">Qty: {p.quantity} • Avg: ₹{Number(p.buyPrice || 0).toFixed(2)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs font-bold text-white">₹{Number(p.currentLTP || 0).toFixed(2)}</p>
-                          <p className={`text-[11px] font-bold ${p.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {p.pnl >= 0 ? '+' : ''}{Number(p.pnl || 0).toFixed(2)} ({p.pnlPercent ? p.pnlPercent.toFixed(2) : '0.00'}%)
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex justify-between border-t border-slate-800 pt-2 text-[9px] text-slate-400">
-                         <div>Used Amt: <span className="text-slate-300">₹{invested.toFixed(2)}</span></div>
-                         <div>Current: <span className="text-slate-300">₹{currentVal.toFixed(2)}</span></div>
-                         <div>Est. Brokerage/Tax: <span className="text-amber-400/80">~₹{approxBrokerage.toFixed(2)}</span></div>
-                      </div>
-                    </div>
-                  );})}
-                </div>
-              )}
-            </div>
-
             {/* Holdings */}
             <div className="flex-1 overflow-y-auto hide-scrollbar bg-slate-900/80 border border-slate-800 rounded-2xl p-3">
               <h3 className="text-sm font-bold text-slate-200 mb-3 flex items-center justify-between">
-                <span>Long-term Holdings ({enrichedHoldings.length})</span>
+                <span>{language === 'ml' ? 'നിങ്ങളുടെ ഇൻവെസ്റ്റ്മെന്റുകൾ (Holdings)' : 'Long-Term Holdings'} ({enrichedHoldings.length})</span>
               </h3>
               {enrichedHoldings.length === 0 ? (
-                <p className="text-xs text-slate-500 italic text-center mt-4">No holdings found.</p>
+                <p className="text-xs text-slate-500 italic text-center mt-4">
+                   {language === 'ml' ? 'പോർട്ട്‌ഫോളിയോയിൽ സ്റ്റോക്കുകൾ ഒന്നുമില്ല.' : 'No long-term holdings found.'}
+                </p>
               ) : (
                 <div className="space-y-2">
                   {enrichedHoldings.map((h, i) => {
@@ -925,18 +896,18 @@ export default function App() {
                         </div>
                         <div className="text-right">
                           <p className="text-xs font-bold text-white">₹{Number(h.currentLTP || 0).toFixed(2)}</p>
-                          <p className={`text-[11px] font-bold ${h.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {h.pnl >= 0 ? '+' : ''}{Number(h.pnl || 0).toFixed(2)} ({h.pnlPercent ? h.pnlPercent.toFixed(2) : '0.00'}%)
+                          <p className={`text-[11px] font-bold ${(h.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {(h.pnl || 0) >= 0 ? '+' : ''}{Number(h.pnl || 0).toFixed(2)} ({h.pnlPercent ? h.pnlPercent.toFixed(2) : '0.00'}%)
                           </p>
                         </div>
                       </div>
                       <div className="flex justify-between border-t border-slate-800 pt-2 text-[9px] text-slate-400">
-                         <div>Invested Amt: <span className="text-slate-300">₹{invested.toFixed(2)}</span></div>
+                         <div>Invested: <span className="text-slate-300">₹{invested.toFixed(2)}</span></div>
                          <div>Current Value: <span className="text-slate-300">₹{currentVal.toFixed(2)}</span></div>
-                         <div>Est. Taxes (STT/Charges): <span className="text-amber-400/80">~₹{(invested * 0.001).toFixed(2)}</span></div>
                       </div>
                     </div>
-                  );})}
+                    )}
+                  )}
                 </div>
               )}
             </div>
@@ -985,6 +956,11 @@ export default function App() {
           <button onClick={() => setAppTab('PORTFOLIO')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'PORTFOLIO' ? 'text-teal-400' : 'text-slate-500 hover:text-slate-400'}`}>
             <Briefcase className="w-5 h-5" />
             <span className="text-[10px] font-bold">Portfolio</span>
+          </button>
+          
+          <button onClick={() => setAppTab('ORDERS')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'ORDERS' ? 'text-violet-400' : 'text-slate-500 hover:text-slate-400'}`}>
+            <FileText className="w-5 h-5" />
+            <span className="text-[10px] font-bold">Orders</span>
           </button>
 
           <button onClick={() => setAppTab('SUPPORT')} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition ${appTab === 'SUPPORT' ? 'text-blue-400' : 'text-slate-500 hover:text-slate-400'}`}>

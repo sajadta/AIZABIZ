@@ -1104,8 +1104,10 @@ app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
          const v = val as any;
          const parts = key.split(/[:|]/);
          const symbolDisplay = (parts.length > 1 ? parts[1] : key).toUpperCase();
+         const segment = key.includes('INDEX') ? 'INDEX' : (key.includes('FO') ? 'OPTIONS' : 'EQUITY');
          list.push({
-             symbol: symbolDisplay,
+             symbol: symbolDisplay, 
+             segment,
              instrumentKey: key,
              ltp: v.last_price || 0,
              change: v.net_change || 0,
@@ -1582,8 +1584,9 @@ Provide a structured, institutional algorith ic evaluation.
 Return your response STRICTLY as a JSON object adhering to the schema.
 Provide both English and Malayalam (മലയാളം)  explanations for the user.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const dynamicAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    const response = await dynamicAi.models.generateContent({
+      model: 'gemini-3.6-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1676,7 +1679,7 @@ app.post('/api/gemini/analyze', handleGeminiAnalysis);
 
 // 10. AI Diagnostics & Support Chat
 app.post('/api/gemini/chat', async (req: Request, res: Response)  => {
-  if (!globalGeminiKey || globalGeminiKey === '')  return res.status(500) .json({ success: false, error: 'GenAI client not initialized (Missing API Key) .' });
+  if (!process.env.GEMINI_API_KEY)   return res.status(500) .json({ success: false, error: 'GenAI client not initialized (Missing API Key) .' });
   const { message, systemStatus } = req.body;
   try {
     const prompt = `You are an AI assistant for a Trading application built with Upstox API.
@@ -1687,8 +1690,9 @@ app.post('/api/gemini/chat', async (req: Request, res: Response)  => {
     
     Help the user troubleshoot or provide guidance on using the app. Reply in the same language they used (Malayalam or English) . Keep it concise.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const dynamicAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    const response = await dynamicAi.models.generateContent({
+      model: 'gemini-3.6-flash',
       contents: prompt,
     });
     
@@ -1756,8 +1760,10 @@ app.get('/api/stream/quotes', (req, res) => {
                     } else {
                         symbolDisplay = symbolDisplay.toUpperCase();
                     }
+                    const segment = key.includes('INDEX') ? 'INDEX' : (key.includes('FO') ? 'OPTIONS' : 'EQUITY');
                     return {
-                        symbol: symbolDisplay,
+                        symbol: symbolDisplay, 
+                        segment,
                         instrumentKey: key,
                         ltp, change, changePercent,
                         volume: item.volume || 0,
@@ -1854,9 +1860,11 @@ function ensureUpstoxStreamer() {
                        if (ltp > 0) {
                            globalLiveQuotes[key] = { last_price: ltp };
                            globalLiveQuotes['last_update'] = new Date().toISOString();
+                           const segment = key.includes('INDEX') ? 'INDEX' : (key.includes('FO') ? 'OPTIONS' : 'EQUITY');
                            quotesList.push({
 
-                               symbol: symbolDisplay,
+                               symbol: symbolDisplay, 
+                               segment,
                                instrumentKey: key,
                                ltp, change, changePercent,
                                volume, open, high, low, close
