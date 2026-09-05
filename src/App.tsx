@@ -104,7 +104,7 @@ export default function App() {
            const parsed = JSON.parse(storedConfig);
            setApiConfig(parsed);
            // Push to server
-           fetch('/api/upstox/config', {
+           fetch('/api/market/config', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(parsed)
@@ -117,7 +117,7 @@ export default function App() {
   
   const handleSaveSetup = async () => {
      try {
-       const res = await fetch('/api/upstox/config', {
+       const res = await fetch('/api/market/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(tempConfig)
@@ -178,7 +178,7 @@ export default function App() {
   // fetchQuotes depends on selectedInstrumentKey
   const fetchQuotes = useCallback(async () => {
     try {
-      const res = await fetch(`/api/upstox/quotes`);
+      const res = await fetch(`/api/market/quotes`, { headers: { 'Authorization': `Bearer ${apiConfig.accessToken}` } });
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.quotes || []);
@@ -202,24 +202,24 @@ export default function App() {
   // 2. Fetch Candlestick History
   const fetchCandles = useCallback(async (symbol: string, instKey: string, tf: string) => {
     try {
-      const res = await fetch(`/api/upstox/candles?symbol=${encodeURIComponent(symbol)}&instrumentKey=${encodeURIComponent(instKey)}&interval=${tf}`);
+      const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(symbol)}&instrumentKey=${encodeURIComponent(instKey)}&interval=${tf}`, { headers: { 'Authorization': `Bearer ${apiConfig.accessToken}` } });
       if (res.ok) {
         const data = await res.json();
         if (data.success === false && data.error) {
-           console.error("Upstox Candles API Error:", data.error, data.raw);
+           console.warn("Upstox Candles API Error:", data.error);
            setActiveToast({ message: `Chart Error: ${JSON.stringify(data.error)}`, type: 'ERROR' });
         }
         const list = Array.isArray(data) ? data : (data.candles || []);
         setCandles(enrichCandlesWithIndicators(list));
       } else {
         const errText = await res.text();
-        console.error("Upstox Candles HTTP Error:", errText);
+        console.warn("Upstox Candles HTTP Error:", errText);
         setActiveToast({ message: `Chart HTTP Error: ${res.status}`, type: 'ERROR' });
       }
     } catch (err: any) {
-      console.error("Upstox Candles Fetch Error:", err);
+      console.warn("Upstox Candles Fetch Error:", err.message);
     }
-  }, []);
+  }, [apiConfig.accessToken]);
 
   // 3. Fetch Positions & Orders
   const fetchPositionsAndOrders = useCallback(async () => {
@@ -242,7 +242,7 @@ export default function App() {
         setTradeHistory(Array.isArray(histData) ? histData : []);
       }
       
-      const holdRes = await fetch('/api/upstox/holdings');
+      const holdRes = await fetch('/api/market/holdings');
       if (holdRes.ok) {
         setHoldings(await holdRes.json());
       }
@@ -285,7 +285,7 @@ export default function App() {
   const fetchOptionChain = useCallback(async (symbol: string) => {
     setOptionLoading(true);
     try {
-      const res = await fetch(`/api/upstox/optionchain?symbol=${encodeURIComponent(symbol)}`);
+      const res = await fetch(`/api/market/optionchain?symbol=${encodeURIComponent(symbol)}`, { headers: { 'Authorization': `Bearer ${apiConfig.accessToken}` } });
       if (res.ok) {
         const data = await res.json();
         setOptionChainData(data);
@@ -363,14 +363,14 @@ export default function App() {
 
       if (savedToken && savedDate === todayStr) {
         // Automatically sync to backend if not already synced
-        await fetch('/api/upstox/daily-token', {
+        await fetch('/api/market/daily-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ accessToken: savedToken }),
         });
       }
 
-      const res = await fetch('/api/upstox/config');
+      const res = await fetch('/api/market/config');
       if (res.ok) {
         setApiConfig(await res.json());
       }
@@ -643,7 +643,7 @@ export default function App() {
   const handleSaveApiConfig = async (cfg: Partial<UpstoxApiConfig>) => {
     const merged = { ...apiConfig, ...cfg };
     localStorage.setItem('algoTradingConfig', JSON.stringify(merged));
-    const res = await fetch('/api/upstox/config', {
+    const res = await fetch('/api/market/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cfg),
@@ -707,7 +707,7 @@ export default function App() {
   });
 
   return (
-    <div className="h-screen h-[100dvh] w-full relative overflow-x-hidden">
+    <div className="h-screen h-[100dvh] w-full relative overflow-x-hidden flex flex-col pb-24">
 
       {/* Toast Notification */}
       {activeToast && (

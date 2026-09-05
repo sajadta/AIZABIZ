@@ -43,7 +43,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [apiKey, setApiKey] = useState(config.apiKey);
   const [apiSecret, setApiSecret] = useState(config.apiSecret);
   const [accessToken, setAccessToken] = useState(config.accessToken || '');
-  const [redirectUri, setRedirectUri] = useState(config.redirectUri || `${window.location.origin}/api/upstox/callback`);
+  const [redirectUri, setRedirectUri] = useState(config.redirectUri || `${window.location.origin}/api/market/callback`);
   
   // Auth Code for OAuth exchange
   const [authCode, setAuthCode] = useState('');
@@ -82,7 +82,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
     try {
       // Validate and activate daily token via backend
-      const res = await fetch('/api/upstox/daily-token', {
+      const res = await fetch('/api/market/daily-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accessToken: accessToken?.trim() }),
@@ -170,7 +170,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     setExchangingCode(true);
     setStatusMsg(null);
     try {
-      const res = await fetch('/api/upstox/token', {
+      const res = await fetch('/api/market/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +229,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   // 5. Clear Daily Token
   const handleClearToken = async () => {
     try {
-      await fetch('/api/upstox/clear-token', { method: 'POST' });
+      await fetch('/api/market/clear-token', { method: 'POST' });
       setAccessToken('');
       localStorage.removeItem('upstox_daily_token');
       localStorage.removeItem('upstox_token_date');

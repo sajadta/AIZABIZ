@@ -630,7 +630,19 @@ setInterval(() => {
 }, 14 * 60 * 1000); // 14 minutes
 
 // 2. Upstox API Auth & Configuration
-app.get('/api/upstox/config', async (req: Request, res: Response)  => {
+app.use('/api/market', (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        if (token && token.length > 10) {
+            upstoxConfig.accessToken = token;
+        }
+    }
+    next();
+});
+
+
+app.get('/api/market/config', async (req: Request, res: Response)  => {
   let isConnected = Boolean(upstoxConfig.accessToken);
   
   let availableMargin = 0;
@@ -680,7 +692,7 @@ app.get('/api/upstox/config', async (req: Request, res: Response)  => {
   });
 });
 
-app.post('/api/upstox/config', async (req: Request, res: Response)  => {
+app.post('/api/market/config', async (req: Request, res: Response)  => {
   const { apiKey, apiSecret, redirectUri, accessToken } = req.body;
   if (apiKey !== undefined)  upstoxConfig.apiKey = apiKey;
   if (apiSecret !== undefined)  upstoxConfig.apiSecret = apiSecret;
@@ -731,7 +743,7 @@ app.post('/api/upstox/config', async (req: Request, res: Response)  => {
   });
 });
 
-app.post('/api/upstox/save-config', (req: Request, res: Response)  => {
+app.post('/api/market/save-config', (req: Request, res: Response)  => {
   const { apiKey, apiSecret, redirectUri, accessToken } = req.body;
   if (apiKey)  upstoxConfig.apiKey = apiKey;
   if (apiSecret)  upstoxConfig.apiSecret = apiSecret;
@@ -746,7 +758,7 @@ app.post('/api/upstox/save-config', (req: Request, res: Response)  => {
 });
 
 // Dedicated Daily Token Activation and Verification Endpoint
-app.post('/api/upstox/daily-token', async (req: Request, res: Response)  => {
+app.post('/api/market/daily-token', async (req: Request, res: Response)  => {
   const { accessToken } = req.body;
   const token = (accessToken || '') .trim();
 
@@ -803,7 +815,7 @@ app.post('/api/upstox/daily-token', async (req: Request, res: Response)  => {
 });
 
 // Clear token endpoint
-app.post('/api/upstox/clear-token', (req: Request, res: Response)  => {
+app.post('/api/market/clear-token', (req: Request, res: Response)  => {
   upstoxConfig.accessToken = '';
   upstoxConfig.tokenGeneratedAt = '';
   upstoxConfig.tokenExpiresAt = '';
@@ -814,7 +826,7 @@ app.post('/api/upstox/clear-token', (req: Request, res: Response)  => {
 });
 
 // Validate token endpoint
-app.post('/api/upstox/validate-token', async (req: Request, res: Response)  => {
+app.post('/api/market/validate-token', async (req: Request, res: Response)  => {
   const token = (req.body.accessToken || upstoxConfig.accessToken || '') .trim();
   if (!token)  {
     return res.status(400) .json({ valid: false, error: 'No token provided' });
@@ -848,7 +860,7 @@ app.post('/api/upstox/validate-token', async (req: Request, res: Response)  => {
   }
 });
 
-app.get('/api/upstox/auth-url', (req: Request, res: Response)  => {
+app.get('/api/market/auth-url', (req: Request, res: Response)  => {
   const apiKey = req.query.apiKey as string || upstoxConfig.apiKey;
   const redirectUri = req.query.redirectUri as string || upstoxConfig.redirectUri;
 
@@ -863,7 +875,7 @@ app.get('/api/upstox/auth-url', (req: Request, res: Response)  => {
 });
 
 // Token Exchange Callback Handler
-app.post('/api/upstox/token', async (req: Request, res: Response)  => {
+app.post('/api/market/token', async (req: Request, res: Response)  => {
   const { cmode, apiKey, apiSecret, redirectUri } = req.body;
   const key = apiKey || upstoxConfig.apiKey;
   const secret = apiSecret || upstoxConfig.apiSecret;
@@ -903,7 +915,7 @@ app.post('/api/upstox/token', async (req: Request, res: Response)  => {
 });
 
 // 3. User Profile & Margin
-app.get('/api/upstox/profile', async (req: Request, res: Response)  => {
+app.get('/api/market/profile', async (req: Request, res: Response)  => {
   const token = (req.headers.authorization?.replace('Bearer ', '')  || upstoxConfig.accessToken);
   if (!token)  {
     return res.status(401) .json({ error: 'Not authenticated with Upstox' });
@@ -946,7 +958,7 @@ app.get('/api/upstox/profile', async (req: Request, res: Response)  => {
 });
 
 // Real-time Upstox Positions
-app.get('/api/upstox/positions', async (req: Request, res: Response)  => {
+app.get('/api/market/positions', async (req: Request, res: Response)  => {
   const token = (req.headers.authorization?.replace('Bearer ', '')  || upstoxConfig.accessToken);
   if (!token)  return res.json([]);
   
@@ -977,7 +989,7 @@ app.get('/api/upstox/positions', async (req: Request, res: Response)  => {
 });
 
 // Real-time Upstox Holdings
-app.get('/api/upstox/holdings', async (req: Request, res: Response)  => {
+app.get('/api/market/holdings', async (req: Request, res: Response)  => {
   const token = (req.headers.authorization?.replace('Bearer ', '')  || upstoxConfig.accessToken);
   if (!token)  return res.json([]);
   
@@ -1005,7 +1017,7 @@ app.get('/api/upstox/holdings', async (req: Request, res: Response)  => {
 
 
 // 4. Live Market Quotes
-app.get('/api/upstox/brokerage', async (req: Request, res: Response) => {
+app.get('/api/market/brokerage', async (req: Request, res: Response) => {
   const token = (req.headers.authorization?.replace('Bearer ', '') || upstoxConfig.accessToken);
   const { instrumentToken, quantity, product, transactionType, price } = req.query;
 
@@ -1085,7 +1097,7 @@ app.get('/api/upstox/brokerage', async (req: Request, res: Response) => {
   });
 });
 
-app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
+app.get('/api/market/quotes', async (req: Request, res: Response) => {
   const token = (req.headers.authorization?.replace('Bearer ', '') || upstoxConfig.accessToken);
   
   // Default index symbols + subscribed keys
@@ -1114,9 +1126,9 @@ app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
              changePercent: v.last_price ? Number(((v.net_change / (v.last_price - v.net_change)) * 100).toFixed(2)) : 0,
              volume: v.volume || 0,
              open: v.open || 0,
-             high: v.high || 0,
-             low: v.low || 0,
-             close: v.close || (v.last_price - v.net_change)
+             high: v.ohlc?.high || v.high || 0,
+             low: v.ohlc?.low || v.low || 0,
+             close: v.ohlc?.close || v.close || (v.last_price - v.net_change)
          });
      }
      return list;
@@ -1145,7 +1157,7 @@ app.get('/api/upstox/quotes', async (req: Request, res: Response) => {
 });
 
 // 5. Historical & Intraday Candles
-app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
+app.get('/api/market/candles', async (req: Request, res: Response)  => {
   const symbol = ((req.query.symbol as string) as string);
   const interval = (req.query.interval as string)  || '1 ';
   const token = (req.headers.authorization?.replace('Bearer ', '')  || upstoxConfig.accessToken);
@@ -1183,7 +1195,7 @@ app.get('/api/upstox/candles', async (req: Request, res: Response)  => {
         low: c[3],
         close: c[4],
         volume: c[5]
-      })) .reverse();
+      })) .filter(c => !isNaN(c.timestamp)) .reverse();
       
       // Aggregate if needed
       let candles = rawCandles;
@@ -1244,7 +1256,7 @@ app.get('/api/instrument/details', async (req: Request, res: Response) => {
   res.json({ symbol, instrumentKey, lotSize });
 });
 
-app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
+app.get('/api/market/optionchain', async (req: Request, res: Response) => {
   const symbol = ((req.query.symbol as string) as string) || 'NIFTY 50';
   const instrumentKey = getInstrumentKey(symbol);
   const token = upstoxConfig.accessToken;
@@ -1262,7 +1274,7 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
      });
      
      if (!contractRes.ok) {
-         throw new Error('Failed to fetch contracts');
+         return res.status(401).json({ error: "Unauthorized. Check API Token.", strikes: [] });
      }
      
      const contractData = await contractRes.json();
@@ -1344,7 +1356,7 @@ app.get('/api/upstox/optionchain', async (req: Request, res: Response) => {
      }
      throw new Error('Invalid chain data');
   } catch (error) {
-     console.error('Error fetching Option Chain:', error);
+     console.warn("Option Chain unavailable (likely missing/invalid token).");
      // Fallback to last known if available
      return res.status(500).json({ error: 'Failed to fetch option chain', strikes: [] });
      return res.status(500).json({ error: 'Failed to fetch option chain', strikes: [] });
@@ -1439,6 +1451,45 @@ app.post('/api/trading/order', async (req: Request, res: Response)  => {
 let paperOrders: any[] = [];
 let paperPositions: any[] = [];
 let paperTradeHistory: any[] = [];
+
+import fsSync from 'fs';
+
+const DB_FILE = path.join(process.cwd(), 'local_db.json');
+
+// Helper to save state
+function saveLocalDb() {
+  const dbData = {
+     botConfig,
+     upstoxConfig,
+     paperOrders,
+     paperPositions,
+     paperTradeHistory
+  };
+  try {
+     fsSync.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+  } catch(e) { console.error("Failed to save local DB", e); }
+}
+
+// Helper to load state
+function loadLocalDb() {
+  try {
+     if (fsSync.existsSync(DB_FILE)) {
+         const data = JSON.parse(fsSync.readFileSync(DB_FILE, 'utf-8'));
+         if (data.botConfig) botConfig = data.botConfig;
+         if (data.upstoxConfig) upstoxConfig = data.upstoxConfig;
+         if (data.paperOrders) paperOrders = data.paperOrders;
+         if (data.paperPositions) paperPositions = data.paperPositions;
+         if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
+         console.log("Loaded persistent data from local_db.json");
+     }
+  } catch(e) { console.error("Failed to load local DB", e); }
+}
+
+// Load it initially
+loadLocalDb();
+setInterval(saveLocalDb, 5000);
+
+
 const globalLiveQuotes: Record<string, any> = {};
 
 app.get('/api/trading/history', async (req: Request, res: Response)  => {
@@ -1481,7 +1532,7 @@ app.get('/api/trading/orders', async (req: Request, res: Response)  => {
    if (mode === 'PAPER_TRADING')  {
       return res.json(paperOrders);
    }
-   res.redirect('/api/upstox/orders');
+   res.redirect('/api/market/orders');
 });
 
 
@@ -1491,18 +1542,18 @@ app.get('/api/trading/positions', async (req: Request, res: Response)  => {
    if (mode === 'PAPER_TRADING')  {
       return res.json(paperPositions);
    }
-   res.redirect('/api/upstox/positions');
+   res.redirect('/api/market/positions');
 });
 
 
 // Square off single position (Placeholder for Upstox integration) 
 
-app.post('/api/upstox/positions/squareoff/:positionId', (req: Request, res: Response)  => {
+app.post('/api/market/positions/squareoff/:positionId', (req: Request, res: Response)  => {
   res.json({ success: false, error: 'Square off  ust bemexecuted directly via Upstox API.' });
 });
 
 // Square off all positions (Placeholder for Upstox integration) 
-app.post('/api/upstox/positions/square-off-all', (req: Request, res: Response)  => {
+app.post('/api/market/positions/square-off-all', (req: Request, res: Response)  => {
   res.json({ success: false, error: 'Square off all  ust bemexecuted directly via Upstox API with specific order parameters.' });
 });
 
@@ -1880,16 +1931,16 @@ function ensureUpstoxStreamer() {
                        });
                    }
                }
-           } catch(e) { console.error('WS MSG ERROR:', e); }
+           } catch(e) { console.warn("WS MSG Warning."); }
         });
 
         upstoxStreamer.on('error', (err) => {
-           console.error("Upstox WS Error:", err);
+           console.warn("Upstox WS disconnected or 401. Check token.");
         });
 
-        upstoxStreamer.connect().catch(e => console.error("Upstox WS Connect error", e));
+        upstoxStreamer.connect().catch(e => console.warn("Upstox WS Connect error (check token)."));
     } catch(err) {
-        console.error("Failed to init Upstox streamer", err);
+        console.warn("Failed to init Upstox streamer (check token).");
     }
 }
 

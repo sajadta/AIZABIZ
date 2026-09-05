@@ -36,7 +36,7 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void 
          // Buy charges
          let buyCharges = 0;
          if (pos.buyPrice && pos.quantity) {
-             const r1 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
+             const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
              if (r1.ok) {
                  const d1 = await r1.json();
                  buyCharges += d1?.data?.charges?.total || 0;
@@ -46,7 +46,7 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void 
          // Estimated Sell charges
          let sellCharges = 0;
          if (pos.currentLTP && pos.quantity) {
-             const r2 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${pos.currentLTP}`);
+             const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${pos.currentLTP}`);
              if (r2.ok) {
                  const d2 = await r2.json();
                  sellCharges += d2?.data?.charges?.total || 0;
@@ -125,7 +125,7 @@ const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, ind
          // Buy charges
          let buyCharges = 0;
          if (pos.buyPrice && pos.quantity) {
-             const r1 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
+             const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
              if (r1.ok) {
                  const d1 = await r1.json();
                  buyCharges += d1?.data?.charges?.total || 0;
@@ -136,7 +136,7 @@ const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, ind
          let sellCharges = 0;
          const finalSellPrice = pos.sellPrice || pos.currentLTP;
          if (finalSellPrice && pos.quantity) {
-             const r2 = await fetch(`/api/upstox/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${finalSellPrice}`);
+             const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${finalSellPrice}`);
              if (r2.ok) {
                  const d2 = await r2.json();
                  sellCharges += d2?.data?.charges?.total || 0;
