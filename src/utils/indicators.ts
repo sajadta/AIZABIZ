@@ -1,4 +1,9 @@
-import { CandleData, IndicatorReadings, TradingSignal, StrategyKey } from '../types';
+import {
+  CandleData,
+  IndicatorReadings,
+  TradingSignal,
+  StrategyKey,
+} from "../types";
 
 export function calculateEMA(data: number[], period: number): number[] {
   const k = 2 / (period + 1);
@@ -48,7 +53,7 @@ export function calculateRSI(closes: number[], period: number = 14): number[] {
   let avgLoss = losses / period;
 
   let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  rsi.push(Number((100 - (100 / (1 + rs))).toFixed(2)));
+  rsi.push(Number((100 - 100 / (1 + rs)).toFixed(2)));
 
   for (let i = period + 1; i < closes.length; i++) {
     const diff = closes[i] - closes[i - 1];
@@ -59,7 +64,7 @@ export function calculateRSI(closes: number[], period: number = 14): number[] {
     avgLoss = (avgLoss * (period - 1) + currentLoss) / period;
 
     rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    rsi.push(Number((100 - (100 / (1 + rs))).toFixed(2)));
+    rsi.push(Number((100 - 100 / (1 + rs)).toFixed(2)));
   }
 
   // Pad the beginning
@@ -67,7 +72,11 @@ export function calculateRSI(closes: number[], period: number = 14): number[] {
   return [...padding, ...rsi];
 }
 
-export function calculateMACD(closes: number[]): { macd: number[]; signal: number[]; hist: number[] } {
+export function calculateMACD(closes: number[]): {
+  macd: number[];
+  signal: number[];
+  hist: number[];
+} {
   const ema12 = calculateEMA(closes, 12);
   const ema26 = calculateEMA(closes, 26);
   const macdLine: number[] = [];
@@ -86,7 +95,10 @@ export function calculateMACD(closes: number[]): { macd: number[]; signal: numbe
   return { macd: macdLine, signal: signalLine, hist };
 }
 
-export function calculateATR(candles: { high: number; low: number; close: number }[], period: number = 10): number[] {
+export function calculateATR(
+  candles: { high: number; low: number; close: number }[],
+  period: number = 10,
+): number[] {
   const tr: number[] = [];
   for (let i = 0; i < candles.length; i++) {
     if (i === 0) {
@@ -105,15 +117,15 @@ export function calculateATR(candles: { high: number; low: number; close: number
 export function calculateSupertrend(
   candles: { high: number; low: number; close: number }[],
   period: number = 10,
-  multiplier: number = 3
-): { supertrend: number[]; direction: ('BUY' | 'SELL')[] } {
+  multiplier: number = 3,
+): { supertrend: number[]; direction: ("BUY" | "SELL")[] } {
   const atr = calculateATR(candles, period);
   const supertrend: number[] = [];
-  const direction: ('BUY' | 'SELL')[] = [];
+  const direction: ("BUY" | "SELL")[] = [];
 
   let prevUpper = 0;
   let prevLower = 0;
-  let prevTrend: 'BUY' | 'SELL' = 'BUY';
+  let prevTrend: "BUY" | "SELL" = "BUY";
 
   for (let i = 0; i < candles.length; i++) {
     const hl2 = (candles[i].high + candles[i].low) / 2;
@@ -137,16 +149,16 @@ export function calculateSupertrend(
       }
     }
 
-    let currentTrend: 'BUY' | 'SELL' = prevTrend;
+    let currentTrend: "BUY" | "SELL" = prevTrend;
     if (i > 0) {
-      if (prevTrend === 'BUY' && candles[i].close < finalLower) {
-        currentTrend = 'SELL';
-      } else if (prevTrend === 'SELL' && candles[i].close > finalUpper) {
-        currentTrend = 'BUY';
+      if (prevTrend === "BUY" && candles[i].close < finalLower) {
+        currentTrend = "SELL";
+      } else if (prevTrend === "SELL" && candles[i].close > finalUpper) {
+        currentTrend = "BUY";
       }
     }
 
-    const stValue = currentTrend === 'BUY' ? finalLower : finalUpper;
+    const stValue = currentTrend === "BUY" ? finalLower : finalUpper;
     supertrend.push(Number(stValue.toFixed(2)));
     direction.push(currentTrend);
 
@@ -158,7 +170,11 @@ export function calculateSupertrend(
   return { supertrend, direction };
 }
 
-export function calculateBollingerBands(closes: number[], period: number = 20, stdDevMultiplier: number = 2): { upper: number[]; lower: number[]; middle: number[] } {
+export function calculateBollingerBands(
+  closes: number[],
+  period: number = 20,
+  stdDevMultiplier: number = 2,
+): { upper: number[]; lower: number[]; middle: number[] } {
   const middle = calculateSMA(closes, period);
   const upper: number[] = [];
   const lower: number[] = [];
@@ -170,7 +186,8 @@ export function calculateBollingerBands(closes: number[], period: number = 20, s
     } else {
       const slice = closes.slice(i - period + 1, i + 1);
       const avg = middle[i];
-      const variance = slice.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / period;
+      const variance =
+        slice.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / period;
       const stdDev = Math.sqrt(variance);
       upper.push(Number((avg + stdDevMultiplier * stdDev).toFixed(2)));
       lower.push(Number((avg - stdDevMultiplier * stdDev).toFixed(2)));
@@ -180,10 +197,20 @@ export function calculateBollingerBands(closes: number[], period: number = 20, s
   return { upper, lower, middle };
 }
 
-export function enrichCandlesWithIndicators(rawCandles: { timestamp: number; timeStr: string; open: number; high: number; low: number; close: number; volume: number }[]): CandleData[] {
+export function enrichCandlesWithIndicators(
+  rawCandles: {
+    timestamp: number;
+    timeStr: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }[],
+): CandleData[] {
   if (!rawCandles || rawCandles.length === 0) return [];
 
-  const closes = rawCandles.map(c => c.close);
+  const closes = rawCandles.map((c) => c.close);
   const ema9 = calculateEMA(closes, 9);
   const ema21 = calculateEMA(closes, 21);
   const ema50 = calculateEMA(closes, 50);
@@ -215,8 +242,8 @@ export function analyzeTradingSignals(
   instrumentKey: string,
   candles: CandleData[],
   currentLtp: number,
-  strategy: StrategyKey = 'PROFIT_MAX_100_PERCENT_MATRIX',
-  realOptionPrice?: number
+  strategy: StrategyKey = "PROFIT_MAX_100_PERCENT_MATRIX",
+  realOptionPrice?: number,
 ): TradingSignal | null {
   if (!candles || candles.length < 20) return null;
 
@@ -227,7 +254,7 @@ export function analyzeTradingSignals(
   const ema21 = last.ema21 ?? currentLtp;
   const ema50 = last.ema50 ?? currentLtp;
   const rsi = last.rsi ?? 50;
-  const supertrendDir = last.supertrendDir ?? 'BUY';
+  const supertrendDir = last.supertrendDir ?? "BUY";
   const supertrendVal = last.supertrend ?? currentLtp * 0.98;
   const macdHist = last.macdHist ?? 0;
   const prevMacdHist = prev.macdHist ?? 0;
@@ -239,24 +266,55 @@ export function analyzeTradingSignals(
       value: supertrendVal,
     },
     emaCross: {
-      signal: ema9 > ema21 && ema21 > ema50 ? 'BULLISH' : (ema9 < ema21 && ema21 < ema50 ? 'BEARISH' : 'NEUTRAL'),
+      signal:
+        ema9 > ema21 && ema21 > ema50
+          ? "BULLISH"
+          : ema9 < ema21 && ema21 < ema50
+            ? "BEARISH"
+            : "NEUTRAL",
       ema9,
       ema21,
       ema50,
     },
     rsi: {
       value: rsi,
-      condition: rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : rsi > 55 ? 'BULLISH' : rsi < 45 ? 'BEARISH' : 'NEUTRAL',
+      condition:
+        rsi > 70
+          ? "OVERBOUGHT"
+          : rsi < 30
+            ? "OVERSOLD"
+            : rsi > 55
+              ? "BULLISH"
+              : rsi < 45
+                ? "BEARISH"
+                : "NEUTRAL",
     },
     macd: {
       macd: last.macd ?? 0,
       signal: last.macdSignal ?? 0,
       hist: macdHist,
-      cross: macdHist > 0 && prevMacdHist <= 0 ? 'BULLISH' : (macdHist < 0 && prevMacdHist >= 0 ? 'BEARISH' : macdHist > 0 ? 'BULLISH' : 'BEARISH'),
+      cross:
+        macdHist > 0 && prevMacdHist <= 0
+          ? "BULLISH"
+          : macdHist < 0 && prevMacdHist >= 0
+            ? "BEARISH"
+            : macdHist > 0
+              ? "BULLISH"
+              : "BEARISH",
     },
     vwap: {
-      value: Number(((candles.reduce((acc, c) => acc + c.close * c.volume, 0)) / (candles.reduce((acc, c) => acc + c.volume, 1))).toFixed(2)),
-      position: currentLtp >= ((candles.reduce((acc, c) => acc + c.close * c.volume, 0)) / (candles.reduce((acc, c) => acc + c.volume, 1))) ? 'ABOVE' : 'BELOW',
+      value: Number(
+        (
+          candles.reduce((acc, c) => acc + c.close * c.volume, 0) /
+          candles.reduce((acc, c) => acc + c.volume, 1)
+        ).toFixed(2),
+      ),
+      position:
+        currentLtp >=
+        candles.reduce((acc, c) => acc + c.close * c.volume, 0) /
+          candles.reduce((acc, c) => acc + c.volume, 1)
+          ? "ABOVE"
+          : "BELOW",
     },
   };
 
@@ -264,26 +322,37 @@ export function analyzeTradingSignals(
   let bearishPoints = 0;
 
   // 1. Supertrend (Institutional Trend Direction) - 30 Points
-  if (readings.supertrend.signal === 'BUY') bullishPoints += 30;
+  if (readings.supertrend.signal === "BUY") bullishPoints += 30;
   else bearishPoints += 30;
 
   // 2. EMA Cross (Momentum) - 25 Points
   // Only score if the crossover is clear and diverging
-  if (readings.emaCross.signal === 'BULLISH' && ema9 > ema21 * 1.0005) bullishPoints += 25;
-  else if (readings.emaCross.signal === 'BEARISH' && ema9 < ema21 * 0.9995) bearishPoints += 25;
+  if (readings.emaCross.signal === "BULLISH" && ema9 > ema21 * 1.0005)
+    bullishPoints += 25;
+  else if (readings.emaCross.signal === "BEARISH" && ema9 < ema21 * 0.9995)
+    bearishPoints += 25;
 
   // 3. RSI (Strength) - 20 Points
   // Avoid buying at absolute tops (RSI > 75) or selling at bottoms (RSI < 25)
   if (readings.rsi.value >= 52 && readings.rsi.value <= 72) bullishPoints += 20;
-  else if (readings.rsi.value <= 48 && readings.rsi.value >= 28) bearishPoints += 20;
+  else if (readings.rsi.value <= 48 && readings.rsi.value >= 28)
+    bearishPoints += 20;
 
   // 4. MACD (Acceleration) - 15 Points
   // Check if MACD histogram is growing, not just positive
-  if ((readings.macd.cross === 'BULLISH' || macdHist > 0) && macdHist > prevMacdHist) bullishPoints += 15;
-  else if ((readings.macd.cross === 'BEARISH' || macdHist < 0) && macdHist < prevMacdHist) bearishPoints += 15;
+  if (
+    (readings.macd.cross === "BULLISH" || macdHist > 0) &&
+    macdHist > prevMacdHist
+  )
+    bullishPoints += 15;
+  else if (
+    (readings.macd.cross === "BEARISH" || macdHist < 0) &&
+    macdHist < prevMacdHist
+  )
+    bearishPoints += 15;
 
   // 5. VWAP (Intraday Institutional Average) - 10 Points
-  if (readings.vwap.position === 'ABOVE') bullishPoints += 10;
+  if (readings.vwap.position === "ABOVE") bullishPoints += 10;
   else bearishPoints += 10;
 
   // 6. Volatility & Trap Filter (Penalty)
@@ -291,33 +360,33 @@ export function analyzeTradingSignals(
   if (readings.rsi.value > 80) bullishPoints -= 15;
   // If RSI is extremely oversold, penalize bearish score
   if (readings.rsi.value < 20) bearishPoints -= 15;
-  
+
   // 7. Candlestick Anatomy (Simple Check)
   const bodySize = Math.abs(last.close - last.open);
   const totalSize = last.high - last.low;
-  const isDoji = totalSize > 0 && (bodySize / totalSize) < 0.15;
+  const isDoji = totalSize > 0 && bodySize / totalSize < 0.15;
   if (isDoji) {
-      // Doji means indecision. Reduce confidence.
-      bullishPoints -= 10;
-      bearishPoints -= 10;
+    // Doji means indecision. Reduce confidence.
+    bullishPoints -= 10;
+    bearishPoints -= 10;
   }
 
   const totalBullishConfidence = Math.min(99, Math.max(10, bullishPoints));
   const totalBearishConfidence = Math.min(99, Math.max(10, bearishPoints));
 
-  let signalType: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+  let signalType: "BUY" | "SELL" | "HOLD" = "HOLD";
   let confidence = 50;
   let stopLoss = currentLtp * 0.99;
   let target1 = currentLtp * 1.012;
   let target2 = currentLtp * 1.025;
   let target3 = currentLtp * 1.04;
-  let rationale = '';
-  let rationaleMalayalam = '';
+  let rationale = "";
+  let rationaleMalayalam = "";
 
   if (totalBullishConfidence >= 75) {
-    signalType = 'BUY';
+    signalType = "BUY";
     confidence = totalBullishConfidence;
-    stopLoss = Number((Math.min(supertrendVal, currentLtp * 0.985)).toFixed(2));
+    stopLoss = Number(Math.min(supertrendVal, currentLtp * 0.985).toFixed(2));
     const risk = currentLtp - stopLoss;
     target1 = Number((currentLtp + risk * 1.5).toFixed(2));
     target2 = Number((currentLtp + risk * 2.5).toFixed(2));
@@ -325,9 +394,9 @@ export function analyzeTradingSignals(
     rationale = `Strong Bullish Confluence: SuperTrend Green, EMA9 (${ema9}) > EMA21 (${ema21}), RSI ${rsi} showing strong upward momentum, MACD Histogram positive.`;
     rationaleMalayalam = `ശക്തമായ ബുള്ളിഷ് സിഗ്നൽ: സൂപ്പർട്രെൻഡ് ബൈ മോഡിൽ, EMA ക്രോസ്സ് ഓവർ അനുകൂലം, RSI ${rsi} ശക്തമായ മുന്നേറ്റം കാണിക്കുന്നു, MACD പോസിറ്റീവ് സോണിൽ.`;
   } else if (totalBearishConfidence >= 75) {
-    signalType = 'SELL';
+    signalType = "SELL";
     confidence = totalBearishConfidence;
-    stopLoss = Number((Math.max(supertrendVal, currentLtp * 1.015)).toFixed(2));
+    stopLoss = Number(Math.max(supertrendVal, currentLtp * 1.015).toFixed(2));
     const risk = stopLoss - currentLtp;
     target1 = Number((currentLtp - risk * 1.5).toFixed(2));
     target2 = Number((currentLtp - risk * 2.5).toFixed(2));
@@ -335,7 +404,7 @@ export function analyzeTradingSignals(
     rationale = `Strong Bearish Confluence: SuperTrend Red, EMA9 (${ema9}) < EMA21 (${ema21}), RSI ${rsi} dropping below equilibrium, MACD Histogram negative.`;
     rationaleMalayalam = `ശക്തമായ ബെയറിഷ് സിഗ്നൽ: സൂപ്പർട്രെൻഡ് സെൽ മോഡിൽ, EMA താഴ്ന്ന ട്രെൻഡിൽ, RSI ${rsi} താഴേക്ക്, വിൽക്കാനുള്ള അനുകൂല ഘടകം.`;
   } else {
-    signalType = 'HOLD';
+    signalType = "HOLD";
     confidence = 50;
     rationale = `Neutral / Consolidation: Market is hovering near key moving averages without definitive breakout confirmation.`;
     rationaleMalayalam = `വിപണി സന്തുലിത അവസ്ഥയിൽ (HOLD). കൃത്യമായ ബ്രേക്ക്ഔട്ട് വരുന്നതുവരെ കാത്തിരിക്കുക.`;
@@ -345,24 +414,26 @@ export function analyzeTradingSignals(
   const rewardDiff = Math.abs(target1 - currentLtp);
   const rrRatio = `1:${(rewardDiff / (riskDiff || 1)).toFixed(1)}`;
 
-  
-  const isBullish = signalType === 'BUY';
-  let optSymbol = '';
-  if (symbol.includes('NIFTY') && !symbol.includes('BANK') && !symbol.includes('FIN')) {
-     const strike = Math.round(currentLtp / 50) * 50;
-     optSymbol = `NIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
-  } else if (symbol.includes('BANK')) {
-     const strike = Math.round(currentLtp / 100) * 100;
-     optSymbol = `BANKNIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
-  } else if (symbol.includes('FIN')) {
-     const strike = Math.round(currentLtp / 50) * 50;
-     optSymbol = `FINNIFTY ${strike} ${isBullish ? 'CE' : 'PE'}`;
-  } else if (symbol.includes('SENSEX')) {
-     const strike = Math.round(currentLtp / 100) * 100;
-     optSymbol = `SENSEX ${strike} ${isBullish ? 'CE' : 'PE'}`;
+  const isBullish = signalType === "BUY";
+  let optSymbol = "";
+  if (
+    symbol.includes("NIFTY") &&
+    !symbol.includes("BANK") &&
+    !symbol.includes("FIN")
+  ) {
+    const strike = Math.round(currentLtp / 50) * 50;
+    optSymbol = `NIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
+  } else if (symbol.includes("BANK")) {
+    const strike = Math.round(currentLtp / 100) * 100;
+    optSymbol = `BANKNIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
+  } else if (symbol.includes("FIN")) {
+    const strike = Math.round(currentLtp / 50) * 50;
+    optSymbol = `FINNIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
+  } else if (symbol.includes("SENSEX")) {
+    const strike = Math.round(currentLtp / 100) * 100;
+    optSymbol = `SENSEX ${strike} ${isBullish ? "CE" : "PE"}`;
   }
 
-  
   let optEntry = currentLtp;
   let optSL = stopLoss;
   let optT1 = target1;
@@ -370,33 +441,38 @@ export function analyzeTradingSignals(
   let optT3 = target3;
 
   if (optSymbol) {
-     let basePremium = 100;
-     if (symbol.includes('BANK')) basePremium = 300;
-     else if (symbol.includes('SENSEX')) basePremium = 350;
-     
-     // USE REAL OPTION PRICE IF AVAILABLE, OTHERWISE USE BASE
-     optEntry = realOptionPrice ? realOptionPrice : basePremium;
-     
-     // Option Stop Loss: typically 20% of premium
-     optSL = Number((optEntry * 0.8).toFixed(2));
-     const risk = optEntry - optSL;
-     
-     // Targets based on Risk/Reward multipliers on the premium itself
-     optT1 = Number((optEntry + risk * 1.5).toFixed(2));
-     optT2 = Number((optEntry + risk * 2.5).toFixed(2));
-     optT3 = Number((optEntry + risk * 4.0).toFixed(2));
+    let basePremium = 100;
+    if (symbol.includes("BANK")) basePremium = 300;
+    else if (symbol.includes("SENSEX")) basePremium = 350;
+
+    // USE REAL OPTION PRICE IF AVAILABLE, OTHERWISE USE BASE
+    optEntry = realOptionPrice ? realOptionPrice : basePremium;
+
+    // Option Stop Loss: typically 20% of premium
+    optSL = Number((optEntry * 0.8).toFixed(2));
+    const risk = optEntry - optSL;
+
+    // Targets based on Risk/Reward multipliers on the premium itself
+    optT1 = Number((optEntry + risk * 1.5).toFixed(2));
+    optT2 = Number((optEntry + risk * 2.5).toFixed(2));
+    optT3 = Number((optEntry + risk * 4.0).toFixed(2));
   }
 
   return {
     id: `sig_${symbol}_${Date.now()}`,
     symbol: optSymbol || symbol,
-    
+
     name,
     instrumentKey,
     signalType,
-    strategyName: strategy === 'SUPERTREND_EMA_CONFLUENCE' ? 'SuperTrend & EMA Confluence' :
-      strategy === 'RSI_MOMENTUM_BREAKOUT' ? 'RSI Momentum Breakout' :
-      strategy === 'VWAP_INSTITUTIONAL_REVERSION' ? 'VWAP Institutional Bounce' : '100% High-Accuracy Profit Matrix',
+    strategyName:
+      strategy === "SUPERTREND_EMA_CONFLUENCE"
+        ? "SuperTrend & EMA Confluence"
+        : strategy === "RSI_MOMENTUM_BREAKOUT"
+          ? "RSI Momentum Breakout"
+          : strategy === "VWAP_INSTITUTIONAL_REVERSION"
+            ? "VWAP Institutional Bounce"
+            : "100% High-Accuracy Profit Matrix",
     confidenceScore: confidence,
     price: optEntry,
     stopLoss: optSL,
@@ -407,7 +483,11 @@ export function analyzeTradingSignals(
     rationale,
     rationaleMalayalam,
     indicators: readings,
-    timestamp: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    status: 'ACTIVE',
+    timestamp: new Date().toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    status: "ACTIVE",
   };
 }

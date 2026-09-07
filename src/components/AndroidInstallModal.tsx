@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Globe,
   Terminal,
-  Github,
+  
   Server,
   Key,
   HelpCircle,
@@ -253,7 +253,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
             <div className="space-y-3.5 text-xs text-slate-200">
               <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/40 space-y-1.5">
                 <span className="font-extrabold text-purple-300 flex items-center gap-2 text-sm">
-                  <Github className="w-4 h-4 text-purple-400" />
+                  <HelpCircle className="w-4 h-4 text-purple-400" />
                   <span>{language === 'ml' ? 'ഈ പ്രോജക്ട് GitHub-ലേക്ക് ചേർക്കേണ്ടതുണ്ടോ?' : 'Should you push this project to GitHub?'}</span>
                 </span>
                 <p className="text-[11px] text-slate-200 leading-relaxed">

@@ -1,39 +1,14 @@
-import { relations } from 'drizzle-orm';
-import { integer, pgTable, serial, text, timestamp, boolean, doublePrecision } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, doublePrecision, timestamp, varchar, integer } from 'drizzle-orm/pg-core';
 
-export const users = pgTable('users', {
+export const tradeHistory = pgTable('trade_history', {
   id: serial('id').primaryKey(),
-  uid: text('uid').notNull().unique(), // Firebase Auth UID
-  email: text('email').notNull(),
-  upstoxApiKey: text('upstox_api_key'),
-  upstoxRedirectUri: text('upstox_redirect_uri'),
-  upstoxAccessToken: text('upstox_access_token'),
-  botConfig: text('bot_config'),
-  telegramToken: text('telegram_token'),
-  telegramChatId: text('telegram_chat_id'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
-
-export const paperOrders = pgTable('paper_orders', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id').references(() => users.id).notNull(),
-  symbol: text('symbol').notNull(),
-  instrumentKey: text('instrument_key').notNull(),
+  tradeId: varchar('trade_id', { length: 255 }).notNull(),
+  symbol: varchar('symbol', { length: 255 }).notNull(),
+  type: varchar('type', { length: 50 }).notNull(),
+  buyPrice: doublePrecision('buy_price').notNull(),
+  sellPrice: doublePrecision('sell_price'),
   quantity: integer('quantity').notNull(),
-  transactionType: text('transaction_type').notNull(), // BUY / SELL
-  price: doublePrecision('price').notNull(),
-  status: text('status').notNull(),
-  timestamp: timestamp('timestamp').notNull(),
-  createdAt: timestamp('created_at').defaultNow(),
+  realizedPnL: doublePrecision('realized_pnl'),
+  openTime: timestamp('open_time').defaultNow().notNull(),
+  closeTime: timestamp('close_time'),
 });
-
-export const usersRelations = relations(users, ({ many }) => ({
-  paperOrders: many(paperOrders),
-}));
-
-export const paperOrdersRelations = relations(paperOrders, ({ one }) => ({
-  user: one(users, {
-    fields: [paperOrders.userId],
-    references: [users.id],
-  }),
-}));

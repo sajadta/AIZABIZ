@@ -827,6 +827,42 @@ export default function App() {
               language={language}
               onExecuteSignal={(sig) => openOrderModal(sig.signalType as OrderTransactionType, sig.symbol, sig.price)}
             />
+
+            
+            {activeTab === 'chart' && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold text-slate-100">Live Institutional Charting</h2>
+                            <p className="text-sm text-slate-400">Real-time tick-by-tick websocket data</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <span className="relative flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            </span>
+                            <span className="text-xs text-green-400 font-bold">WebSockets Connected</span>
+                        </div>
+                    </div>
+                    
+                    <TradingChart data={chartData} />
+                    
+                    <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                        <h3 className="text-sm font-bold text-slate-200 mb-2">Algorithm Execution Zones</h3>
+                        <p className="text-xs text-slate-400">
+                            The chart currently displays the simulated tick data via internal WebSockets.
+                            Auto-Strike and MTF (Multi-Timeframe) executions will plot Buy/Sell markers directly on this canvas.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'bot' && (
+                <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <AdvancedAnalytics history={botHistory} />
+                </div>
+            )}
+
           </div>
         )}
 
