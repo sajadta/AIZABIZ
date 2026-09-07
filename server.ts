@@ -2082,7 +2082,8 @@ app.post("/api/trading/paper-sync", (req: Request, res: Response) => {
 // 10. Gemini AI Live Market & Algorithmic Analysis Engine (with aliases)
 const handleGeminiAnalysis = async (req: Request, res: Response) => {
   try {
-    const { symbol, ltp, changePercent, indicators, interval } = req.body;
+    const { symbol, ltp, changePercent, indicators, interval, geminiApiKey } = req.body;
+    const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
 
     const quote = { ltp: ltp || 0, changePercent: changePercent || 0 };
     const prompt = `You are a world-class Quantitative Financial Analyst and Algorithmic Trading Architect for Indian Equities (NSE/BSE)  on the Upstox Live Platform.
@@ -2108,10 +2109,10 @@ Return your response STRICTLY as a JSON object adhering to the schema.
 Provide both English and Malayalam (മലയാളം)  explanations for the user.`;
 
     const dynamicAi = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY || "",
+      apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -2219,14 +2220,15 @@ app.post("/api/gemini/analyze", handleGeminiAnalysis);
 
 // 10. AI Diagnostics & Support Chat
 app.post("/api/gemini/chat", async (req: Request, res: Response) => {
-  if (!process.env.GEMINI_API_KEY)
+  const { message, systemStatus, geminiApiKey } = req.body;
+  const apiKey = geminiApiKey || process.env.GEMINI_API_KEY;
+  if (!apiKey)
     return res
       .status(500)
       .json({
         success: false,
         error: "GenAI client not initialized (Missing API Key) .",
       });
-  const { message, systemStatus } = req.body;
   try {
     const prompt = `You are an AI assistant for a Trading application built with Upstox API.
     
@@ -2237,10 +2239,10 @@ app.post("/api/gemini/chat", async (req: Request, res: Response) => {
     Help the user troubleshoot or provide guidance on using the app. Reply in the same language they used (Malayalam or English) . Keep it concise.`;
 
     const dynamicAi = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY || "",
+      apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: prompt,
     });
 

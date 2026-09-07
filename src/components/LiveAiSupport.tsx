@@ -46,7 +46,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMsg.text,
+          message: userMsg.text, geminiApiKey: apiConfig.geminiApiKey,
           systemStatus: {
             apiConnected: apiConfig.isConnected,
             apiTokenExists: !!apiConfig.accessToken,
@@ -80,7 +80,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: "[AUTO-DIAGNOSTIC-REQUEST] Verify the algorithm working, code execution health, and API connectivity state based on the following system payload. Reply in Malayalam detailing the health of the bot, execution engine, and options calculations (IV/Theta/Gamma).",
+          geminiApiKey: apiConfig.geminiApiKey, message: "[AUTO-DIAGNOSTIC-REQUEST] Verify the algorithm working, code execution health, and API connectivity state based on the following system payload. Reply in Malayalam detailing the health of the bot, execution engine, and options calculations (IV/Theta/Gamma).",
           systemStatus: {
             apiConnected: apiConfig.isConnected,
             apiTokenExists: !!apiConfig.accessToken,

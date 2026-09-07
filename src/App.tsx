@@ -335,7 +335,8 @@ export default function App() {
         interval,
         ltp: quote?.ltp || 0,
         changePercent: quote?.changePercent || 0,
-        indicators
+        indicators,
+        geminiApiKey: apiConfig.geminiApiKey
       };
 
       const res = await fetch('/api/gemini/analyze', {

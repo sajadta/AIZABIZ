@@ -313,7 +313,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       <div className="relative flex-1 flex flex-col min-h-0 bg-[#070a12]">
          {/* Main Chart Container */}
-         <div className="flex-1 w-full relative min-h-[300px]"><div ref={chartContainerRef} className="absolute inset-0" /></div>
+         <div className="flex-1 w-full relative min-h-0"><div ref={chartContainerRef} className="absolute inset-0" /></div>
          
          {/* AI Signal Overlay - if generated */}
          {signal && (
