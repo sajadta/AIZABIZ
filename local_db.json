@@ -1,0 +1,39 @@
+{
+  "botConfig": {
+    "enabled": false,
+    "mode": "PAPER_TRADING",
+    "selectedStrategy": "PROFIT_MAX_100_PERCENT_MATRIX",
+    "minConfidence": 85,
+    "riskPerTradePercent": 1.5,
+    "stopLossPercent": 10,
+    "targetProfitPercent": 30,
+    "trailingStopLoss": true,
+    "trailingStepPercent": 5,
+    "tradeQuantity": 50,
+    "multiTimeframeEnabled": true,
+    "optionStrikeSelector": true,
+    "tradeMmode": "OPTIONS_ONLY",
+    "maxOptionLossCount": 4,
+    "maxOptionProfitCount": 15,
+    "minOptionProfitAmount": 300,
+    "dailyLossLocked": false,
+    "dailyMaxLossLimit": 500
+  },
+  "upstoxConfig": {
+    "apiKey": "3ab5711d-8891-480b-b0c1-29662852de49",
+    "apiSecret": "••••••••",
+    "redirectUri": "http://localhost:8080/",
+    "accessToken": "",
+    "userName": "Upstox Trader",
+    "userEmail": "",
+    "userClientCode": "",
+    "obile": "",
+    "pin": "",
+    "totpSecret": "",
+    "tokenGeneratedAt": "",
+    "tokenExpiresAt": ""
+  },
+  "paperOrders": [],
+  "paperPositions": [],
+  "paperTradeHistory": []
+}

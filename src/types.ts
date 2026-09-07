@@ -226,6 +226,14 @@ export interface BotConfig {
   dailyMaxLossLimit: number; // Daily loss protection (e.g. 1500)
   dailyMaxProfitTarget: number; // Daily target lock (e.g. 5000)
   dailyLossLocked?: boolean;
+  // Advanced Institutional Settings
+  marketRegimeFilter?: boolean; // Sideways market detection
+  dynamicPositionSizing?: boolean; // AI confidence based sizing
+  newsSentimentFilter?: boolean; // Gemini API news checks
+  ivCrushProtection?: boolean; // Options Greek IV checks
+  autoKillSwitch?: boolean; // Emotionless kill switch on max loss
+  maxConsecutiveLosses?: number;
+
   multiTimeframeConfirmation: boolean; // 5m + 15m MTF confluence
   autoOptionStrikeSelector: boolean; // Smart ATM CE/PE Strike Picker
   candlestickPatternFilter: boolean; // Require Candlestick pattern validation

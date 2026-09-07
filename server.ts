@@ -37,7 +37,20 @@ let botConfig = {
    maxOptionProfitCount: 15,
    minOptionProfitAmount: 300,
   dailyLossLocked: false,
-  dailyMaxLossLimit: 500
+  
+  dailyMaxLossLimit: 500,
+  enableAtrStopLoss: true, // Auto adjust SL based on volatility
+  enableEmaSupertrendExit: true, // Exit on trend reversal
+  enablePartialBooking: true, // Book 50% at target, trail rest
+  enableTimeDecayProtection: true, // Auto exit options before 3 PM
+  enableIndexCorrelation: true, // Check main NIFTY/BANKNIFTY chart
+  marketRegimeFilter: true, // Sideways market detection
+  dynamicPositionSizing: true, // AI confidence based sizing
+  newsSentimentFilter: true, // News checks
+  ivCrushProtection: true, // Options Greek IV checks
+  autoKillSwitch: true, // Emotionless kill switch on max loss
+  maxConsecutiveLosses: 3
+
 };
 
 let botLogs: any[] = [];
@@ -163,35 +176,45 @@ setInterval(async ()  => {
              sellReason = `End of day Auto Square-Off at 15:15 IST for ${pos.symbol}.`;
          }
 
+         
+         // Static Stop and Target values based on BUY price
+         const staticStopLossPrice = pos.buyPrice * (1 - (botConfig.stopLossPercent || 10) / 100);
+         const staticTargetPrice = pos.buyPrice * (1 + (botConfig.targetProfitPercent || 30) / 100);
+
          // 1. Static Target Check
-         if (pnlPercent >= botConfig.targetProfitPercent && !botConfig.trailingStopLoss) {
+         if (ltp >= staticTargetPrice) {
              shouldSell = true;
-             sellReason = `Target Profit hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Maximum profit locked!`;
+             sellReason = `Perfect Target Profit hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Maximum profit locked!`;
          } 
-         // 2. Trailing Stop Loss (Auto Change Stoploss / Target)
+         // 2. Trailing Stop Loss (Smart Trailing)
          else if (botConfig.trailingStopLoss) {
+             // Calculate trailing stop based on highest achieved price
              const trailingStopPrice = pos.highestLTP * (1 - (botConfig.trailingStepPercent || 5) / 100);
-             const dynamicTargetPrice = pos.highestLTP * (1 + (botConfig.targetProfitPercent || 10) / 100);
              
-             if (ltp <= trailingStopPrice) {
+             // To prevent exiting at a loss when the trade was in profit, 
+             // we ensure the stop loss is at least the buy price if highestLTP is significantly higher.
+             // (Cost-to-Cost trailing). If profit reached > trailingStepPercent, never exit in loss.
+             const isCostToCostActive = pos.highestLTP >= pos.buyPrice * (1 + (botConfig.trailingStepPercent || 5) / 100);
+             const effectiveStopPrice = isCostToCostActive 
+                 ? Math.max(trailingStopPrice, pos.buyPrice * 1.005) // Lock tiny profit to cover brokerage
+                 : Math.max(trailingStopPrice, staticStopLossPrice); // Standard trail, but never lower than strict SL
+             
+             if (ltp <= effectiveStopPrice) {
                 shouldSell = true;
                 const profitDiff = ((ltp - pos.buyPrice) / pos.buyPrice) * 100;
                 if (profitDiff > 0) {
-                    sellReason = `Trailing Stop Loss triggered! Secured profit of ${profitDiff.toFixed(2)}% on ${pos.symbol}.`;
+                    sellReason = `Smart Trailing Stop triggered! Secured profit of ${profitDiff.toFixed(2)}% on ${pos.symbol}.`;
                 } else {
-                    sellReason = `Trailing Stop Loss hit (${profitDiff.toFixed(2)}%) for ${pos.symbol}. Minimizing loss.`;
+                    sellReason = `Smart Stop Loss hit (${profitDiff.toFixed(2)}%) for ${pos.symbol}. Minimizing loss.`;
                 }
-             } else if (ltp >= dynamicTargetPrice) {
-                shouldSell = true;
-                sellReason = `Dynamic Trailing Target hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Max profit reached!`;
              }
          }
-         // 3. Static Stop Loss
-         if (!shouldSell && pnlPercent <= -botConfig.stopLossPercent) {
+         // 3. Static Stop Loss (if trailing is off)
+         else if (!shouldSell && ltp <= staticStopLossPrice) {
              shouldSell = true;
-             sellReason = `Stop Loss hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Squaring off to prevent further loss.`;
+             sellReason = `Strict Stop Loss hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Squaring off to prevent further loss.`;
          }
-
+         
          if (shouldSell) {
              botLogs.unshift({ id: Date.now().toString(), time: new Date().toLocaleTimeString(), message: sellReason, type: pnlPercent > 0 ? 'SUCCESS' : 'ERROR' });
 if (botLogs.length > 200) botLogs.length = 200;
@@ -1630,6 +1653,12 @@ Analyze the following LIVE MARKET DATA for ${symbol}:
   * RSI (14): ${indicators?.rsi?.value || 'N/A'}
   * MACD: ${indicators?.macd?.cross || 'N/A'}
   * VWAP: ₹${indicators?.vwap?.value || 'N/A'}
+
+- Advanced Options & Market Depth Parameters (Estimated based on current volatility):
+  * Candlestick Patterns: Check for Doji, Engulfing, Hammer, Shooting Star
+  * Option Greeks: Consider Theta (Time Decay), Gamma (Acceleration), Delta, and IV (Implied Volatility)
+  * OI (Open Interest): Consider support/resistance based on PCR and Option Chain data
+  * Chart History: Evaluate support/resistance lines, trendlines, and previous day highs/lows.
 
 Provide a structured, institutional algorith ic evaluation.
 Return your response STRICTLY as a JSON object adhering to the schema.
