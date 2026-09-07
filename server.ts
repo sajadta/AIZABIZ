@@ -1,3 +1,6 @@
+import { db } from "./src/db/index.js";
+import { tradeHistory } from "./src/db/schema.js";
+import { desc } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import { createRequire } from "module";
 const _require =
@@ -2566,7 +2569,7 @@ async function setupVite() {
     console.log(`Upstox Live Algo Server running on http://0.0.0.0:${PORT}`);
   });
 
-  const { Server: SocketIOServer } = require('socket.io');
+  const { Server: SocketIOServer } = _require('socket.io');
   const io = new SocketIOServer(server, {
     cors: { origin: '*', methods: ['GET', 'POST'] }
   });

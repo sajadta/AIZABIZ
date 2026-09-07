@@ -1,3 +1,5 @@
+import { TradingChart } from "./components/TradingChart";
+import { AdvancedAnalytics } from "./components/AdvancedAnalytics";
 import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FileText, AlertTriangle, Key, Activity, Terminal, Layers, Briefcase, Cpu, Bot, BellRing } from 'lucide-react';
@@ -165,7 +167,7 @@ export default function App() {
 
   // Active Bottom Section Tab
   
-  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'OPTIONS' | 'PORTFOLIO' | 'ORDERS' | 'SUPPORT'>('MARKETS');
+  const [appTab, setAppTab] = useState<'MARKETS' | 'BOT' | 'CHART' | 'OPTIONS' | 'PORTFOLIO' | 'ORDERS' | 'SUPPORT'>('MARKETS');
   const [marketView, setMarketView] = useState<'SINGLE' | 'GRID'>('SINGLE');
 
   const [bottomTab, setBottomTab] = useState<'BOT' | 'ORDERS' | 'OPTIONS' | 'AI'>('BOT');
@@ -829,7 +831,7 @@ export default function App() {
             />
 
             
-            {activeTab === 'chart' && (
+            {appTab === 'CHART' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex justify-between items-center">
                         <div>
@@ -845,7 +847,7 @@ export default function App() {
                         </div>
                     </div>
                     
-                    <TradingChart data={chartData} />
+                    <TradingChart data={[]} />
                     
                     <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
                         <h3 className="text-sm font-bold text-slate-200 mb-2">Algorithm Execution Zones</h3>
@@ -857,9 +859,9 @@ export default function App() {
                 </div>
             )}
 
-            {activeTab === 'bot' && (
+            {appTab === 'PORTFOLIO' && (
                 <div className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <AdvancedAnalytics history={botHistory} />
+                    <AdvancedAnalytics history={tradeHistory} />
                 </div>
             )}
 

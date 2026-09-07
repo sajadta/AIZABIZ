@@ -18,7 +18,7 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
     const chartData = [...history].reverse().map((t, index) => {
         cumulative += t.realizedPnL;
         return {
-            name: \`Trade \${index + 1}\`,
+            name: `Trade ${index + 1}`,
             pnl: t.realizedPnL,
             cumulative: cumulative,
             time: new Date(t.closeTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
@@ -40,7 +40,7 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                     <p className="text-xs text-slate-400">Total PnL</p>
-                    <p className={\`text-lg font-bold \${cumulative >= 0 ? 'text-green-400' : 'text-red-400'}\`}>
+                    <p className={`text-lg font-bold ${cumulative >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ₹{cumulative.toFixed(2)}
                     </p>
                 </div>
@@ -72,7 +72,7 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                             <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickMargin={10} />
-                            <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => \`₹\${val}\`} />
+                            <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `₹${val}`} />
                             <Tooltip 
                                 contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }}
                                 itemStyle={{ color: '#e2e8f0' }}
