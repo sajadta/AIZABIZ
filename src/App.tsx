@@ -126,8 +126,9 @@ export default function App() {
        });
        if (res.ok) {
           const updated = await res.json();
-          setApiConfig(updated);
-          localStorage.setItem('algoTradingConfig', JSON.stringify(updated));
+          const finalConfig = { ...tempConfig, ...updated };
+          setApiConfig(finalConfig);
+          localStorage.setItem('algoTradingConfig', JSON.stringify(finalConfig));
           setShowSetupModal(false);
        }
      } catch(e) {}
@@ -137,7 +138,7 @@ export default function App() {
     enabled: false,
     mode: 'PAPER_TRADING',
     selectedStrategy: 'PROFIT_MAX_100_PERCENT_MATRIX',
-    minConfidence: 85,
+    minConfidence: 60,
     riskPerTradePercent: 1.5,
     stopLossPercent: 1.0,
     targetProfitPercent: 2.5,
@@ -437,7 +438,7 @@ export default function App() {
                 if (ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({ type: 'PING' }));
                 }
-            }, 3000);
+            }, 15000);
         };
         
         ws.onmessage = (event) => {
@@ -478,13 +479,6 @@ export default function App() {
                        return Array.from(map.values());
                     });
                     
-                    if (list.length > 0) {
-                        fetch('/api/trading/paper-sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ quotes: list })
-                        }).catch(() => {});
-                    }
                 }
             } catch (err) {}
         };
@@ -505,11 +499,11 @@ export default function App() {
 
     connectWebSocket();
 
-    const quoteInterval = window.setInterval(fetchQuotes, 1500); // fallback polling if WS dies, or just as a keepalive
+    const quoteInterval = window.setInterval(fetchQuotes, 10000); // fallback polling if WS dies, or just as a keepalive
 
     
-    const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 3000);
-    const botInterval = window.setInterval(fetchBotState, 2000);
+    const tradingInterval = window.setInterval(() => { fetchPositionsAndOrders(); fetchApiConfig(); }, 5000);
+    const botInterval = window.setInterval(fetchBotState, 5000);
     return () => {
       window.clearInterval(quoteInterval);
       if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
@@ -543,10 +537,7 @@ export default function App() {
 
     const chartInterval = window.setInterval(() => { 
       fetchCandles(selectedSymbol, selectedInstrumentKey, interval); 
-      if (selectedSymbol.includes('NIFTY') || selectedSymbol.includes('BANK') || selectedSymbol.includes('SENSEX')) {
-         fetchOptionChain(selectedSymbol);
-      }
-    }, 3000);
+    }, 15000);
 
     return () => window.clearInterval(chartInterval);
   }, [selectedSymbol, selectedInstrumentKey, interval, fetchCandles, fetchOptionChain]);
@@ -656,7 +647,7 @@ export default function App() {
       throw new Error(err.error || 'Failed to save configuration');
     }
     const updated = await res.json();
-    setApiConfig(updated);
+    setApiConfig({ ...merged, ...updated });
   };
 
   // Open Order Modal Helper
@@ -773,7 +764,7 @@ export default function App() {
           totalPnL={totalPnL}
           dailyProfit={tradeHistory.reduce((a, b) => a + (b.realizedPnL || 0) - 40, 0)}
         />
-        {(!isWsConnected || !apiConfig.accessToken || apiConfig.accessToken === '') && !showSetupModal && (
+        {(!apiConfig.accessToken || apiConfig.accessToken === '') && !showSetupModal && (
           <div className="bg-red-900/50 border-b border-red-500/50 text-red-200 px-4 py-2 text-sm flex items-center justify-center gap-2">
              <AlertTriangle size={16} />
              <span>{(!apiConfig.accessToken || apiConfig.accessToken === '') ? 'Upstox API Token Missing. Please update settings.' : 'Connection Lost. Showing last known market data.'}</span>

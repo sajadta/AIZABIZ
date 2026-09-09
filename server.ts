@@ -40,7 +40,7 @@ let botConfig = {
   enabled: false,
   mode: "PAPER_TRADING", // 'PAPER_TRADING' | 'UPSTOX_LIVE'
   selectedStrategy: "PROFIT_MAX_100_PERCENT_MATRIX",
-  minConfidence: 85,
+  minConfidence: 60,
   riskPerTradePercent: 1.5,
   stopLossPercent: 10,
   targetProfitPercent: 30,
@@ -118,7 +118,7 @@ app.get("/api/bot/signals", (req, res) => res.json(botSignals.slice(0, 20)));
 
 // Bot Loop Interval
 setInterval(async () => {
-  if (!botConfig.enabled) return;
+  if (!botConfig.enabled) return; console.log("Bot loop running, active positions:", paperPositions.length);
 
   try {
     // 1. Process active positions for Auto-Square Off (Target/SL)
@@ -194,8 +194,9 @@ setInterval(async () => {
           liveQuotesMap = qData.data;
           const mainKey =
             (botConfig as any).selectedInstrumentKey || "NSE_INDEX|Nifty 50";
-          if (liveQuotesMap[mainKey]?.last_price) {
-            currentLiveQuote = liveQuotesMap[mainKey].last_price;
+          let mq = liveQuotesMap[mainKey] || Object.values(liveQuotesMap).find((q:any) => q.instrument_token === mainKey);
+          if (mq?.last_price) {
+            currentLiveQuote = mq.last_price;
           }
         }
       } catch (e) {}
@@ -216,12 +217,18 @@ setInterval(async () => {
       nowIst.getMinutes() < 30;
 
     for (let pos of activePositions) {
-      if (
-        liveQuotesMap[pos.instrumentKey] &&
-        liveQuotesMap[pos.instrumentKey].last_price
-      ) {
-        pos.currentLTP = liveQuotesMap[pos.instrumentKey].last_price;
-        pos.pnl = (pos.currentLTP - pos.buyPrice) * pos.quantity;
+      let quoteObj = liveQuotesMap[pos.instrumentKey];
+      if (!quoteObj) {
+        quoteObj = Object.values(liveQuotesMap).find((q: any) => q.instrument_token === pos.instrumentKey);
+      }
+      if (quoteObj && quoteObj.last_price) {
+        // Fix: Do not update currentLTP if it is ridiculously higher than buyPrice for options (to prevent 5 lakh profit glitch)
+        if (pos.isOption && quoteObj.last_price > pos.buyPrice * 50) {
+          // Probably underlying index price instead of option premium
+        } else {
+          pos.currentLTP = quoteObj.last_price;
+          pos.pnl = (pos.currentLTP - pos.buyPrice) * pos.quantity;
+        }
       }
 
       if (
@@ -425,7 +432,7 @@ setInterval(async () => {
 
         try {
           const cRes = await fetch(url, {
-            headers: { Accept: "application/json", "Api-Version": "2.0" },
+            headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Api-Version": "2.0" },
           });
           const cData = await cRes.json();
 
@@ -562,10 +569,9 @@ setInterval(async () => {
               }
 
               // Prevent spamming the same signal
-              const lastSignal = botSignals[0];
+              const lastSignal = botSignals.find(s => s.symbol === signal.symbol);
               if (
                 !lastSignal ||
-                lastSignal.symbol !== signal.symbol ||
                 lastSignal.signalType !== signal.signalType
               ) {
                 botSignals.unshift(signal);
@@ -582,8 +588,8 @@ setInterval(async () => {
               signal.confidenceScore >= botConfig.minConfidence
             ) {
               // Execute Trade on Option!
-              const isBullish = signal.signalType === "BUY";
-              const optionSymbol = signal.symbol;
+              const isBullish = signal.signalType === "BUY"; 
+              const optionSymbol = signal.symbol; 
 
               botLogs.unshift({
                 id: Date.now().toString(),
@@ -608,7 +614,7 @@ setInterval(async () => {
                   time: new Date().toISOString(),
                 });
                 const optInstrumentKey =
-                  signal.instrumentKey || "NSE_FO|" + optionSymbol;
+                  signal.instrumentKey || signal.underlyingInstrumentKey || "NSE_FO|" + optionSymbol;
                 paperPositions.push({
                   id: "POS" + Date.now(),
                   symbol: optionSymbol,
@@ -623,7 +629,7 @@ setInterval(async () => {
               } else if (botConfig.mode === "UPSTOX_LIVE" && token) {
                 try {
                   const optInstrumentKey =
-                    signal.instrumentKey || "NSE_FO|" + optionSymbol;
+                    signal.instrumentKey || signal.underlyingInstrumentKey || "NSE_FO|" + optionSymbol;
                   const lotSize = await getDynamicLotSize(optionSymbol, token);
                   let targetQuantity = botConfig.tradeQuantity || lotSize;
                   targetQuantity =
@@ -1892,7 +1898,7 @@ let paperTradeHistory: any[] = [];
 
 import fsSync from "fs";
 
-const DB_FILE = path.join(process.cwd(), "local_db.json");
+const DB_FILE = (process.env.NODE_ENV === "production" || process.env.K_SERVICE) ? "/tmp/local_db.json" : path.join(process.cwd(), "local_db.json");
 
 // Helper to save state
 function saveLocalDb() {
@@ -2069,9 +2075,13 @@ app.post("/api/trading/paper-sync", (req: Request, res: Response) => {
     paperPositions = paperPositions.map((pos) => {
       const q = quotes.find((x: any) => x.instrumentKey === pos.instrumentKey);
       if (q) {
-        pos.currentLTP = q.ltp;
-        pos.pnl = (q.ltp - pos.buyPrice) * pos.quantity;
-        pos.pnlPercent = ((q.ltp - pos.buyPrice) / pos.buyPrice) * 100;
+        if (pos.isOption && q.ltp > pos.buyPrice * 50) {
+          // Skip, this is the underlying index price
+        } else {
+          pos.currentLTP = q.ltp;
+          pos.pnl = (q.ltp - pos.buyPrice) * pos.quantity;
+          pos.pnlPercent = ((q.ltp - pos.buyPrice) / pos.buyPrice) * 100;
+        }
       }
       return pos;
     });
@@ -2112,7 +2122,7 @@ Provide both English and Malayalam (മലയാളം)  explanations for the us
       apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -2242,7 +2252,7 @@ app.post("/api/gemini/chat", async (req: Request, res: Response) => {
       apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       contents: prompt,
     });
 
@@ -2553,7 +2563,7 @@ setInterval(() => {
 }, 5000);
 
 async function setupVite() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.K_SERVICE) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

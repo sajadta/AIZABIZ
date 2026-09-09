@@ -383,7 +383,7 @@ export function analyzeTradingSignals(
   let rationale = "";
   let rationaleMalayalam = "";
 
-  if (totalBullishConfidence >= 75) {
+  if (totalBullishConfidence >= 60) {
     signalType = "BUY";
     confidence = totalBullishConfidence;
     stopLoss = Number(Math.min(supertrendVal, currentLtp * 0.985).toFixed(2));
@@ -393,7 +393,7 @@ export function analyzeTradingSignals(
     target3 = Number((currentLtp + risk * 4.0).toFixed(2));
     rationale = `Strong Bullish Confluence: SuperTrend Green, EMA9 (${ema9}) > EMA21 (${ema21}), RSI ${rsi} showing strong upward momentum, MACD Histogram positive.`;
     rationaleMalayalam = `ശക്തമായ ബുള്ളിഷ് സിഗ്നൽ: സൂപ്പർട്രെൻഡ് ബൈ മോഡിൽ, EMA ക്രോസ്സ് ഓവർ അനുകൂലം, RSI ${rsi} ശക്തമായ മുന്നേറ്റം കാണിക്കുന്നു, MACD പോസിറ്റീവ് സോണിൽ.`;
-  } else if (totalBearishConfidence >= 75) {
+  } else if (totalBearishConfidence >= 60) {
     signalType = "SELL";
     confidence = totalBearishConfidence;
     stopLoss = Number(Math.max(supertrendVal, currentLtp * 1.015).toFixed(2));
@@ -464,6 +464,7 @@ export function analyzeTradingSignals(
 
     name,
     instrumentKey,
+    underlyingInstrumentKey: instrumentKey,
     signalType,
     strategyName:
       strategy === "SUPERTREND_EMA_CONFLUENCE"

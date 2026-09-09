@@ -61,7 +61,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       if (data.success) {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
       } else {
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error connecting to AI Server. Please try again later.' }]);
+        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error: ' + (data.error || 'Server error. Please try again later.') }]);
       }
     } catch (e) {
       setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);
@@ -98,7 +98,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       if (data.success || data.text) {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
       } else {
-        let errText = 'ഡയഗ്നോസ്റ്റിക്സിൽ പിഴവ് സംഭവിച്ചു (API Error).';
+        let errText = 'ഡയഗ്നോസ്റ്റിക്സിൽ പിഴവ് സംഭവിച്ചു (API Error). ' + (data.error ? '\nകാരണം: ' + data.error : '');
         if (JSON.stringify(data).includes('503') || JSON.stringify(data).includes('high demand')) {
             errText = 'ക്ഷമിക്കണം, AI സെർവറുകളിൽ ഇപ്പോൾ വലിയ തിരക്കാണ് (High Demand). ദയവായി അല്പസമയം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.';
         }
