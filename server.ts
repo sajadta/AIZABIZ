@@ -863,7 +863,7 @@ setInterval(
   () => {
     const url =
       process.env.RENDER_EXTERNAL_URL ||
-      `http://localhost:${process.env.PORT || 3000}`;
+      `http://localhost:${3000}`;
     fetch(`${url}/api/ping`)
       .then((res) => res.json())
       .then((data) => console.log("Keep-alive ping OK:", data.time))
@@ -1914,6 +1914,9 @@ let paperPositions: any[] = [];
 let paperTradeHistory: any[] = [];
 
 import fsSync from "fs";
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
+
 
 const DB_FILE = (process.env.NODE_ENV === "production" || process.env.K_SERVICE) ? "/tmp/local_db.json" : path.join(process.cwd(), "local_db.json");
 
