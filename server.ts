@@ -1,3 +1,4 @@
+process.env.NODE_ENV = process.env.NODE_ENV || (process.env.K_SERVICE ? "production" : "development");
 import { db } from "./src/db/index.js";
 import { tradeHistory } from "./src/db/schema.js";
 import { desc } from "drizzle-orm";
@@ -956,7 +957,8 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
   if (redirectUri !== undefined) upstoxConfig.redirectUri = redirectUri;
 
   if (typeof accessToken === "string") {
-    const token = accessToken.trim();
+    let token = accessToken.trim();
+    if (token.startsWith("Bearer ")) token = token.replace("Bearer ", "").trim();
     if (token) {
       try {
         const response = await fetch("https://api.upstox.com/v2/user/profile", {
@@ -975,7 +977,7 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
           upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString(
             "en-IN",
           );
-          upstoxConfig.tokenExpiresAt = "03:30mAM (Next Day) ";
+          upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
         } else {
           upstoxConfig.accessToken = ""; // clear if invalid
           return res
@@ -1028,13 +1030,14 @@ app.post("/api/market/save-config", (req: Request, res: Response) => {
 // Dedicated Daily Token Activation and Verification Endpoint
 app.post("/api/market/daily-token", async (req: Request, res: Response) => {
   const { accessToken } = req.body;
-  const token = (accessToken || "").trim();
+  let token = (accessToken || "").trim();
+  if (token.startsWith("Bearer ")) token = token.replace("Bearer ", "").trim();
 
   if (!token) {
     return res.status(400).json({
       success: false,
       error:
-        "Pleasementer a valid Upstox Access Token / ദയവായി ഒരു സാധുവായ Upstox ടോക്കൺ നൽകുക",
+        "Please enter a valid Upstox Access Token / ദയവായി ഒരു സാധുവായ Upstox ടോക്കൺ നൽകുക",
     });
   }
 
@@ -1055,12 +1058,12 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
       upstoxConfig.userEmail = data.data.email || "trader@upstox.com";
       upstoxConfig.userClientCode = data.data.user_id || "UPSTOX_USER";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
-      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30mAM";
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
 
       return res.json({
         success: true,
         message:
-          "Daily Token verified and activated! Live trading modemenabled.",
+          "Daily Token verified and activated! Live trading mode enabled.",
         profile: {
           userName: upstoxConfig.userName,
           userEmail: upstoxConfig.userEmail,
@@ -1462,6 +1465,20 @@ app.get("/api/market/quotes", async (req: Request, res: Response) => {
     "BSE_INDEX|SENSEX",
     "BSE_INDEX|BANKEX",
     "NSE_INDEX|Nifty Fin Service",
+    "NSE_EQ|INE002A01018", // RELIANCE
+    "NSE_EQ|INE040A01034", // HDFCBANK
+    "NSE_EQ|INE467B01029", // TCS
+    "NSE_EQ|INE009A01021", // INFY
+    "NSE_EQ|INE090A01021", // ICICIBANK
+    "NSE_EQ|INE062A01020", // SBI
+    "NSE_EQ|INE238A01034", // AXISBANK
+    "NSE_EQ|INE030A01027", // HINDUNILVR
+    "NSE_EQ|INE154A01025", // ITC
+    "NSE_EQ|INE018A01030", // LT
+    "NSE_EQ|INE397D01024", // BHARTIARTL
+    "NSE_EQ|INE296A01024", // BAJFINANCE
+    "NSE_EQ|INE860A01027", // HCLTECH
+    "NSE_EQ|INE021A01026", // ASIANPAINT
   ];
   defaultKeys.forEach((k) => {
     if (!keysArray.includes(k)) keysArray.push(k);
@@ -2563,7 +2580,8 @@ setInterval(() => {
 }, 5000);
 
 async function setupVite() {
-  if (process.env.NODE_ENV !== "production" && !process.env.K_SERVICE) {
+  const isProd = process.env.NODE_ENV === "production" || !!process.env.K_SERVICE;
+  if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -2611,7 +2629,7 @@ async function setupVite() {
   });
 }
 
-setupVite();
+setupVite().catch(err => { console.error("Fatal error during startup:", err); process.exit(1); });
 
 app.get("/api/debug-state", (req, res) => {
   res.json({

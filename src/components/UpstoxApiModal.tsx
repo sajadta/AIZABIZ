@@ -67,6 +67,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   // 1. Direct Daily Token Save & Verify
   const handleDailyTokenSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    let cleanToken = accessToken?.trim() || "";
+    if (cleanToken.startsWith("Bearer ")) cleanToken = cleanToken.replace("Bearer ", "").trim();
+
     if (!accessToken?.trim()) {
       setStatusMsg({
         type: 'error',
@@ -85,7 +88,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       const res = await fetch('/api/market/daily-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: accessToken?.trim() }),
+        body: JSON.stringify({ accessToken: cleanToken }),
       });
 
       const data = await res.json();
@@ -93,7 +96,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (data.success) {
         // Save to parent config state
         await onSaveConfig({
-          accessToken: accessToken?.trim(),
+          accessToken: cleanToken,
           isConnected: true,
           userName: data.profile?.userName || 'Upstox Trader',
           userClientCode: data.profile?.userClientCode || 'UP_LIVE',
@@ -104,8 +107,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
         // Store in localStorage with today's date
         try {
-          const todayStr = new Date().toISOString().split('T')[0];
-          localStorage.setItem('upstox_daily_token', accessToken?.trim());
+          const todayStr = new Date().toLocaleDateString('en-IN');
+          localStorage.setItem('upstox_daily_token', cleanToken);
           localStorage.setItem('upstox_token_date', todayStr);
         } catch (e) {}
 
@@ -115,6 +118,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             ? `✅ ടോക്കൺ പരിശോധിച്ചു! ${data.profile?.userName || 'ലൈവ് ട്രേഡർ'} അക്കൗണ്ട് വിജയകരമായി കണക്റ്റായി.` 
             : `✅ Token Verified! Connected live to ${data.profile?.userName || 'Upstox Account'}.`,
         });
+        setTimeout(() => {
+          onClose();
+        }, 1500);
       } else {
         throw new Error(data.error || 'Failed to verify token');
       }
@@ -147,6 +153,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           ? 'Upstox ക്രമീകരണങ്ങൾ സേവ് ചെയ്തു!' 
           : 'Upstox API settings saved successfully!',
       });
+        setTimeout(() => {
+          onClose();
+        }, 1500);
     } catch (err: any) {
       setStatusMsg({
         type: 'error',
@@ -199,6 +208,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             ? '🎉 പുതിയ Access Token വിജയകരമായി ജനറേറ്റ് ചെയ്തു സേവ് ചെയ്തു!'
             : '🎉 Daily Access Token successfully generated and activated!',
         });
+        setTimeout(() => {
+          onClose();
+        }, 1500);
         setActiveTab('DAILY_TOKEN');
       } else {
         throw new Error(data.error || 'Failed to exchange authorization code');

@@ -92,6 +92,7 @@ export interface TradingSignal {
   symbol: string;
   name: string;
   instrumentKey: string;
+  underlyingInstrumentKey?: string;
   signalType: SignalType;
   strategyName: string;
   confidenceScore: number; // 0 - 100%
