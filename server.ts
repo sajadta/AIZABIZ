@@ -981,7 +981,7 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
           );
           upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
         } else {
-          console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
+          console.error("Token validation error:", data.errors); upstoxConfig.accessToken = ""; // clear if invalid
           return res
             .status(401)
             .json({
@@ -1075,7 +1075,7 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
         },
       });
     } else {
-      console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
+      console.error("Token validation error:", data.errors); upstoxConfig.accessToken = ""; // clear if invalid
       return res.status(401).json({
         success: false,
         error:

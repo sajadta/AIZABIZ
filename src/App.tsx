@@ -1,3 +1,5 @@
+import { CumulativePnLChart } from "./components/CumulativePnLChart";
+import { AlertsModal } from "./components/AlertsModal";
 import { TradingChart } from "./components/TradingChart";
 import { AdvancedAnalytics } from "./components/AdvancedAnalytics";
 import { OnboardingSetupModal } from "./components/OnboardingSetupModal";
@@ -163,6 +165,7 @@ export default function App() {
   });
 
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
+  const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
       const [aiLoading, setAiLoading] = useState(false);
@@ -924,6 +927,9 @@ export default function App() {
                 <p className="text-lg font-black text-amber-400">₹{((orders.length || 0) * 20 + ((orders.length || 0) * 5)).toLocaleString('en-IN')}</p>
               </div>
             </div>
+
+            {/* Cumulative PnL Chart */}
+            <CumulativePnLChart tradeHistory={tradeHistory} language={language} />
 
             {/* Holdings */}
             <div className="flex-1 overflow-y-auto hide-scrollbar bg-slate-900/80 border border-slate-800 rounded-2xl p-3">

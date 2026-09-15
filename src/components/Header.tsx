@@ -1,5 +1,6 @@
 import React from 'react';
-import { 
+import {
+  BellRing,
   TrendingUp, 
   Smartphone, 
   Settings, 
@@ -33,6 +34,7 @@ interface HeaderProps {
   onSquareOffAll: () => void;
   totalPnL: number;
   dailyProfit: number;
+  onOpenAlerts: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -50,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
   totalPnL,
   dailyProfit,
   isWsConnected,
+  onOpenAlerts,
   }) => {
   const t = translations[language];
 
@@ -193,6 +196,16 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
 
+          {/* Alerts Toggle */}
+          <button
+            id="btn-alerts-toggle"
+            onClick={onOpenAlerts}
+            className="p-2 rounded-xl border border-slate-800 bg-slate-900 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition"
+            title={language === 'ml' ? 'അലർട്ടുകൾ' : 'Price Alerts'}
+          >
+            <BellRing className="w-4 h-4" />
+          </button>
+          
           {/* Sound Toggle */}
           <button
             id="btn-sound-toggle"
