@@ -1,7 +1,9 @@
-process.env.NODE_ENV = process.env.NODE_ENV || (process.env.K_SERVICE ? "production" : "development");
+process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
+import { appState } from "./src/db/schema.js";
+process.env.NODE_ENV = process.env.NODE_ENV || "development";
 import { db } from "./src/db/index.js";
 import { tradeHistory } from "./src/db/schema.js";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import { createRequire } from "module";
 const _require =
@@ -979,7 +981,7 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
           );
           upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
         } else {
-          upstoxConfig.accessToken = ""; // clear if invalid
+          console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
           return res
             .status(401)
             .json({
@@ -988,7 +990,7 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
             });
         }
       } catch (err) {
-        upstoxConfig.accessToken = ""; // clear if invalid
+        console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
         return res
           .status(500)
           .json({ success: false, error: "Failed to validate token" });
@@ -1073,7 +1075,7 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
         },
       });
     } else {
-      upstoxConfig.accessToken = ""; // clear if invalid
+      console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
       return res.status(401).json({
         success: false,
         error:
@@ -1082,7 +1084,7 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
       });
     }
   } catch (err: any) {
-    upstoxConfig.accessToken = ""; // clear if invalid
+    console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
     return res.status(500).json({
       success: false,
       error: "Connection error while validating token. Please try again.",
@@ -1918,10 +1920,9 @@ import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
 
-const DB_FILE = (process.env.NODE_ENV === "production" || process.env.K_SERVICE) ? "/tmp/local_db.json" : path.join(process.cwd(), "local_db.json");
 
-// Helper to save state
-function saveLocalDb() {
+
+async function savePostgresDb() {
   const dbData = {
     botConfig,
     upstoxConfig,
@@ -1930,32 +1931,39 @@ function saveLocalDb() {
     paperTradeHistory,
   };
   try {
-    fsSync.writeFileSync(DB_FILE, JSON.stringify(dbData, null, 2));
+    await db.insert(appState).values({
+      id: 'main_state',
+      data: dbData,
+      updatedAt: new Date()
+    }).onConflictDoUpdate({
+      target: appState.id,
+      set: { data: dbData, updatedAt: new Date() }
+    });
   } catch (e) {
-    console.error("Failed to save local DB", e);
+    console.error("Failed to save Postgres DB", e);
   }
 }
 
-// Helper to load state
-function loadLocalDb() {
+async function loadPostgresDb() {
   try {
-    if (fsSync.existsSync(DB_FILE)) {
-      const data = JSON.parse(fsSync.readFileSync(DB_FILE, "utf-8"));
+    const rows = await db.select().from(appState).where(eq(appState.id, 'main_state'));
+    if (rows && rows.length > 0) {
+      const data = rows[0].data as any;
       if (data.botConfig) botConfig = data.botConfig;
       if (data.upstoxConfig) upstoxConfig = data.upstoxConfig;
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
-      console.log("Loaded persistent data from local_db.json");
+      console.log("Loaded persistent data from PostgreSQL Cloud SQL!");
     }
   } catch (e) {
-    console.error("Failed to load local DB", e);
+    console.error("Failed to load Postgres DB", e);
   }
 }
 
-// Load it initially
-loadLocalDb();
-setInterval(saveLocalDb, 5000);
+loadPostgresDb().then(() => {
+  setInterval(savePostgresDb, 5000);
+});
 
 const globalLiveQuotes: Record<string, any> = {};
 
@@ -2583,7 +2591,7 @@ setInterval(() => {
 }, 5000);
 
 async function setupVite() {
-  const isProd = process.env.NODE_ENV === "production" || !!process.env.K_SERVICE;
+  const isProd = process.env.NODE_ENV === "production";
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

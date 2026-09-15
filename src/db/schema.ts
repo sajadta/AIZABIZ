@@ -12,3 +12,10 @@ export const tradeHistory = pgTable('trade_history', {
   openTime: timestamp('open_time').defaultNow().notNull(),
   closeTime: timestamp('close_time'),
 });
+
+import { jsonb } from 'drizzle-orm/pg-core';
+export const appState = pgTable('app_state', {
+  id: varchar('id', { length: 50 }).primaryKey(),
+  data: jsonb('data').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
