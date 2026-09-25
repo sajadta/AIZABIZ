@@ -234,30 +234,49 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const isPositive = currentChange >= 0;
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/80 text-slate-200">
+    <div className="flex flex-col h-full bg-slate-900/80 text-slate-200 overflow-hidden">
       {/* Header Controls */}
-      <div className="flex flex-wrap items-center justify-between p-3 border-b border-slate-800 bg-[#070a12] gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col">
-            <h2 className="text-lg font-bold text-slate-100">{symbol}</h2>
-            <div className="flex items-center gap-2">
-              <span className={`text-lg font-mono font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800 bg-[#070a12] gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm sm:text-base font-black text-slate-100">{symbol}</h2>
+            <div className="flex items-center gap-1.5 font-mono">
+              <span className={`text-sm sm:text-base font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ₹{currentLtp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
-              <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+              <span className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded font-bold ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
                 {isPositive ? '+' : ''}{currentChange.toFixed(2)}%
               </span>
             </div>
           </div>
+
+          {/* Quick Buy/Sell for mobile right top */}
+          {!symbol.includes('NIFTY') && !symbol.includes('SENSEX') && quote?.segment !== 'INDEX' && (
+            <div className="flex sm:hidden items-center gap-1">
+              <button 
+                onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
+              >
+                BUY
+              </button>
+              <button 
+                onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
+                className="bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
+              >
+                SELL
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800">
+        {/* Intervals & Indicators */}
+        <div className="flex items-center justify-between sm:justify-end gap-2 overflow-x-auto no-scrollbar py-0.5">
+          <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800 shrink-0">
             {intervals.map((int) => (
               <button
                 key={int}
                 onClick={() => onChangeInterval(int)}
-                className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${
                   interval === int
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -268,45 +287,46 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
+          <div className="flex items-center gap-1 sm:gap-1.5 border-l border-slate-800 pl-2 shrink-0">
              <button
               onClick={() => setShowSupertrend(!showSupertrend)}
-              className={`p-1.5 rounded-md transition-colors ${showSupertrend ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'}`}
+              className={`p-1 sm:p-1.5 rounded-md transition-colors ${showSupertrend ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'}`}
               title="Toggle Supertrend"
             >
-              <TrendingUp size={16} />
+              <TrendingUp size={15} />
             </button>
             <button
               onClick={() => setShowEMA(!showEMA)}
-              className={`p-1.5 rounded-md transition-colors ${showEMA ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:bg-slate-800'}`}
+              className={`p-1 sm:p-1.5 rounded-md transition-colors ${showEMA ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:bg-slate-800'}`}
               title="Toggle EMA"
             >
-              <Layers size={16} />
+              <Layers size={15} />
             </button>
             <button
               onClick={() => setActiveSubChart(activeSubChart === 'RSI' ? 'MACD' : activeSubChart === 'MACD' ? 'NONE' : 'RSI')}
-              className={`p-1.5 rounded-md transition-colors ${activeSubChart !== 'NONE' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:bg-slate-800'}`}
+              className={`p-1 sm:p-1.5 rounded-md transition-colors ${activeSubChart !== 'NONE' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:bg-slate-800'}`}
               title="Toggle Sub-chart (RSI/MACD)"
             >
-              <Sliders size={16} />
+              <Sliders size={15} />
             </button>
           </div>
 
+          {/* Desktop Buy/Sell */}
           {!symbol.includes('NIFTY') && !symbol.includes('SENSEX') && quote?.segment !== 'INDEX' && (
-          <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
-            <button 
-              onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-emerald-900/20"
-            >
-              {language === 'ml' ? 'വാങ്ങുക (BUY)' : 'BUY'}
-            </button>
-            <button 
-              onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
-              className="bg-rose-600 hover:bg-rose-500 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition-colors shadow-lg shadow-rose-900/20"
-            >
-              {language === 'ml' ? 'വിൽക്കുക (SELL)' : 'SELL'}
-            </button>
-          </div>
+            <div className="hidden sm:flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
+              <button 
+                onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
+              >
+                BUY
+              </button>
+              <button 
+                onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
+                className="bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
+              >
+                SELL
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -329,13 +349,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </div>
               <div className="flex items-center gap-2 mb-2">
                  <span className="text-xs text-slate-400">Action:</span>
-                 <span className={`text-sm font-black ${signal.action === 'BUY' ? 'text-emerald-400' : signal.action === 'SELL' ? 'text-rose-400' : 'text-slate-200'}`}>
-                    {signal.action}
+                 <span className={`text-sm font-black ${(signal.action || signal.signalType) === 'BUY' ? 'text-emerald-400' : (signal.action || signal.signalType) === 'SELL' ? 'text-rose-400' : 'text-slate-200'}`}>
+                    {signal.action || signal.signalType}
                  </span>
-                 <span className="text-xs text-slate-400 ml-auto">Conf: {signal.confidence}%</span>
+                 <span className="text-xs text-slate-400 ml-auto">Conf: {signal.confidence ?? signal.confidenceScore}%</span>
               </div>
               <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed">
-                 {signal.reason}
+                 {signal.reason || signal.rationale}
               </p>
            </div>
          )}

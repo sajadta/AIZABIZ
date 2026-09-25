@@ -25,12 +25,12 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   const t = translations[language];
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
   
-  const getLtp = (instrumentKey, defaultLtp) => {
+  const getLtp = (instrumentKey?: string, defaultLtp: number = 0) => {
       if (!instrumentKey) return defaultLtp;
       const q = quotes.find(q => q.instrumentKey === instrumentKey);
       return q ? q.ltp : defaultLtp;
   };
-  const getChange = (instrumentKey, defaultChange) => {
+  const getChange = (instrumentKey?: string, defaultChange: number = 0) => {
       if (!instrumentKey) return defaultChange;
       const q = quotes.find(q => q.instrumentKey === instrumentKey);
       return q ? q.changePercent : defaultChange;

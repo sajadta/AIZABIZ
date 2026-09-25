@@ -374,8 +374,8 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   <div className="flex justify-between items-start z-10">
                       <div>
                           <div className="flex items-center gap-2 mb-1.5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${pos.type === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
-                                  {pos.type}
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${((pos as any).type || 'BUY') === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
+                                  {(pos as any).type || 'BUY'}
                               </span>
                               <span className="font-extrabold text-white text-sm">{pos.symbol}</span>
                           </div>

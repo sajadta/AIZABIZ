@@ -58,7 +58,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (data.success || data.text) {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
       } else {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error: ' + (data.error || 'Server error. Please try again later.') }]);

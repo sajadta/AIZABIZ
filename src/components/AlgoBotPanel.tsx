@@ -318,12 +318,12 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                         {/* MTF Confluence Badge */}
                         {sig.mtfConfirmation && (
                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-1 ${
-                            sig.mtfConfirmation.confirmed
+                            sig.mtfConfirmation.status
                               ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
                               : 'bg-slate-800 text-slate-400'
                           }`}>
                             <Layers className="w-2.5 h-2.5" />
-                            <span>{language === 'ml' ? sig.mtfConfirmation.labelMalayalam : sig.mtfConfirmation.label}</span>
+                            <span>5m: {sig.mtfConfirmation.timeframe5m} | 15m: {sig.mtfConfirmation.timeframe15m}</span>
                           </span>
                         )}
                       </div>
@@ -355,16 +355,12 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             {language === 'ml' ? 'കാൻഡിൽസ്റ്റിക്ക് പാറ്റേൺ' : 'Candlestick Pattern'}
                           </span>
                           <span className="font-extrabold text-cyan-300 text-[11px]">
-                            {language === 'ml' ? sig.candlestickPattern.nameMalayalam : sig.candlestickPattern.name}
+                            {typeof sig.candlestickPattern === 'string' ? (language === 'ml' && sig.candlestickPatternMalayalam ? sig.candlestickPatternMalayalam : sig.candlestickPattern) : ((sig.candlestickPattern as any).name || 'Pattern')}
                           </span>
                         </div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                        sig.candlestickPattern.type === 'BULLISH'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                      }`}>
-                        {sig.candlestickPattern.type}
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {typeof sig.candlestickPattern === 'object' ? (sig.candlestickPattern as any).type : 'CONFIRMED'}
                       </span>
                     </div>
                   )}
@@ -398,13 +394,13 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs font-black text-white font-mono">
-                            {sig.recommendedOptionStrike.strike} {sig.recommendedOptionStrike.optionType}
+                            {sig.recommendedOptionStrike.strikePrice} {sig.recommendedOptionStrike.optionType}
                           </span>
                           <span className="text-[11px] font-bold text-emerald-400 font-mono">
-                            LTP: ₹{sig.recommendedOptionStrike.approxPremium}
+                            LTP: ₹{sig.recommendedOptionStrike.ltp}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">
-                            Δ {sig.recommendedOptionStrike.delta} | IV: {sig.recommendedOptionStrike.impliedVolatility}%
+                            Δ {sig.recommendedOptionStrike.delta}
                           </span>
                         </div>
                       </div>

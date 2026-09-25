@@ -22,7 +22,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
 
   const totalInvested = 
     positions.reduce((acc, p) => acc + ((p.quantity || 0) * (p.buyPrice || 0)), 0) + 
-    holdings.reduce((acc, h) => acc + ((h.quantity || 0) * (h.buyPrice || 0)), 0);
+    holdings.reduce((acc, h) => acc + ((h.quantity || 0) * (h.buyPrice ?? h.avgPrice ?? 0)), 0);
 
   const approxTaxes = (orders.length * 20) + (orders.length * 5); // Rough est: ₹20/order + STT
 
@@ -35,7 +35,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
       >
         {language === 'ml' ? labelMl : labelEn}
         {isActive && (
-          <div 
+          <motion.div 
             layoutId="portfolioTabIndicator"
             className="absolute inset-0 bg-white/10 rounded-xl border border-slate-700/80"
             initial={false}
@@ -47,7 +47,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
   };
 
   return (
-    <div 
+    <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -118,7 +118,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                   const currentVal = (p.quantity || 0) * (p.currentLTP || 0);
                   const pIsProfit = p.pnl >= 0;
                   return (
-                    <div 
+                    <motion.div 
                       key={i} 
                       layout
                       initial={{ opacity: 0, scale: 0.95 }}
@@ -137,7 +137,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
@@ -161,7 +161,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                 orders.slice().reverse().map((o, i) => {
                   const isBuy = o.transactionType === 'BUY';
                   return (
-                    <div 
+                    <motion.div 
                       key={i} 
                       layout
                       initial={{ opacity: 0, y: 10 }}
@@ -191,7 +191,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                            </p>
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
@@ -215,7 +215,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                 holdings.map((h, i) => {
                   const hIsProfit = h.pnl >= 0;
                   return (
-                    <div 
+                    <motion.div 
                       key={i} 
                       layout
                       initial={{ opacity: 0, scale: 0.95 }}
@@ -225,7 +225,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-sm font-bold text-slate-100">{h.symbol}</p>
-                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">Qty: {h.quantity} @ ₹{Number(h.buyPrice || 0).toFixed(2)}</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5">Qty: {h.quantity} @ ₹{Number(h.buyPrice ?? h.avgPrice ?? 0).toFixed(2)}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-bold text-white font-mono">₹{Number(h.currentLTP || 0).toFixed(2)}</p>
@@ -234,7 +234,7 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
@@ -242,6 +242,6 @@ export const PortfolioView: React.FC<PortfolioViewProps> = ({ positions, holding
           )}
         </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 };

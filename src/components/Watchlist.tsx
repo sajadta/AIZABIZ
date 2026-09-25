@@ -26,14 +26,14 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 }) => {
   const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY'>('ALL');
+  const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY' | 'GLOBAL'>('ALL');
   const [alertTargetSymbol, setAlertTargetSymbol] = useState<string | null>(null);
   const [alertPrice, setAlertPrice] = useState<string>('');
 
   const filteredQuotes = quotes.filter((q) => {
     const matchesSearch = q.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
       q.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSegment = filterSegment === 'ALL' || q.segment === filterSegment;
+    const matchesSegment = filterSegment === 'ALL' || q.segment === (filterSegment as any);
     return matchesSearch && matchesSegment;
   });
 

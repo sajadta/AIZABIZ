@@ -57,12 +57,14 @@ export interface OptionStrike {
   callIV: number;
   callVolume: number;
   callDelta?: number;
+  callInstrumentKey?: string;
   putOI: number;
   putChangeOI: number;
   putLTP: number;
   putIV: number;
   putVolume: number;
   putDelta?: number;
+  putInstrumentKey?: string;
 }
 
 export interface OptionChainData {
@@ -94,8 +96,10 @@ export interface TradingSignal {
   instrumentKey: string;
   underlyingInstrumentKey?: string;
   signalType: SignalType;
+  action?: SignalType;
   strategyName: string;
   confidenceScore: number; // 0 - 100%
+  confidence?: number;
   price: number;
   stopLoss: number;
   target1: number;
@@ -103,6 +107,7 @@ export interface TradingSignal {
   target3: number;
   riskRewardRatio: string;
   rationale: string;
+  reason?: string;
   rationaleMalayalam: string;
   indicators: IndicatorReadings;
   candlestickPattern?: string;
@@ -163,9 +168,11 @@ export interface Position {
   stopLoss?: number;
   target?: number;
   trailingStopLoss?: number;
+  highestLTP?: number;
   mode: ExecutionMode;
   openedAt: string;
   isOption?: boolean;
+  type?: string;
   netPnl?: number;
   taxes?: {
     brokerage: number;
@@ -180,6 +187,7 @@ export interface Holding {
   companyName: string;
   quantity: number;
   avgPrice: number;
+  buyPrice?: number;
   currentLTP: number;
   investedValue: number;
   currentValue: number;
@@ -236,7 +244,9 @@ export interface BotConfig {
   maxConsecutiveLosses?: number;
 
   multiTimeframeConfirmation: boolean; // 5m + 15m MTF confluence
+  multiTimeframeEnabled?: boolean;
   autoOptionStrikeSelector: boolean; // Smart ATM CE/PE Strike Picker
+  optionStrikeSelector?: boolean;
   candlestickPatternFilter: boolean; // Require Candlestick pattern validation
   telegramAlertsEnabled: boolean;
   telegramBotToken: string;
@@ -249,7 +259,7 @@ export interface BotConfig {
 export interface BotLog {
   id: string;
   timestamp: string;
-  type: 'INFO' | 'SIGNAL' | 'EXECUTION' | 'SL_TRIGGER' | 'TP_TRIGGER' | 'ERROR' | 'SYSTEM';
+  type: 'INFO' | 'SIGNAL' | 'EXECUTION' | 'SL_TRIGGER' | 'TP_TRIGGER' | 'ERROR' | 'SYSTEM' | 'TRADE' | 'SUCCESS';
   message: string;
   messageMalayalam?: string;
   data?: any;

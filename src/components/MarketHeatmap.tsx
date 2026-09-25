@@ -119,8 +119,8 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       .style('font-family', 'sans-serif');
 
     // Create hierarchy and treemap layout
-    const root = d3.hierarchy(hierarchicalData)
-      .sum(d => d.value)
+    const root = d3.hierarchy<any>(hierarchicalData)
+      .sum(d => (d as any).value || 0)
       .sort((a, b) => (b.value || 0) - (a.value || 0));
 
     const padding = 2;

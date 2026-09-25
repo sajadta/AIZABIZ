@@ -165,9 +165,9 @@ setInterval(async () => {
 
     // Fetch live quotes to update PNL
     const token = upstoxConfig.accessToken;
-    if (!token) {
-      botSignals.length = 0; // Clear any existing fake signals
-      return; // DO NOT USE DUMMY DATA.
+    if (!token && botConfig.mode === "UPSTOX_LIVE") {
+      botSignals.length = 0;
+      return;
     }
     let instruments = [
       (botConfig as any).selectedInstrumentKey || "NSE_INDEX|Nifty 50",
@@ -2150,7 +2150,7 @@ Provide both English and Malayalam (മലയാളം)  explanations for the us
       apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -2175,7 +2175,7 @@ Provide both English and Malayalam (മലയാളം)  explanations for the us
               type: Type.STRING,
               description: "Executive market summary in English",
             },
-            summaryMalayala: {
+            summaryMalayalam: {
               type: Type.STRING,
               description:
                 "Executive market summary in clear, natural Malayalam",
@@ -2215,7 +2215,7 @@ Provide both English and Malayalam (മലയാളം)  explanations for the us
               type: Type.ARRAY,
               items: { type: Type.STRING },
             },
-            technicalReasonsMalayala: {
+            technicalReasonsMalayalam: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
             },
@@ -2280,11 +2280,11 @@ app.post("/api/gemini/chat", async (req: Request, res: Response) => {
       apiKey: apiKey || "",
     });
     const response = await dynamicAi.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.8-flash",
       contents: prompt,
     });
 
-    return res.json({ text: response.text });
+    return res.json({ success: true, text: response.text });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
