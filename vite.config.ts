@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { handleApiRequest } from './apiHandler.js';
 
 export default defineConfig({
   server: {
@@ -8,6 +9,25 @@ export default defineConfig({
     port: 3000,
   },
   plugins: [
+    {
+      name: 'api-server-middleware',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url && req.url.startsWith('/api/')) {
+            try {
+              await handleApiRequest(req, res, next);
+            } catch (err) {
+              console.error('Dev API Error:', err);
+              res.statusCode = 500;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: 'Internal API error' }));
+            }
+          } else {
+            next();
+          }
+        });
+      },
+    },
     react(),
     VitePWA({
       registerType: 'autoUpdate',

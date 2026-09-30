@@ -107,6 +107,25 @@ class SoundEngine {
         break;
     }
   }
+
+  speak(text: string, lang: 'ml' | 'en' = 'en') {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+      utterance.volume = 0.9;
+      if (lang === 'ml') {
+        utterance.lang = 'ml-IN';
+      } else {
+        utterance.lang = 'en-IN';
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      // Speech synthesis not available
+    }
+  }
 }
 
 export const soundManager = new SoundEngine();

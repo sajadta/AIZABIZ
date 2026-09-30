@@ -109,11 +109,17 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div 
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header with BUY / SELL banner */}
-        <div className={`p-4 flex items-center justify-between text-white ${
+        <div className={`p-3.5 sm:p-4 flex items-center justify-between text-white ${
           transactionType === 'BUY'
             ? 'bg-gradient-to-r from-emerald-600 to-teal-700'
             : 'bg-gradient-to-r from-rose-600 to-red-700'
@@ -131,8 +137,10 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg bg-black/20 hover:bg-black/40 text-white transition"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-black/20 hover:bg-black/40 text-white transition active:scale-95 touch-manipulation"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>

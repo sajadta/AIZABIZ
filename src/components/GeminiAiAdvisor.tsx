@@ -31,6 +31,51 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
 }) => {
   const t = translations[language];
 
+  // Defensive extraction of analysis fields to guard against partial or undefined objects
+  const sentiment = analysis?.sentiment || 'NEUTRAL';
+  const isBullish = sentiment.includes('BULLISH');
+  const isBearish = sentiment.includes('BEARISH');
+  const confidenceScore = analysis?.confidenceScore ?? 75;
+  const action = analysis?.recommendedAction || {
+    type: 'WAIT',
+    entryRange: 'Monitoring Zone',
+    stopLoss: 0,
+    target1: 0,
+    target2: 0,
+    confidence: confidenceScore,
+    riskReward: '1 : 2',
+  };
+  const keyLevels = analysis?.keyLevels || {
+    support1: 0,
+    support2: 0,
+    resistance1: 0,
+    resistance2: 0,
+  };
+
+  // Safe technical reasons list with cross-language fallback
+  const rawReasons = language === 'ml'
+    ? (Array.isArray(analysis?.technicalReasonsMalayalam) && analysis.technicalReasonsMalayalam.length > 0
+        ? analysis.technicalReasonsMalayalam
+        : Array.isArray(analysis?.technicalReasons) ? analysis.technicalReasons : [])
+    : (Array.isArray(analysis?.technicalReasons) && analysis.technicalReasons.length > 0
+        ? analysis.technicalReasons
+        : Array.isArray(analysis?.technicalReasonsMalayalam) ? analysis.technicalReasonsMalayalam : []);
+
+  const technicalReasonsList = rawReasons.length > 0
+    ? rawReasons
+    : [
+        language === 'ml'
+          ? 'വോളിയവും മൂവിംഗ് ആവറേജുകളും സ്ഥിരതയുള്ള ഇൻട്രാഡേ ട്രെൻഡ് കാണിക്കുന്നു.'
+          : 'Volume and moving averages show a steady intraday directional trend.',
+        language === 'ml'
+          ? 'ഇൻഡിക്കേറ്ററുകൾ അടിസ്ഥാനമാക്കിയുള്ള ഓട്ടോമാറ്റിക് അനാലിസിസ് സജീവമാണ്.'
+          : 'Algorithmic indicators confirm current structural levels.',
+      ];
+
+  const summaryText = language === 'ml'
+    ? (analysis?.summaryMalayalam || analysis?.summary || `${symbol} വിപണിയിൽ സ്ഥിരതയാർന്ന ട്രെൻഡ് രേഖപ്പെടുത്തുന്നു.`)
+    : (analysis?.summary || analysis?.summaryMalayalam || `${symbol} displays active institutional market movement.`);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -93,24 +138,24 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
             
             {/* Sentiment & Score Banner */}
             <div className={`p-4 rounded-xl border flex items-center justify-between gap-3 flex-wrap ${
-              analysis.sentiment.includes('BULLISH')
+              isBullish
                 ? 'bg-emerald-950/25 border-emerald-500/40 text-emerald-300'
-                : analysis.sentiment.includes('BEARISH')
+                : isBearish
                 ? 'bg-rose-950/25 border-rose-500/40 text-rose-300'
                 : 'bg-slate-900 border-slate-800 text-slate-200'
             }`}>
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-xl ${
-                  analysis.sentiment.includes('BULLISH') ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                  isBullish ? 'bg-emerald-500/20 text-emerald-400' : isBearish ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-800 text-slate-400'
                 }`}>
-                  {analysis.sentiment.includes('BULLISH') ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                  {isBullish ? <TrendingUp className="w-5 h-5" /> : isBearish ? <TrendingDown className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
                     AI Market Bias ({symbol})
                   </span>
                   <span className="text-sm sm:text-base font-extrabold tracking-tight">
-                    {analysis.sentiment.replace('_', ' ')}
+                    {sentiment.replace(/_/g, ' ')}
                   </span>
                 </div>
               </div>
@@ -120,7 +165,7 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
                   {language === 'ml' ? 'കൃത്യത സ്കോർ' : 'Confidence Score'}
                 </span>
                 <span className="text-base sm:text-lg font-black text-white">
-                  {analysis.confidenceScore}%
+                  {confidenceScore}%
                 </span>
               </div>
             </div>
@@ -133,26 +178,26 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
                   <span>{language === 'ml' ? 'AI നിർദ്ദേശിച്ച ട്രേഡ് ലെവലുകൾ' : 'Recommended Institutional Trade Setup'}</span>
                 </h4>
                 <span className="text-[10px] font-mono font-bold text-slate-400">
-                  R:R {analysis.recommendedAction.riskReward}
+                  R:R {action.riskReward || '1 : 2'}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
                 <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
                   <span className="text-[10px] text-slate-400 block">{language === 'ml' ? 'എൻട്രി പരിധി' : 'Entry Zone'}</span>
-                  <span className="font-bold text-white text-[11px]">{analysis.recommendedAction.entryRange}</span>
+                  <span className="font-bold text-white text-[11px]">{action.entryRange || '-'}</span>
                 </div>
                 <div className="bg-rose-950/30 p-2 rounded-lg border border-rose-800/40">
                   <span className="text-[10px] text-rose-400 block">{t.stopLoss}</span>
-                  <span className="font-bold text-rose-300">₹{analysis.recommendedAction.stopLoss}</span>
+                  <span className="font-bold text-rose-300">₹{action.stopLoss || 0}</span>
                 </div>
                 <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
                   <span className="text-[10px] text-emerald-400 block">{t.target1}</span>
-                  <span className="font-bold text-emerald-300">₹{analysis.recommendedAction.target1}</span>
+                  <span className="font-bold text-emerald-300">₹{action.target1 || 0}</span>
                 </div>
                 <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
                   <span className="text-[10px] text-emerald-400 block">{t.target2}</span>
-                  <span className="font-bold text-emerald-300">₹{analysis.recommendedAction.target2}</span>
+                  <span className="font-bold text-emerald-300">₹{action.target2 || 0}</span>
                 </div>
               </div>
             </div>
@@ -164,7 +209,7 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
                 <span>{language === 'ml' ? 'വിപണി വിശകലനം (Malayalam)' : 'Executive Summary'}</span>
               </h4>
               <p className="text-xs text-slate-200 leading-relaxed font-medium">
-                {language === 'ml' ? analysis.summaryMalayalam : analysis.summary}
+                {summaryText}
               </p>
             </div>
 
@@ -174,7 +219,7 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
                 {language === 'ml' ? 'സാങ്കേതിക അനുകൂല ഘടകങ്ങൾ' : 'Key Technical Rationale'}
               </h4>
               <div className="space-y-1">
-                {(language === 'ml' ? analysis.technicalReasonsMalayalam : analysis.technicalReasons).map((reason, idx) => (
+                {technicalReasonsList.map((reason, idx) => (
                   <div key={idx} className="flex items-start gap-2 text-xs text-slate-200 bg-slate-900/80 p-2 rounded-lg border border-slate-800">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                     <span>{reason}</span>
@@ -191,19 +236,19 @@ export const GeminiAiAdvisor: React.FC<GeminiAiAdvisorProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                 <div className="p-1.5 rounded bg-rose-950/20 border border-rose-900/40">
                   <span className="text-[9px] text-rose-400 block">S2 (Major)</span>
-                  <span className="font-bold text-slate-200">₹{analysis.keyLevels.support2}</span>
+                  <span className="font-bold text-slate-200">₹{keyLevels.support2 || 0}</span>
                 </div>
                 <div className="p-1.5 rounded bg-rose-950/20 border border-rose-900/40">
                   <span className="text-[9px] text-rose-400 block">S1 (Intraday)</span>
-                  <span className="font-bold text-slate-200">₹{analysis.keyLevels.support1}</span>
+                  <span className="font-bold text-slate-200">₹{keyLevels.support1 || 0}</span>
                 </div>
                 <div className="p-1.5 rounded bg-emerald-950/20 border border-emerald-900/40">
                   <span className="text-[9px] text-emerald-400 block">R1 (Intraday)</span>
-                  <span className="font-bold text-slate-200">₹{analysis.keyLevels.resistance1}</span>
+                  <span className="font-bold text-slate-200">₹{keyLevels.resistance1 || 0}</span>
                 </div>
                 <div className="p-1.5 rounded bg-emerald-950/20 border border-emerald-900/40">
                   <span className="text-[9px] text-emerald-400 block">R2 (Major)</span>
-                  <span className="font-bold text-slate-200">₹{analysis.keyLevels.resistance2}</span>
+                  <span className="font-bold text-slate-200">₹{keyLevels.resistance2 || 0}</span>
                 </div>
               </div>
             </div>

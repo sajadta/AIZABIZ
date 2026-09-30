@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Send, CheckCircle2, Server, Save } from 'lucide-react';
+import { Shield, Send, CheckCircle2, Server, Save, X } from 'lucide-react';
 
 export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig, defaultApiConfig, language }: any) => {
   const [telegramBotToken, setTelegramBotToken] = useState('');
@@ -36,8 +36,23 @@ export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
+    <div 
+      className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col max-h-[90vh] my-auto relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-3 right-3 w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition active:scale-95 touch-manipulation z-10"
+          aria-label="Close setup modal"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
         <div className="p-5 border-b border-slate-800/60 bg-gradient-to-r from-indigo-900/40 to-slate-900 text-center">
           <div className="w-12 h-12 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
             <Shield className="w-6 h-6 text-indigo-400" />
@@ -113,13 +128,21 @@ export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-800/60 bg-slate-900/50">
+        <div className="p-4 border-t border-slate-800/60 bg-slate-900/50 space-y-2">
           <button
             onClick={handleSave}
-            className="w-full py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-sm font-black shadow-lg shadow-indigo-950 transition active:scale-95 flex items-center justify-center gap-2"
+            className="w-full py-3.5 min-h-[44px] rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-sm font-black shadow-lg shadow-indigo-950 transition active:scale-95 flex items-center justify-center gap-2 touch-manipulation"
           >
             <Save className="w-4 h-4" />
             <span>{language === 'ml' ? 'സേവ് ചെയ്യുക & തുടങ്ങുക' : 'Save & Continue'}</span>
+          </button>
+          
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2.5 min-h-[44px] rounded-xl bg-transparent hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-semibold transition active:scale-95 flex items-center justify-center gap-1.5 touch-manipulation"
+          >
+            <span>{language === 'ml' ? 'ഇപ്പോഴത്തേക്ക് ഒഴിവാക്കുക (Skip for now)' : 'Skip for now'}</span>
           </button>
         </div>
       </div>

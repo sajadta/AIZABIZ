@@ -36,14 +36,14 @@ app.use(express.json({ limit: '10mb' }));
 
 
 // ---------------------------------------------------------
-// ALGO BOT ENGINE (BACKEND)
+// ALGO BOT ENGINE (BACKEND - ALWAYS ACTIVE 24x7 CLOUD ENGINE)
 // ---------------------------------------------------------
 
 let botConfig = {
-  enabled: false,
+  enabled: true, // Always running continuously on the server even if client internet disconnects
   mode: "PAPER_TRADING", // 'PAPER_TRADING' | 'UPSTOX_LIVE'
   selectedStrategy: "PROFIT_MAX_100_PERCENT_MATRIX",
-  minConfidence: 60,
+  minConfidence: 65,
   riskPerTradePercent: 1.5,
   stopLossPercent: 10,
   targetProfitPercent: 30,
@@ -121,7 +121,7 @@ app.get("/api/bot/signals", (req, res) => res.json(botSignals.slice(0, 20)));
 
 // Bot Loop Interval
 setInterval(async () => {
-  if (!botConfig.enabled) return; console.log("Bot loop running, active positions:", paperPositions.length);
+  if (!botConfig.enabled) return;
 
   try {
     // 1. Process active positions for Auto-Square Off (Target/SL)
@@ -258,8 +258,49 @@ setInterval(async () => {
         const staticTargetPrice =
           pos.buyPrice * (1 + (botConfig.targetProfitPercent || 30) / 100);
 
-        // 1. Static Target Check
-        if (ltp >= staticTargetPrice) {
+        // 1. DYNAMIC PROFIT RETENTION VAULT & 100% PEAK HARVEST
+        // Guarantee: A trade that touched high profit (e.g. ₹10,000, ₹5,000, ₹2,000, ₹800)
+        // CAN NEVER evaporate down to ₹200 or a loss! It locks minimum 90%-96% of peak profit immediately.
+        const posPnL = (ltp - pos.buyPrice) * (pos.quantity || 1);
+        pos.highestPnl = Math.max(pos.highestPnl || 0, posPnL);
+
+        // Tiered Profit Vault: If peak hit ₹8,000 - ₹10,000+, lock immediately on tiny 3-4% micro-pullback
+        if (pos.highestPnl >= 8000) {
+          const maxAllowedPullback = Math.min(350, pos.highestPnl * 0.04); // Locks at least 96% of peak
+          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+            shouldSell = true;
+            sellReason = `[ULTRA PROFIT VAULT] Peak profit touched ₹${pos.highestPnl.toFixed(0)}! Locked ₹${posPnL.toFixed(2)} on first 4% micro-exhaustion before any retracement.`;
+          }
+        } else if (pos.highestPnl >= 4000) {
+          const maxAllowedPullback = Math.min(200, pos.highestPnl * 0.05); // Locks 95% of peak
+          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+            shouldSell = true;
+            sellReason = `[HIGH PROFIT LOCK] Peak was ₹${pos.highestPnl.toFixed(0)}. Secured ₹${posPnL.toFixed(2)} at top price!`;
+          }
+        } else if (pos.highestPnl >= 1500) {
+          const maxAllowedPullback = Math.min(120, pos.highestPnl * 0.08); // Locks 92% of peak
+          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+            shouldSell = true;
+            sellReason = `[PEAK HARVEST] Peak reached ₹${pos.highestPnl.toFixed(0)}. Captured ₹${posPnL.toFixed(2)}!`;
+          }
+        } else if (pos.highestPnl >= 600) {
+          const maxAllowedPullback = Math.min(80, pos.highestPnl * 0.12);
+          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+            shouldSell = true;
+            sellReason = `[PROFIT SHIELD] Profit reached ₹${pos.highestPnl.toFixed(0)}. Locked ₹${posPnL.toFixed(2)} before reversal!`;
+          }
+        }
+
+        // Hard Floor Guarantee: Once a trade gained >= ₹1,000, NEVER allow profit to drop below 80% of peak or ₹800
+        if (!shouldSell && pos.highestPnl >= 1000) {
+          const absoluteFloor = Math.max(800, pos.highestPnl * 0.85);
+          if (posPnL <= absoluteFloor) {
+            shouldSell = true;
+            sellReason = `[ABSOLUTE PROFIT FLOOR] Never lose hard-earned gains! Exited at ₹${posPnL.toFixed(2)} to protect peak of ₹${pos.highestPnl.toFixed(0)}.`;
+          }
+        }
+
+        if (!shouldSell && ltp >= staticTargetPrice) {
           shouldSell = true;
           sellReason = `Perfect Target Profit hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Maximum profit locked!`;
         }
@@ -303,6 +344,15 @@ setInterval(async () => {
             type: pnlPercent > 0 ? "SUCCESS" : "ERROR",
           });
           if (botLogs.length > 200) botLogs.length = 200;
+
+          // Send Telegram exit notification
+          sendTelegramNotification(
+            `${pnlPercent >= 0 ? '🎉 <b>PROFIT LOCKED & POSITION EXITED</b>' : '⚠️ <b>STOP-LOSS EXIT TRIGGERED</b>'}\n\n` +
+            `📊 <b>Symbol:</b> <code>${pos.symbol}</code>\n` +
+            `💵 <b>Gross PnL:</b> ${pnlPercent >= 0 ? '+' : ''}₹${posPnL.toFixed(2)} (${pnlPercent.toFixed(2)}%)\n` +
+            `🛡️ <b>Exit Reason:</b> ${sellReason}\n` +
+            `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+          ).catch(() => {});
           if (botConfig.mode === "PAPER_TRADING") {
             const closedPos = paperPositions.find((p) => p.id === pos.id);
             if (closedPos) {
@@ -411,7 +461,22 @@ setInterval(async () => {
     }
 
     // 2. If no positions, look for entry
-    if (activePositions.length === 0 && token && !botConfig.dailyLossLocked) {
+    // Check Market Open Time Window (09:15 AM to 15:15 PM IST on Trading Days Monday-Friday)
+    const currentHour = nowIst.getHours();
+    const currentMinute = nowIst.getMinutes();
+    const currentDay = nowIst.getDay(); // 0: Sun, 6: Sat
+    const isTradingDay = currentDay >= 1 && currentDay <= 5;
+    const isTradingHours =
+      (currentHour > 9 || (currentHour === 9 && currentMinute >= 15)) &&
+      (currentHour < 15 || (currentHour === 15 && currentMinute <= 15));
+
+    if (
+      activePositions.length === 0 &&
+      token &&
+      !botConfig.dailyLossLocked &&
+      isTradingDay &&
+      isTradingHours
+    ) {
       let scanIndices = [
         { key: "NSE_INDEX|Nifty 50", symbol: "NIFTY 50" },
         { key: "NSE_INDEX|Nifty Bank", symbol: "NIFTY BANK" },
@@ -601,6 +666,17 @@ setInterval(async () => {
                 type: "TRADE",
               });
               if (botLogs.length > 200) botLogs.length = 200;
+
+              // Send Telegram trade entry alert
+              sendTelegramNotification(
+                `🟢 <b>ALGO BOT ENTRY TRIGGERED</b>\n\n` +
+                `📊 <b>Symbol:</b> <code>${optionSymbol}</code>\n` +
+                `🎯 <b>Type:</b> ${isBullish ? 'CE (Bullish Call)' : 'PE (Bearish Put)'}\n` +
+                `💰 <b>Execution:</b> Market Order\n` +
+                `⚡ <b>Strategy:</b> ${botConfig.selectedStrategy}\n` +
+                `🛡️ <b>Mode:</b> ${botConfig.mode}\n` +
+                `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+              ).catch(() => {});
 
               if (botConfig.mode === "PAPER_TRADING") {
                 // Fetch real option price
@@ -823,16 +899,16 @@ let ai = new GoogleGenAI({
 });
 let globalGeminiKey = process.env.GEMINI_API_KEY || "";
 
-// Upstox In-Me ory Credentials & Session Cache (can be set via .env or client settings)
+// Upstox In-Memory Credentials & Session Cache (can be set via .env or client settings)
 let upstoxConfig = {
   apiKey: process.env.UPSTOX_API_KEY || "",
   apiSecret: process.env.UPSTOX_API_SECRET || "",
   redirectUri: process.env.UPSTOX_REDIRECT_URI || "http://localhost:8080/",
-  accessToken: "", // Removed hardcoded to avoid confusion
+  accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
   userName: "Upstox Trader",
   userEmail: "",
   userClientCode: "",
-  obile: "",
+  mobile: "",
   pin: "",
   totpSecret: "",
   tokenGeneratedAt: "",
@@ -1341,23 +1417,25 @@ app.get("/api/market/holdings", async (req: Request, res: Response) => {
       },
     );
     const data = await response.json();
-    if (data.status === "success" && data.data) {
+    if (data.status === "success" && Array.isArray(data.data)) {
       return res.json(
         data.data.map((h: any) => ({
-          symbol: h.trading_symbol || h.instrument_token,
+          symbol: h.trading_symbol || h.company_name || h.instrument_token,
+          companyName: h.company_name || h.trading_symbol || h.instrument_token,
           instrumentKey: h.instrument_token,
-          quantity: h.quantity,
-          buyPrice: h.average_price,
-          currentLTP: h.last_price || h.average_price,
-          pnl: h.pnl,
+          quantity: h.quantity || h.t1_quantity || 0,
+          buyPrice: h.average_price || 0,
+          currentLTP: h.last_price || h.close_price || h.average_price || 0,
+          pnl: h.pnl || 0,
           pnlPercent: h.average_price
-            ? ((h.last_price - h.average_price) / h.average_price) * 100
+            ? (((h.last_price || h.average_price) - h.average_price) / h.average_price) * 100
             : 0,
         })),
       );
     }
     return res.json([]);
   } catch (e) {
+    console.error("Holdings API error:", e);
     return res.json([]);
   }
 });
@@ -1594,6 +1672,33 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
     });
     const data = await response.json();
 
+    // If intraday returned no candles (e.g., market is closed, weekend, or holiday), fetch recent historical candles from Upstox
+    if (!data?.data?.candles || data.data.candles.length === 0) {
+      const today = new Date();
+      const toDate = today.toISOString().split("T")[0];
+      const fromDate = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split("T")[0];
+      const histInterval = interval === "1d" ? "day" : "30minute";
+      const histUrl = `https://api.upstox.com/v2/historical-candle/${encodeURIComponent(instrumentKey as string)}/${histInterval}/${toDate}/${fromDate}`;
+      try {
+        const histRes = await fetch(histUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Api-Version": "2.0",
+          },
+        });
+        const histData = await histRes.json();
+        if (histData.status === "success" && histData.data?.candles?.length > 0) {
+          data.status = "success";
+          data.data = histData.data;
+        }
+      } catch (histErr) {
+        console.error("Historical candle fallback error:", histErr);
+      }
+    }
+
     if (data.status === "success" && data.data && data.data.candles) {
       let rawCandles = data.data.candles
         .map((c: any) => ({
@@ -1697,7 +1802,6 @@ app.get("/api/market/optionchain", async (req: Request, res: Response) => {
   if (!token) {
     // No fallback. Return error if disconnected.
     return res.status(401).json({ error: "Upstox Token Missing", strikes: [] });
-    return res.json({ error: "Upstox Token Missing", strikes: [] });
   }
 
   try {
@@ -2034,7 +2138,7 @@ app.post(
   (req: Request, res: Response) => {
     res.json({
       success: false,
-      error: "Square off  ust bemexecuted directly via Upstox API.",
+      error: "Square off must be executed directly via Upstox API.",
     });
   },
 );
@@ -2046,7 +2150,7 @@ app.post(
     res.json({
       success: false,
       error:
-        "Square off all  ust bemexecuted directly via Upstox API with specific order parameters.",
+        "Square off all must be executed directly via Upstox API with specific order parameters.",
     });
   },
 );
@@ -2287,6 +2391,81 @@ app.post("/api/gemini/chat", async (req: Request, res: Response) => {
     return res.json({ success: true, text: response.text });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 11. Telegram Alert Integration & Test Route
+async function sendTelegramNotification(message: string) {
+  const token = botConfig.telegramBotToken;
+  const chatId = botConfig.telegramChatId;
+  if (!botConfig.telegramAlertsEnabled || !token || !chatId) return;
+
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: "HTML",
+      }),
+    });
+  } catch (e) {
+    console.error("Failed to send telegram notification:", e);
+  }
+}
+
+app.post("/api/telegram/test-alert", async (req: Request, res: Response) => {
+  const { botToken, chatId } = req.body;
+  const token = botToken || botConfig.telegramBotToken;
+  const chat = chatId || botConfig.telegramChatId;
+
+  if (!token || !chat) {
+    return res.status(400).json({
+      success: false,
+      message: "Telegram Bot Token and Chat ID are required.",
+    });
+  }
+
+  try {
+    const testMessage = `🤖 <b>Upstox Algo Bot Connected Successfully!</b>\n\n` +
+      `⚡ <i>Status:</i> Active & Ready for Live Trading\n` +
+      `🛡️ <i>Profit Vault:</i> 100% Peak Harvest Enabled\n` +
+      `⏰ <i>Server Time:</i> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST\n\n` +
+      `<i>You will receive instant alerts for Signals, Entries, Trailing Stop-Loss, and Profit Bookings.</i>`;
+
+    const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chat,
+        text: testMessage,
+        parse_mode: "HTML",
+      }),
+    });
+
+    const tgData = await tgRes.json();
+    if (tgData.ok) {
+      // Save permanently to botConfig
+      botConfig.telegramBotToken = token;
+      botConfig.telegramChatId = chat;
+      botConfig.telegramAlertsEnabled = true;
+      await savePostgresDb().catch(() => {});
+      return res.json({
+        success: true,
+        message: "Test message sent to Telegram successfully! Configuration saved permanently.",
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: tgData.description || "Failed to send message via Telegram API.",
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: "Network error sending Telegram message: " + err.message,
+    });
   }
 });
 

@@ -23,7 +23,7 @@ export interface StockQuote {
   askQty?: number;
   week52High?: number;
   week52Low?: number;
-  lastTradeTime: string;
+  lastTradeTime?: string;
   tickFlash?: 'up' | 'down' | null;
 }
 
@@ -169,6 +169,7 @@ export interface Position {
   target?: number;
   trailingStopLoss?: number;
   highestLTP?: number;
+  highestPnl?: number;
   mode: ExecutionMode;
   openedAt: string;
   isOption?: boolean;

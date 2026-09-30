@@ -50,33 +50,33 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
       {/* Header */}
-      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+      <div className="pb-2.5 border-b border-slate-800 flex items-center justify-between gap-1.5 flex-wrap w-full max-w-full min-w-0">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-              <Layers className="w-4 h-4" />
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <div className="p-1 sm:p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+              <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <h3 className="text-xs sm:text-sm font-black text-white tracking-tight uppercase">
               {t.optionChain} - {data.underlyingSymbol}
             </h3>
-            <span className="text-xs font-mono-num font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+            <span className="text-[11px] sm:text-xs font-mono-num font-black text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
               ₹{Number(data.underlyingLTP || 0).toFixed(2)}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-[11px] font-mono-num text-slate-400 mt-1">
+          <div className="flex items-center gap-2.5 text-[10px] sm:text-[11px] font-mono-num text-slate-400 mt-1">
             <span>PCR: <strong className={data.pcr > 1 ? 'text-emerald-400' : 'text-rose-400'}>{data.pcr}</strong></span>
             <span>Max Pain: <strong className="text-amber-400">₹{data.maxPain}</strong></span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Expiry Selector */}
           <select
             value={selectedExpiry || data.selectedExpiry}
             onChange={(e) => setSelectedExpiry(e.target.value)}
-            className="bg-black/20 border border-slate-800 rounded-xl px-3 py-1 text-xs text-white font-mono-num font-bold focus:outline-none focus:border-indigo-500 shadow-inner"
+            className="bg-black/20 border border-slate-800 rounded-xl px-2 sm:px-3 py-1 text-[11px] sm:text-xs text-white font-mono-num font-bold focus:outline-none focus:border-indigo-500 shadow-inner"
           >
             {data.expiryDates.map((exp) => (
               <option key={exp} value={exp}>
@@ -87,7 +87,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
 
           <button
             onClick={onRefresh}
-            className="p-1.5 rounded-xl bg-black/20 hover:bg-slate-800 border border-slate-800 text-slate-200 transition shadow-inner"
+            className="p-1 sm:p-1.5 rounded-xl bg-black/20 hover:bg-slate-800 border border-slate-800 text-slate-200 transition shadow-inner shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -95,8 +95,8 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
       </div>
 
       {/* Option Chain Table */}
-      <div className="flex-1 w-full overflow-x-auto overflow-y-auto webkit-scrollbar">
-        <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[600px]">
+      <div className="flex-1 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto webkit-scrollbar">
+        <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[550px]">
           <thead className="bg-[#070a12] text-slate-400 sticky top-0 z-10 border-b border-slate-800">
             <tr>
               <th colSpan={3} className="text-center py-1.5 bg-emerald-950/20 text-emerald-400 font-bold border-r border-slate-800">

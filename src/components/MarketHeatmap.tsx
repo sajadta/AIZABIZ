@@ -51,21 +51,26 @@ const STOCK_SECTORS: Record<string, string> = {
 
 export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: 360, height: 400 });
 
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
         setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight
+          width: containerRef.current.clientWidth || 360,
+          height: Math.max(350, containerRef.current.clientHeight || 400)
         });
       }
     };
     
     handleResize();
+    const ro = new ResizeObserver(() => handleResize());
+    if (containerRef.current) ro.observe(containerRef.current);
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   // Process data for treemap

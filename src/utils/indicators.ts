@@ -355,18 +355,62 @@ export function analyzeTradingSignals(
   if (readings.vwap.position === "ABOVE") bullishPoints += 10;
   else bearishPoints += 10;
 
-  // 6. Volatility & Trap Filter (Penalty)
+  // 6. Institutional Smart Money Concepts (SMC) & Liquidity Hunt Detection
+  // Check for Fair Value Gaps (FVG) and Order Blocks in recent 5 candles
+  const recentCandles = candles.slice(-5);
+  let smcBullishImbalance = false;
+  let smcBearishImbalance = false;
+  if (recentCandles.length >= 3) {
+    const c1 = recentCandles[recentCandles.length - 3];
+    const c3 = recentCandles[recentCandles.length - 1];
+    // Bullish FVG: Low of candle 3 is higher than High of candle 1 (Aggressive institutional buying gap)
+    if (c3.low > c1.high) smcBullishImbalance = true;
+    // Bearish FVG: High of candle 3 is lower than Low of candle 1 (Aggressive institutional selling gap)
+    if (c3.high < c1.low) smcBearishImbalance = true;
+  }
+  if (smcBullishImbalance) bullishPoints += 15;
+  if (smcBearishImbalance) bearishPoints += 15;
+
+  // 7. Liquidity Sweep & Retail Trap Filter:
+  // If price created a new high but closed near the low with high upper wick (Shooting Star/Liquidity Sweep)
+  const lastUpperWick = last.high - Math.max(last.open, last.close);
+  const lastLowerWick = Math.min(last.open, last.close) - last.low;
+  const candleRange = last.high - last.low || 1;
+  const isBullTrapSweep = lastUpperWick / candleRange > 0.55;
+  const isBearTrapSweep = lastLowerWick / candleRange > 0.55;
+
+  if (isBullTrapSweep) {
+    bullishPoints -= 25; // Heavily penalize false breakout traps
+    bearishPoints += 10;
+  }
+  if (isBearTrapSweep) {
+    bearishPoints -= 25; // Heavily penalize false breakdown traps
+    bullishPoints += 10;
+  }
+
+  // 8. Theta Decay Shield (Time-of-day Option Decay Protection)
+  // Options bleed heavily during mid-day consolidation (11:45 AM - 1:15 PM IST)
+  // Avoid entering low-momentum trades during theta-bleed hours unless confidence is ultra-high
+  const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const hoursIst = nowIst.getHours();
+  const minsIst = nowIst.getMinutes();
+  const isThetaChopZone = (hoursIst === 11 && minsIst >= 45) || (hoursIst === 12) || (hoursIst === 13 && minsIst <= 15);
+  if (isThetaChopZone && Math.abs(macdHist) < 0.5) {
+    bullishPoints -= 12; // Filter out chop
+    bearishPoints -= 12;
+  }
+
+  // 9. Volatility & Trap Filter (Penalty)
   // If RSI is extremely overbought, penalize bullish score
   if (readings.rsi.value > 80) bullishPoints -= 15;
   // If RSI is extremely oversold, penalize bearish score
   if (readings.rsi.value < 20) bearishPoints -= 15;
 
-  // 7. Candlestick Anatomy (Simple Check)
+  // 10. Candlestick Anatomy
   const bodySize = Math.abs(last.close - last.open);
   const totalSize = last.high - last.low;
   const isDoji = totalSize > 0 && bodySize / totalSize < 0.15;
   if (isDoji) {
-    // Doji means indecision. Reduce confidence.
     bullishPoints -= 10;
     bearishPoints -= 10;
   }

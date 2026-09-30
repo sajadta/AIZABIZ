@@ -38,9 +38,9 @@ export const Watchlist: React.FC<WatchlistProps> = ({
   });
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
       {/* Header & Search */}
-      <div className="pb-3 border-b border-slate-800">
+      <div className="pb-3 border-b border-slate-800 w-full max-w-full min-w-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -64,12 +64,12 @@ export const Watchlist: React.FC<WatchlistProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder={language === 'ml' ? 'ഓഹരികൾ തിരയുക (Search)...' : 'Search symbol, index, stock...'}
-            className="w-full bg-black/20/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
+            className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
           />
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 text-[11px] font-bold">
+        <div className="flex items-center gap-1.5 text-[11px] font-bold overflow-x-auto no-scrollbar w-full min-w-0 py-0.5">
           {(['ALL', 'INDEX', 'EQUITY', 'GLOBAL'] as const).map((seg) => (
             <button
               key={seg}
@@ -126,35 +126,39 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                 {/* Right: LTP & % Change */}
                 <div className="text-right font-mono-num">
                   <div className="text-xs sm:text-sm font-black text-white">
-                    ₹{q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    {q.ltp > 0 ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Live...'}
                   </div>
-                  <div
-                    className={`flex items-center justify-end text-[10px] font-extrabold mt-0.5 ${
-                      isPositive ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {isPositive ? (
-                      <ArrowUpRight className="w-3 h-3 mr-0.5 inline" />
-                    ) : (
-                      <ArrowDownRight className="w-3 h-3 mr-0.5 inline" />
-                    )}
-                    {isPositive ? '+' : ''}
-                    {Number(q.change || 0).toFixed(2)} ({q.changePercent}%)
-                  </div>
+                  {q.ltp > 0 && (
+                    <div
+                      className={`flex items-center justify-end text-[10px] font-extrabold mt-0.5 ${
+                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {isPositive ? (
+                        <ArrowUpRight className="w-3 h-3 mr-0.5 inline" />
+                      ) : (
+                        <ArrowDownRight className="w-3 h-3 mr-0.5 inline" />
+                      )}
+                      {isPositive ? '+' : ''}
+                      {Number(q.change || 0).toFixed(2)} ({q.changePercent}%)
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Day High / Low mini range bar */}
-              <div className="mt-2.5 flex items-center justify-between text-[9px] text-slate-500 font-mono-num">
-                <span>L: ₹{Number(q.low || 0).toFixed(1)}</span>
-                <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-slate-800/60">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.max(5, Math.min(95, currentPos))}%` }}
-                  />
+              {q.ltp > 0 && (
+                <div className="mt-2.5 flex items-center justify-between text-[9px] text-slate-500 font-mono-num">
+                  <span>L: ₹{Number(q.low || 0).toFixed(1)}</span>
+                  <div className="flex-1 mx-2 h-1.5 bg-slate-900 rounded-full overflow-hidden relative border border-slate-800/60">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(5, Math.min(95, currentPos))}%` }}
+                    />
+                  </div>
+                  <span>H: ₹{Number(q.high || 0).toFixed(1)}</span>
                 </div>
-                <span>H: ₹{Number(q.high || 0).toFixed(1)}</span>
-              </div>
+              )}
 
               {/* Active Alerts for this symbol */}
               {priceAlerts.filter(a => a.symbol === q.symbol && a.isActive).length > 0 && (

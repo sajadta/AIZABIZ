@@ -1,0 +1,369 @@
+import React, { useMemo } from 'react';
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  Clock, 
+  Scale, 
+  BarChart3, 
+  DollarSign, 
+  CheckCircle2, 
+  XCircle, 
+  ShieldAlert,
+  ArrowUpRight,
+  ArrowDownRight,
+  Hourglass
+} from 'lucide-react';
+import { Position, Language } from '../types';
+
+interface PerformanceOverviewCardProps {
+  tradeHistory: Position[];
+  language: Language;
+}
+
+export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = ({
+  tradeHistory = [],
+  language,
+}) => {
+  // Compute core performance metrics
+  const metrics = useMemo(() => {
+    const totalTrades = tradeHistory.length;
+    if (totalTrades === 0) {
+      return {
+        totalRealizedPnL: 0,
+        grossProfit: 0,
+        grossLoss: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        breakEvenTrades: 0,
+        winLossRatio: '0.00 : 1',
+        winRatePercent: 0,
+        avgDurationMs: 0,
+        minDurationMs: 0,
+        maxDurationMs: 0,
+        validDurationCount: 0,
+        profitFactor: 0,
+        avgWin: 0,
+        avgLoss: 0,
+      };
+    }
+
+    let totalRealizedPnL = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    let winningTrades = 0;
+    let losingTrades = 0;
+    let breakEvenTrades = 0;
+
+    let totalDurationMs = 0;
+    let validDurationCount = 0;
+    let minDurationMs = Number.MAX_SAFE_INTEGER;
+    let maxDurationMs = 0;
+
+    tradeHistory.forEach((trade) => {
+      const pnl = trade.realizedPnL || 0;
+      totalRealizedPnL += pnl;
+
+      if (pnl > 0) {
+        winningTrades += 1;
+        grossProfit += pnl;
+      } else if (pnl < 0) {
+        losingTrades += 1;
+        grossLoss += Math.abs(pnl);
+      } else {
+        breakEvenTrades += 1;
+      }
+
+      // Calculate trade duration: end time - start time
+      const startTime = trade.openedAt 
+        ? new Date(trade.openedAt).getTime() 
+        : (trade as any).openTime 
+        ? new Date((trade as any).openTime).getTime() 
+        : (trade as any).timestamp 
+        ? new Date((trade as any).timestamp).getTime() 
+        : 0;
+
+      const endTime = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
+
+      if (startTime > 0 && endTime > 0 && endTime >= startTime) {
+        const duration = endTime - startTime;
+        totalDurationMs += duration;
+        validDurationCount += 1;
+        if (duration < minDurationMs) minDurationMs = duration;
+        if (duration > maxDurationMs) maxDurationMs = duration;
+      }
+    });
+
+    // Win / Loss Ratio calculation
+    let winLossRatio = '0.00 : 1';
+    if (losingTrades === 0) {
+      winLossRatio = winningTrades > 0 ? `${winningTrades}.0 : 0` : '0.0 : 0';
+    } else {
+      winLossRatio = `${(winningTrades / losingTrades).toFixed(2)} : 1`;
+    }
+
+    const winRatePercent = Math.round((winningTrades / totalTrades) * 100);
+    const avgDurationMs = validDurationCount > 0 ? Math.round(totalDurationMs / validDurationCount) : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.9 : 0;
+    const avgWin = winningTrades > 0 ? grossProfit / winningTrades : 0;
+    const avgLoss = losingTrades > 0 ? grossLoss / losingTrades : 0;
+
+    return {
+      totalRealizedPnL,
+      grossProfit,
+      grossLoss,
+      winningTrades,
+      losingTrades,
+      breakEvenTrades,
+      winLossRatio,
+      winRatePercent,
+      avgDurationMs,
+      minDurationMs: minDurationMs === Number.MAX_SAFE_INTEGER ? 0 : minDurationMs,
+      maxDurationMs,
+      validDurationCount,
+      profitFactor,
+      avgWin,
+      avgLoss,
+    };
+  }, [tradeHistory]);
+
+  // Formatter for durations into friendly human-readable strings
+  const formatDurationString = (ms: number) => {
+    if (ms <= 0) return language === 'ml' ? '< 1 മി' : '< 1 min';
+    
+    const seconds = Math.floor(ms / 1000);
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (days > 0) {
+      return language === 'ml' 
+        ? `${days}ദി ${hours > 0 ? `${hours}മ` : ''}`
+        : `${days}d ${hours > 0 ? `${hours}h` : ''}`;
+    }
+    if (hours > 0) {
+      return language === 'ml'
+        ? `${hours}മ ${minutes > 0 ? `${minutes}മി` : ''}`
+        : `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`;
+    }
+    if (minutes > 0) {
+      return language === 'ml'
+        ? `${minutes}മി ${remainingSeconds > 0 ? `${remainingSeconds}സെ` : ''}`
+        : `${minutes}m ${remainingSeconds > 0 ? `${remainingSeconds}s` : ''}`;
+    }
+    return language === 'ml' ? `${remainingSeconds}സെ` : `${remainingSeconds}s`;
+  };
+
+  const isPositive = metrics.totalRealizedPnL >= 0;
+
+  return (
+    <div className="bg-[#0b0f19]/95 rounded-2xl border border-slate-800 p-4 sm:p-5 shadow-xl space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-800/80">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+            <BarChart3 className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-black text-white tracking-tight">
+                {language === 'ml' ? 'പെർഫോമൻസ് ഓവർവ്യൂ' : 'Performance Overview'}
+              </h3>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                {tradeHistory.length} {tradeHistory.length === 1 ? 'Trade' : 'Trades'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              {language === 'ml' 
+                ? 'ക്ലോസ് ചെയ്ത ട്രേഡുകളുടെ തത്സമയ റിയലൈസ്ഡ് ലാഭനഷ്ട അവലോകനം' 
+                : 'Realized trading metrics, win/loss distribution, and execution velocity'}
+            </p>
+          </div>
+        </div>
+
+        {/* Win Rate Tag */}
+        <div className="flex items-center gap-3">
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400">
+              {language === 'ml' ? 'വിൻ റേറ്റ്' : 'Win Rate'}:
+            </span>
+            <span className={`text-xs font-black font-mono ${metrics.winRatePercent >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {metrics.winRatePercent}%
+            </span>
+          </div>
+
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400">
+              {language === 'ml' ? 'പ്രോഫിറ്റ് ഫാക്ടർ' : 'Profit Factor'}:
+            </span>
+            <span className={`text-xs font-black font-mono ${metrics.profitFactor >= 1.5 ? 'text-emerald-400' : metrics.profitFactor >= 1 ? 'text-cyan-400' : 'text-slate-300'}`}>
+              {metrics.profitFactor.toFixed(2)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3 Core Primary KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        
+        {/* KPI 1: Total Realized PnL */}
+        <div className={`p-4 rounded-xl border relative overflow-hidden flex flex-col justify-between ${
+          isPositive 
+            ? 'bg-gradient-to-br from-emerald-950/20 via-slate-900 to-slate-900 border-emerald-900/40' 
+            : 'bg-gradient-to-br from-rose-950/20 via-slate-900 to-slate-900 border-rose-900/40'
+        }`}>
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                {language === 'ml' ? 'ആകെ റിയലൈസ്ഡ് P&L' : 'Total Realized P&L'}
+              </span>
+              <div className={`p-1.5 rounded-lg ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+              </div>
+            </div>
+
+            <div className="flex items-baseline gap-1.5 my-1">
+              <span className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${
+                isPositive ? 'text-emerald-400' : 'text-rose-400'
+              }`}>
+                {isPositive ? '+' : ''}₹{metrics.totalRealizedPnL.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-3 mt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <span className="flex items-center gap-1 text-emerald-400/90 font-mono">
+              <ArrowUpRight className="w-3.5 h-3.5 text-emerald-400" />
+              +₹{metrics.grossProfit.toFixed(0)}
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="flex items-center gap-1 text-rose-400/90 font-mono">
+              <ArrowDownRight className="w-3.5 h-3.5 text-rose-400" />
+              -₹{metrics.grossLoss.toFixed(0)}
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 2: Win / Loss Ratio */}
+        <div className="p-4 rounded-xl border border-slate-800 bg-gradient-to-br from-indigo-950/20 via-slate-900 to-slate-900 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                {language === 'ml' ? 'വിൻ / ലോസ് അനുപാതം' : 'Win / Loss Ratio'}
+              </span>
+              <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Scale className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="flex items-baseline gap-2 my-1">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
+                {metrics.winLossRatio}
+              </span>
+            </div>
+          </div>
+
+          {/* Ratio bar & Counts */}
+          <div className="pt-3 mt-2 border-t border-slate-800/80 space-y-1.5">
+            <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+              <div 
+                className="bg-emerald-500 h-full transition-all duration-500"
+                style={{ width: `${metrics.winRatePercent}%` }}
+              />
+              <div 
+                className="bg-rose-500 h-full transition-all duration-500"
+                style={{ width: `${100 - metrics.winRatePercent}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                {metrics.winningTrades} {language === 'ml' ? 'വിജയം' : 'Wins'}
+              </span>
+              <span className="text-rose-400 font-mono font-bold flex items-center gap-1">
+                <XCircle className="w-3 h-3" />
+                {metrics.losingTrades} {language === 'ml' ? 'നഷ്ടം' : 'Losses'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI 3: Average Trade Duration */}
+        <div className="p-4 rounded-xl border border-slate-800 bg-gradient-to-br from-cyan-950/20 via-slate-900 to-slate-900 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider">
+                {language === 'ml' ? 'ശരാശരി ട്രേഡ് സമയം' : 'Avg Trade Duration'}
+              </span>
+              <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+
+            <div className="flex items-baseline gap-2 my-1">
+              <span className="text-2xl sm:text-3xl font-black font-mono text-cyan-300 tracking-tight">
+                {metrics.validDurationCount > 0 ? formatDurationString(metrics.avgDurationMs) : (tradeHistory.length > 0 ? 'Intraday' : '0m')}
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-3 mt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+            <span>
+              {language === 'ml' ? 'കുറഞ്ഞ സമയം' : 'Min'}:{' '}
+              <strong className="text-slate-200">
+                {metrics.minDurationMs > 0 ? formatDurationString(metrics.minDurationMs) : '< 1m'}
+              </strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span>
+              {language === 'ml' ? 'കൂടിയ സമയം' : 'Max'}:{' '}
+              <strong className="text-slate-200">
+                {metrics.maxDurationMs > 0 ? formatDurationString(metrics.maxDurationMs) : (tradeHistory.length > 0 ? 'EOD' : '0m')}
+              </strong>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Auxiliary Performance Insights Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-slate-400">
+            {language === 'ml' ? 'ശരാശരി ലാഭം' : 'Average Win'}
+          </span>
+          <span className="font-mono font-extrabold text-emerald-400 text-sm mt-0.5">
+            ₹{metrics.avgWin.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-slate-400">
+            {language === 'ml' ? 'ശരാശരി നഷ്ടം' : 'Average Loss'}
+          </span>
+          <span className="font-mono font-extrabold text-rose-400 text-sm mt-0.5">
+            -₹{metrics.avgLoss.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-slate-400">
+            {language === 'ml' ? 'റിസ്ക്-റിവാർഡ് നിരക്ക്' : 'Payoff Ratio (Avg W/L)'}
+          </span>
+          <span className="font-mono font-extrabold text-indigo-400 text-sm mt-0.5">
+            {metrics.avgLoss > 0 ? `${(metrics.avgWin / metrics.avgLoss).toFixed(2)} : 1` : (metrics.avgWin > 0 ? 'Pure Profit' : '1.00 : 1')}
+          </span>
+        </div>
+
+        <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
+          <span className="text-[10px] uppercase font-bold text-slate-400">
+            {language === 'ml' ? 'ബ്രേക്ക്-ഈവൻ ട്രേഡുകൾ' : 'Break-Even Trades'}
+          </span>
+          <span className="font-mono font-extrabold text-slate-300 text-sm mt-0.5">
+            {metrics.breakEvenTrades} {language === 'ml' ? 'എണ്ണം' : 'Trades'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};

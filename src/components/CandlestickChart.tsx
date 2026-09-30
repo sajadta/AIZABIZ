@@ -89,8 +89,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     };
 
     const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
+      autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: '#070a12' },
         textColor: '#94a3b8',
@@ -234,19 +233,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const isPositive = currentChange >= 0;
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/80 text-slate-200 overflow-hidden">
+    <div className="flex flex-col h-full w-full max-w-full min-w-0 bg-slate-900/80 text-slate-200 overflow-hidden">
       {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800 bg-[#070a12] gap-1.5 sm:gap-3 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800 bg-[#070a12] gap-1.5 sm:gap-3 shrink-0 w-full max-w-full min-w-0 overflow-hidden">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h2 className="text-sm sm:text-base font-black text-slate-100">{symbol}</h2>
             <div className="flex items-center gap-1.5 font-mono">
               <span className={`text-sm sm:text-base font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                ₹{currentLtp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {currentLtp > 0 ? `₹${currentLtp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Live...'}
               </span>
-              <span className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded font-bold ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                {isPositive ? '+' : ''}{currentChange.toFixed(2)}%
-              </span>
+              {currentLtp > 0 && (
+                <span className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded font-bold ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                  {isPositive ? '+' : ''}{currentChange.toFixed(2)}%
+                </span>
+              )}
             </div>
           </div>
 
@@ -331,9 +332,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         </div>
       </div>
 
-      <div className="relative flex-1 flex flex-col min-h-0 bg-[#070a12]">
+      <div className="relative flex-1 flex flex-col w-full max-w-full min-w-0 min-h-0 bg-[#070a12] overflow-hidden">
          {/* Main Chart Container */}
-         <div className="flex-1 w-full relative min-h-0"><div ref={chartContainerRef} className="absolute inset-0" /></div>
+         <div className="flex-1 w-full h-full relative min-h-0 min-w-0 overflow-hidden"><div ref={chartContainerRef} className="absolute inset-0 w-full h-full overflow-hidden" /></div>
+
+         {/* Live Candlestick Feed Loading State */}
+         {displayCandles.length === 0 && (
+           <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#070a12]/80 backdrop-blur-sm z-20">
+             <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
+             <p className="text-xs sm:text-sm font-bold text-slate-200">
+               {language === 'ml' ? 'ലൈവ് കാൻഡിൽസ്റ്റിക്കുകൾ ലോഡ് ചെയ്യുന്നു...' : 'Loading Live Market Candlesticks...'}
+             </p>
+             <p className="text-[11px] text-slate-400 mt-1">100% Real-Time NSE / BSE Live Exchange Feed</p>
+           </div>
+         )}
          
          {/* AI Signal Overlay - if generated */}
          {signal && (

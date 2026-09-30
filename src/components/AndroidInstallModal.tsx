@@ -35,6 +35,7 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [activeTab, setActiveTab] = useState<'PWA' | 'APK' | 'GITHUB' | 'IP_FAQ'>('PWA');
+  const [manualNote, setManualNote] = useState<string | null>(null);
 
   useEffect(() => {
     const handleBeforeInstall = (e: any) => {
@@ -64,16 +65,21 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
       }
       setDeferredPrompt(null);
     } else {
-      // Direct instruction popup
-      alert(language === 'ml' 
+      setManualNote(language === 'ml' 
         ? 'നിങ്ങളുടെ മൊബൈൽ Chrome ബ്രൗസറിലെ മുകളിലെ 3 ഡോട്ടുകൾ (⋮) ക്ലിക്ക് ചെയ്ത് "Add to Home Screen / Install app" തിരഞ്ഞെടുക്കുക.' 
         : 'Open Chrome menu (3 dots) on your phone and tap "Install app" or "Add to Home screen".');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-6">
+    <div 
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-xl shadow-2xl max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200 my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="p-4 sm:p-5 bg-[#090d16] border-b border-slate-800 flex items-center justify-between">
@@ -97,8 +103,10 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition active:scale-95 touch-manipulation"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
@@ -179,6 +187,12 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
                   <Download className="w-4 h-4" />
                   <span>{language === 'ml' ? 'ഫോണിൽ ഇൻസ്റ്റാൾ ചെയ്യുക (Install App)' : t.installPwaBtn}</span>
                 </button>
+
+                {manualNote && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs text-left animate-in fade-in">
+                    {manualNote}
+                  </div>
+                )}
               </div>
 
               {/* Step by step guide */}

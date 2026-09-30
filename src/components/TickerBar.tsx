@@ -14,7 +14,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
   onSelectSymbol,
 }) => {
   return (
-    <div className="bg-black/30 border-b border-slate-800/60 overflow-x-auto no-scrollbar py-1 px-2 shrink-0">
+    <div className="w-full max-w-full min-w-0 bg-black/30 border-b border-slate-800/60 overflow-x-auto no-scrollbar py-1 px-2 shrink-0">
       <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-max">
         {quotes.map((q) => {
           const isSelected = q.symbol === selectedSymbol;
@@ -24,7 +24,7 @@ export const TickerBar: React.FC<TickerBarProps> = ({
             <button
               key={q.instrumentKey || q.symbol}
               onClick={() => onSelectSymbol && onSelectSymbol(q.symbol, q.instrumentKey)}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border text-left transition-all font-mono ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 py-1 min-h-[44px] rounded-lg border text-left transition-all font-mono touch-manipulation select-none active:scale-95 ${
                 isSelected
                   ? 'bg-slate-800/90 border-slate-600 shadow-sm'
                   : 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/60 hover:border-slate-700'
@@ -40,20 +40,22 @@ export const TickerBar: React.FC<TickerBarProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold">
-                  <span className="text-slate-100">₹{q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                  <span
-                    className={`flex items-center text-[9px] sm:text-[10px] ${
-                      isPositive ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {isPositive ? (
-                      <TrendingUp className="w-2.5 h-2.5 mr-0.5 inline" />
-                    ) : (
-                      <TrendingDown className="w-2.5 h-2.5 mr-0.5 inline" />
-                    )}
-                    {isPositive ? '+' : ''}
-                    {q.changePercent}%
-                  </span>
+                  <span className="text-slate-100">{q.ltp > 0 ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Live...'}</span>
+                  {q.ltp > 0 && (
+                    <span
+                      className={`flex items-center text-[9px] sm:text-[10px] ${
+                        isPositive ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {isPositive ? (
+                        <TrendingUp className="w-2.5 h-2.5 mr-0.5 inline" />
+                      ) : (
+                        <TrendingDown className="w-2.5 h-2.5 mr-0.5 inline" />
+                      )}
+                      {isPositive ? '+' : ''}
+                      {q.changePercent}%
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
