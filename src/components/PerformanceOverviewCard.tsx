@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -11,7 +11,9 @@ import {
   ShieldAlert,
   ArrowUpRight,
   ArrowDownRight,
-  Hourglass
+  Hourglass,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { Position, Language } from '../types';
 
@@ -24,6 +26,7 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
   tradeHistory = [],
   language,
 }) => {
+  const [isExpanded, setIsExpanded] = useState<boolean>(tradeHistory.length > 0);
   // Compute core performance metrics
   const metrics = useMemo(() => {
     const totalTrades = tradeHistory.length;
@@ -159,21 +162,21 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
   return (
     <div className="bg-[#0b0f19]/95 rounded-2xl border border-slate-800 p-4 sm:p-5 shadow-xl space-y-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-800/80">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-            <BarChart3 className="w-5 h-5" />
+      <div className="flex items-center justify-between gap-2.5 pb-2 border-b border-slate-800/80">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-1.5 sm:p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0">
+            <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-black text-white tracking-tight">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-base font-black text-white tracking-tight truncate">
                 {language === 'ml' ? 'പെർഫോമൻസ് ഓവർവ്യൂ' : 'Performance Overview'}
               </h3>
-              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
                 {tradeHistory.length} {tradeHistory.length === 1 ? 'Trade' : 'Trades'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[10px] sm:text-[11px] text-slate-400 truncate hidden sm:block">
               {language === 'ml' 
                 ? 'ക്ലോസ് ചെയ്ത ട്രേഡുകളുടെ തത്സമയ റിയലൈസ്ഡ് ലാഭനഷ്ട അവലോകനം' 
                 : 'Realized trading metrics, win/loss distribution, and execution velocity'}
@@ -181,30 +184,42 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           </div>
         </div>
 
-        {/* Win Rate Tag */}
-        <div className="flex items-center gap-3">
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-slate-400">
-              {language === 'ml' ? 'വിൻ റേറ്റ്' : 'Win Rate'}:
+        {/* Win Rate Tag & Collapse/Expand Toggle */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="px-2 sm:px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-1.5">
+            <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">
+              {language === 'ml' ? 'P&L' : 'P&L'}:
             </span>
-            <span className={`text-xs font-black font-mono ${metrics.winRatePercent >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {metrics.winRatePercent}%
+            <span className={`text-[11px] sm:text-xs font-black font-mono ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {isPositive ? '+' : ''}₹{metrics.totalRealizedPnL.toFixed(1)}
             </span>
           </div>
 
-          <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-slate-400">
-              {language === 'ml' ? 'പ്രോഫിറ്റ് ഫാക്ടർ' : 'Profit Factor'}:
-            </span>
-            <span className={`text-xs font-black font-mono ${metrics.profitFactor >= 1.5 ? 'text-emerald-400' : metrics.profitFactor >= 1 ? 'text-cyan-400' : 'text-slate-300'}`}>
-              {metrics.profitFactor.toFixed(2)}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 sm:p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition flex items-center gap-1 text-xs font-bold"
+            title={isExpanded ? 'ചുരുക്കുക (Collapse)' : 'വിശദാംശങ്ങൾ കാണുക (Expand)'}
+          >
+            {isExpanded ? (
+              <>
+                <span className="text-[10px] hidden sm:inline">{language === 'ml' ? 'ചുരുക്കുക' : 'Collapse'}</span>
+                <ChevronUp className="w-4 h-4 text-cyan-400" />
+              </>
+            ) : (
+              <>
+                <span className="text-[10px] text-cyan-400 hidden sm:inline">{language === 'ml' ? 'വിശദാംശങ്ങൾ' : 'Details'}</span>
+                <ChevronDown className="w-4 h-4 text-cyan-400" />
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* 3 Core Primary KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+      {isExpanded && (
+        <>
+          {/* 3 Core Primary KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         
         {/* KPI 1: Total Realized PnL */}
         <div className={`p-4 rounded-xl border relative overflow-hidden flex flex-col justify-between ${
@@ -364,6 +379,8 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           </span>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };

@@ -913,7 +913,7 @@ export const App: React.FC = () => {
   const t = translations[language];
 
   return (
-    <div className="flex flex-col h-full w-full max-w-full bg-[#070a12] text-slate-100 overflow-hidden font-sans select-none">
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-full max-w-full bg-[#070a12] text-slate-100 overflow-hidden font-sans select-none">
       {/* 1. TOP HEADER */}
       <Header
         isWsConnected={isWsConnected}
@@ -1206,7 +1206,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'BOT' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll pb-16 lg:pb-0">
                 <AlgoBotPanel
                   botConfig={botConfig}
                   onUpdateBotConfig={(cfg) => {
@@ -1229,7 +1229,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'OPTIONS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
+              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-14 lg:pb-0">
                 <OptionChainView
                   data={optionChainData}
                   quotes={quotes}
@@ -1249,7 +1249,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'ORDERS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto space-y-4">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-16 lg:pb-0">
                 {/* Performance Overview: Total Realized PnL, Win/Loss Ratio, Avg Trade Duration */}
                 <PerformanceOverviewCard tradeHistory={tradeHistory} language={language} />
 
@@ -1279,7 +1279,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'HOLDINGS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto space-y-4">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-16 lg:pb-0">
                 <OrderBookPositions
                   positions={positions}
                   orders={orders}
@@ -1300,13 +1300,13 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'HEATMAP' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
+              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-14 lg:pb-0">
                 <MarketHeatmap quotes={quotes} />
               </div>
             )}
 
             {activeTab === 'AI' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll grid grid-cols-1 lg:grid-cols-2 gap-4 pb-16 lg:pb-0">
                 <ErrorBoundary fallbackTitle="AI മാർക്കറ്റ് അഡ്വൈസർ ലോഡ് ചെയ്യുന്നതിൽ പിശക് (AI Advisor Error)">
                   <GeminiAiAdvisor
                     analysis={geminiAnalysis}

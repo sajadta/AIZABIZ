@@ -87,7 +87,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
       </div>
 
       {/* Quote List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 mt-1 pr-0.5">
+      <div className="flex-1 overflow-y-auto smooth-scroll divide-y divide-slate-800/40 mt-1 pr-0.5 pb-20 sm:pb-4">
         {filteredQuotes.map((q) => {
           const isSelected = q.symbol === selectedSymbol;
           const isPositive = q.change >= 0;

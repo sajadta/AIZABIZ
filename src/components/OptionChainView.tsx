@@ -95,7 +95,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
       </div>
 
       {/* Option Chain Table */}
-      <div className="flex-1 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto webkit-scrollbar">
+      <div className="flex-1 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto smooth-scroll webkit-scrollbar pb-20 sm:pb-4">
         <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[550px]">
           <thead className="bg-[#070a12] text-slate-400 sticky top-0 z-10 border-b border-slate-800">
             <tr>

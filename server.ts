@@ -1,8 +1,7 @@
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
-import { appState } from "./src/db/schema.js";
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
-import { db } from "./src/db/index.js";
-import { tradeHistory } from "./src/db/schema.js";
+import { appState, tradeHistory } from "./src/db/schema";
+import { db } from "./src/db/index";
 import { desc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import { createRequire } from "module";

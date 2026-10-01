@@ -304,7 +304,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+      <div className="flex-1 overflow-y-auto smooth-scroll p-3 sm:p-4 pb-20 sm:pb-6">
         
         {/* TAB 1: LIVE SIGNALS */}
         {activeTab === 'SIGNALS' && (
