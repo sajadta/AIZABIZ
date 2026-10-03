@@ -202,15 +202,11 @@ export const App: React.FC = () => {
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
           const cfg = configRes.value;
-          if (!cfg.accessToken && savedDailyToken) {
-            cfg.accessToken = savedDailyToken;
-            cfg.isConnected = true;
-            // Activate token on server backend
-            fetch('/api/market/daily-token', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ accessToken: savedDailyToken }),
-            }).catch(() => {});
+          if (!cfg.isConnected && savedDailyToken) {
+            try {
+              localStorage.removeItem('upstox_daily_token');
+            } catch (e) {}
+            cfg.accessToken = '';
           }
           setApiConfig(prev => ({ ...prev, ...cfg }));
         }

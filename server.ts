@@ -1,7 +1,7 @@
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
 import { appState, tradeHistory } from "./src/db/schema";
-import { db } from "./src/db/index";
+import { db, isPostgresConfigured } from "./src/db/index";
 import { desc, eq } from "drizzle-orm";
 import { WebSocketServer } from "ws";
 import { createRequire } from "module";
@@ -23,15 +23,20 @@ dotenv.config();
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-  app.get('/api/history', async (req, res) => {
-      try {
-          const rows = await db.select().from(tradeHistory).orderBy(desc(tradeHistory.closeTime)).limit(200);
-          res.json(rows);
-      } catch(e) {
-          console.error(e);
-          res.status(500).json({error: 'DB error'});
-      }
-  });
+let postgresAvailable = isPostgresConfigured;
+
+app.get('/api/history', async (req, res) => {
+  if (!postgresAvailable) {
+    return res.json(paperTradeHistory);
+  }
+  try {
+    const rows = await db.select().from(tradeHistory).orderBy(desc(tradeHistory.closeTime)).limit(200);
+    res.json(rows.length > 0 ? rows : paperTradeHistory);
+  } catch (e) {
+    postgresAvailable = false;
+    res.json(paperTradeHistory);
+  }
+});
 
 
 // ---------------------------------------------------------
@@ -866,7 +871,7 @@ const getNextExpiry = (symbol: string) => {
   return expiryDate.toISOString().split("T")[0];
 };
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // CORS & Middleware Configuration
 app.use((req, res, next) => {
@@ -950,11 +955,13 @@ setInterval(
 ); // 14 minutes
 
 // 2. Upstox API Auth & Configuration
+const invalidTokens = new Set<string>();
+
 app.use("/api/market", (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
-    if (token && token.length > 10) {
+    const token = authHeader.substring(7).trim();
+    if (token && token.length > 10 && !invalidTokens.has(token)) {
       upstoxConfig.accessToken = token;
     }
   }
@@ -962,7 +969,11 @@ app.use("/api/market", (req, res, next) => {
 });
 
 app.get("/api/market/config", async (req: Request, res: Response) => {
+  if (upstoxConfig.accessToken && invalidTokens.has(upstoxConfig.accessToken)) {
+    upstoxConfig.accessToken = "";
+  }
   let isConnected = Boolean(upstoxConfig.accessToken);
+  let tokenExpired = false;
 
   let availableMargin = 0;
   let usedMargin = 0;
@@ -991,17 +1002,12 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
       ) {
         availableMargin = fundsData.data.equity.available_margin || 0;
         usedMargin = fundsData.data.equity.used_margin || 0;
-      } else if (
-        fundsData.status === "error" &&
-        (fundsData.errors?.[0]?.errorCmode === "UDAPI100057" ||
-          fundsData.errors?.[0]?.errorCmode === "UDAPI100068" ||
-          fundsData.errors?.[0]?.message?.includes("token"))
-      ) {
-        // Token invalid or expired
-        isConnected = false;
-        upstoxConfig.accessToken = ""; // clear it
       } else if (fundsData.status === "error") {
+        // Token invalid or expired (e.g. UDAPI100050, UDAPI100057, UDAPI100068)
+        invalidTokens.add(upstoxConfig.accessToken);
+        upstoxConfig.accessToken = "";
         isConnected = false;
+        tokenExpired = true;
       }
     } catch (e) {
       isConnected = false;
@@ -1015,6 +1021,7 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     accessToken: upstoxConfig.accessToken,
     hasToken: isConnected,
     isConnected,
+    tokenExpired,
     userName: userName,
     userEmail: userEmail,
     userClientCode: userClientCode,
@@ -1037,6 +1044,13 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
     let token = accessToken.trim();
     if (token.startsWith("Bearer ")) token = token.replace("Bearer ", "").trim();
     if (token) {
+      if (invalidTokens.has(token)) {
+        upstoxConfig.accessToken = "";
+        return res.status(401).json({
+          success: false,
+          error: "Upstox token has expired or is invalid. Please generate a new daily token.",
+        });
+      }
       try {
         const response = await fetch("https://api.upstox.com/v2/user/profile", {
           headers: {
@@ -1056,16 +1070,17 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
           );
           upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
         } else {
-          console.error("Token validation error:", data.errors); upstoxConfig.accessToken = ""; // clear if invalid
+          invalidTokens.add(token);
+          upstoxConfig.accessToken = "";
           return res
             .status(401)
             .json({
               success: false,
-              error: data.errors?.[0]?.message || "Invalid Token provided",
+              error: data.errors?.[0]?.message || "Invalid or expired Upstox token provided",
             });
         }
       } catch (err) {
-        console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
+        upstoxConfig.accessToken = "";
         return res
           .status(500)
           .json({ success: false, error: "Failed to validate token" });
@@ -1118,6 +1133,14 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
     });
   }
 
+  if (invalidTokens.has(token)) {
+    upstoxConfig.accessToken = "";
+    return res.status(401).json({
+      success: false,
+      error: "This Upstox token has expired (UDAPI100050). Please generate a fresh daily token.",
+    });
+  }
+
   try {
     const response = await fetch("https://api.upstox.com/v2/user/profile", {
       headers: {
@@ -1150,16 +1173,17 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
         },
       });
     } else {
-      console.error("Token validation error:", data.errors); upstoxConfig.accessToken = ""; // clear if invalid
+      invalidTokens.add(token);
+      upstoxConfig.accessToken = "";
       return res.status(401).json({
         success: false,
         error:
           data.errors?.[0]?.message ||
-          "Invalid token. Please check and try again.",
+          "Invalid or expired token. Please generate a new token and try again.",
       });
     }
   } catch (err: any) {
-    console.error("Token validation error:", err); upstoxConfig.accessToken = ""; // clear if invalid
+    upstoxConfig.accessToken = "";
     return res.status(500).json({
       success: false,
       error: "Connection error while validating token. Please try again.",
@@ -2025,6 +2049,9 @@ dns.setDefaultResultOrder("ipv4first");
 
 
 
+const LOCAL_DB_PATH = path.join(process.cwd(), "local_db.json");
+let lastSavedDbJson = "";
+
 async function savePostgresDb() {
   const dbData = {
     botConfig,
@@ -2033,6 +2060,19 @@ async function savePostgresDb() {
     paperPositions,
     paperTradeHistory,
   };
+
+  const serialized = JSON.stringify(dbData, null, 2);
+  if (serialized === lastSavedDbJson) return;
+  lastSavedDbJson = serialized;
+
+  try {
+    fsSync.writeFileSync(LOCAL_DB_PATH, serialized, "utf-8");
+  } catch (err) {
+    // Ignore read-only fs in certain cloud containers
+  }
+
+  if (!postgresAvailable) return;
+
   try {
     await db.insert(appState).values({
       id: 'main_state',
@@ -2043,24 +2083,39 @@ async function savePostgresDb() {
       set: { data: dbData, updatedAt: new Date() }
     });
   } catch (e) {
-    console.error("Failed to save Postgres DB", e);
+    postgresAvailable = false;
   }
 }
 
 async function loadPostgresDb() {
+  // First load from local_db.json if available
+  try {
+    if (fsSync.existsSync(LOCAL_DB_PATH)) {
+      const raw = fsSync.readFileSync(LOCAL_DB_PATH, "utf-8");
+      const data = JSON.parse(raw);
+      if (data.botConfig) botConfig = { ...botConfig, ...data.botConfig };
+      if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
+      if (data.paperOrders) paperOrders = data.paperOrders;
+      if (data.paperPositions) paperPositions = data.paperPositions;
+      if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
+    }
+  } catch (err) {}
+
+  if (!postgresAvailable) return;
+
   try {
     const rows = await db.select().from(appState).where(eq(appState.id, 'main_state'));
     if (rows && rows.length > 0) {
       const data = rows[0].data as any;
-      if (data.botConfig) botConfig = data.botConfig;
-      if (data.upstoxConfig) upstoxConfig = data.upstoxConfig;
+      if (data.botConfig) botConfig = { ...botConfig, ...data.botConfig };
+      if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
       console.log("Loaded persistent data from PostgreSQL Cloud SQL!");
     }
   } catch (e) {
-    console.error("Failed to load Postgres DB", e);
+    postgresAvailable = false;
   }
 }
 
@@ -2571,153 +2626,86 @@ app.get("/api/stream/quotes", (req, res) => {
 });
 
 const wss = new WebSocketServer({ noServer: true });
-let upstoxStreamer = null;
-const subscribedKeys = new Set();
-let upstoxWsConnected = false;
+const subscribedKeys = new Set<string>([
+  "NSE_INDEX|Nifty 50",
+  "NSE_INDEX|Nifty Bank",
+  "BSE_INDEX|SENSEX",
+  "BSE_INDEX|BANKEX",
+  "NSE_INDEX|Nifty Fin Service",
+]);
 
-// Fix clearSubscriptions bug in SDK
-try {
-  const MarketDataFeederV3 = _require(
-    "upstox-js-sdk/dist/feeder/MarketDataFeederV3",
-  ).MarketDataFeederV3;
-  if (MarketDataFeederV3 && !MarketDataFeederV3.prototype.clearSubscriptions) {
-    MarketDataFeederV3.prototype.clearSubscriptions = function () {};
-  }
-} catch (e) {
-  console.error("Option Fetch Error: ", e);
-}
-
-function syncUpstoxSubscriptions() {
-  if (upstoxStreamer && upstoxWsConnected && subscribedKeys.size > 0) {
-    // Change mode will subscribe if not subscribed
-    try {
-      upstoxStreamer.subscribe(Array.from(subscribedKeys), "full");
-    } catch (e) {
-      console.error("Option Fetch Error: ", e);
-    }
-  }
-}
-
-function ensureUpstoxStreamer() {
-  if (!upstoxConfig.accessToken) return;
-  if (upstoxStreamer) return;
+async function broadcastUpstoxQuotesToWs() {
+  if (wss.clients.size === 0) return;
+  const token = upstoxConfig.accessToken;
+  if (!token || invalidTokens.has(token) || subscribedKeys.size === 0) return;
 
   try {
-    const UpstoxClient = _require("upstox-js-sdk");
-    let defaultClient = UpstoxClient.ApiClient.instance;
-    defaultClient.authentications["OAUTH2"].accessToken =
-      upstoxConfig.accessToken;
-
-    upstoxStreamer = new UpstoxClient.MarketDataStreamerV3(
-      Array.from(subscribedKeys),
-      "full",
+    const instruments = Array.from(subscribedKeys)
+      .map((s) => encodeURIComponent(String(s).trim()))
+      .join(",");
+    const response = await fetch(
+      `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${instruments}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Api-Version": "2.0",
+        },
+      },
     );
-
-    upstoxStreamer.on("open", () => {
-      upstoxWsConnected = true;
-      syncUpstoxSubscriptions();
-    });
-
-    upstoxStreamer.on("close", () => {
-      upstoxWsConnected = false;
-    });
-
-    upstoxStreamer.on("message", (data) => {
-      try {
-        const parsed =
-          typeof data === "string"
-            ? JSON.parse(data)
-            : Buffer.isBuffer(data)
-              ? JSON.parse(data.toString())
-              : data;
-        if (parsed && parsed.feeds) {
-          const quotesList = [];
-          for (const [key, feed] of Object.entries(parsed.feeds)) {
-            let ltp = 0;
-            let close = 0;
-            let volume = 0;
-            let open = 0;
-            let high = 0;
-            let low = 0;
-
-            const ff =
-              (feed as any).fullFeed ||
-              (feed as any).ff ||
-              (feed as any).optionGreeks ||
-              (feed as any).ltpc ||
-              feed;
-            if (ff) {
-              const dataBlock = ff.indexFF || ff.marketFF || ff;
-              const ltpc = dataBlock.ltpc || dataBlock;
-              ltp = ltpc.ltp || 0;
-              close = ltpc.cp || ltp;
-
-              if (dataBlock.marketOHLC?.ohlc?.length > 0) {
-                const ohlc = dataBlock.marketOHLC.ohlc[0];
-                open = ohlc.open || 0;
-                high = ohlc.high || 0;
-                low = ohlc.low || 0;
-                close = ohlc.close || close;
-              }
-            }
-
-            const change = Number((ltp - close).toFixed(2));
-            const changePercent =
-              close > 0 ? Number(((change / close) * 100).toFixed(2)) : 0;
-
-            const parts = key.split(/[:|]/);
-            const symbolDisplay = (
-              parts.length > 1 ? parts[1] : key
-            ).toUpperCase();
-
-            if (ltp > 0) {
-              globalLiveQuotes[key] = { last_price: ltp };
-              globalLiveQuotes["last_update"] = new Date().toISOString();
-              const segment = key.includes("INDEX")
-                ? "INDEX"
-                : key.includes("FO")
-                  ? "OPTIONS"
-                  : "EQUITY";
-              quotesList.push({
-                symbol: symbolDisplay,
-                segment,
-                instrumentKey: key,
-                ltp,
-                change,
-                changePercent,
-                volume,
-                open,
-                high,
-                low,
-                close,
-              });
-            }
-          }
-          if (quotesList.length > 0) {
-            const msgStr = JSON.stringify({ type: "QUOTES", data: quotesList });
-            wss.clients.forEach((client) => {
-              if (client.readyState === 1) {
-                // OPEN
-                client.send(msgStr);
-              }
-            });
-          }
+    const data = await response.json();
+    if (data.status === "success" && data.data) {
+      const quotesList = Object.keys(data.data).map((key) => {
+        const item = data.data[key];
+        const ltp = item.last_price || 0;
+        const close = item.ohlc?.close || ltp;
+        const change = Number((ltp - close).toFixed(2));
+        const changePercent =
+          close > 0 ? Number(((change / close) * 100).toFixed(2)) : 0;
+        const parts = key.split(/[:|]/);
+        const symbolDisplay = (
+          item.symbol && item.symbol !== "NA"
+            ? item.symbol
+            : parts.length > 1
+              ? parts[1]
+              : key
+        ).toUpperCase();
+        if (ltp > 0) {
+          globalLiveQuotes[key] = { last_price: ltp };
+          globalLiveQuotes["last_update"] = new Date().toISOString();
         }
-      } catch (e) {
-        console.warn("WS MSG Warning.");
+        const segment = key.includes("INDEX")
+          ? "INDEX"
+          : key.includes("FO")
+            ? "OPTIONS"
+            : "EQUITY";
+        return {
+          symbol: symbolDisplay,
+          segment,
+          instrumentKey: key,
+          ltp,
+          change,
+          changePercent,
+          volume: item.volume || 0,
+          open: item.ohlc?.open || 0,
+          high: item.ohlc?.high || 0,
+          low: item.ohlc?.low || 0,
+          close,
+        };
+      });
+      if (quotesList.length > 0) {
+        const msgStr = JSON.stringify({ type: "QUOTES", data: quotesList });
+        wss.clients.forEach((client) => {
+          if (client.readyState === 1) {
+            client.send(msgStr);
+          }
+        });
       }
-    });
-
-    upstoxStreamer.on("error", (err) => {
-      console.warn("Upstox WS disconnected or 401. Check token.");
-    });
-
-    upstoxStreamer
-      .connect()
-      .catch((e) => console.warn("Upstox WS Connect error (check token)."));
-  } catch (err) {
-    console.warn("Failed to init Upstox streamer (check token).");
-  }
+    } else if (data.status === "error") {
+      invalidTokens.add(token);
+      upstoxConfig.accessToken = "";
+    }
+  } catch (e) {}
 }
 
 wss.on("connection", (ws) => {
@@ -2734,45 +2722,39 @@ wss.on("connection", (ws) => {
       }
       if (msg.type === "SUBSCRIBE") {
         const keys = msg.keys || [];
-        let changed = false;
-        keys.forEach((k) => {
-          if (!subscribedKeys.has(k)) {
-            subscribedKeys.add(k);
-            changed = true;
-          }
+        keys.forEach((k: string) => {
+          if (k) subscribedKeys.add(k);
         });
-        if (changed) {
-          ensureUpstoxStreamer();
-          syncUpstoxSubscriptions();
-        }
+        broadcastUpstoxQuotesToWs();
       }
-    } catch (e) {
-      console.error("Option Fetch Error: ", e);
-    }
+    } catch (e) {}
   });
 });
 
-// Ping interval for local WS clients
+// Ping interval for local WS clients & broadcast quotes
 setInterval(() => {
   wss.clients.forEach((ws) => {
     if (!(ws as any).isAlive) return ws.terminate();
     (ws as any).isAlive = false;
     ws.ping();
   });
-}, 5000);
+  broadcastUpstoxQuotesToWs();
+}, 3000);
 
-// Call ensure occasionally if token is added
-setInterval(() => {
-  if (upstoxConfig.accessToken && !upstoxStreamer) {
-    ensureUpstoxStreamer();
-  }
-}, 5000);
+app.get("/api/debug-state", (req, res) => {
+  res.json({
+    upstoxConfig,
+    botConfig,
+    paperPositions,
+    botLogs: botLogs.slice(0, 5),
+  });
+});
 
 async function setupVite() {
-  const isProd = process.env.NODE_ENV === "production";
+  const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false, watch: null },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -2788,31 +2770,34 @@ async function setupVite() {
     console.log(`Upstox Live Algo Server running on http://0.0.0.0:${PORT}`);
   });
 
-  const { Server: SocketIOServer } = _require('socket.io');
-  const io = new SocketIOServer(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] }
-  });
-  
-  io.on('connection', (socket) => {
-      console.log('Client connected to WebSockets:', socket.id);
-      
-      // Push initial data
-      socket.emit('botConfig', botConfig);
-      
-      socket.on('disconnect', () => {
-          console.log('Client disconnected:', socket.id);
-      });
-  });
+  try {
+    const { Server: SocketIOServer } = _require('socket.io');
+    const io = new SocketIOServer(server, {
+      cors: { origin: '*', methods: ['GET', 'POST'] }
+    });
+    
+    io.on('connection', (socket: any) => {
+        console.log('Client connected to WebSockets:', socket.id);
+        
+        // Push initial data
+        socket.emit('botConfig', botConfig);
+        
+        socket.on('disconnect', () => {
+            console.log('Client disconnected:', socket.id);
+        });
+    });
 
-  global.io = io;
-
+    global.io = io;
+  } catch (e) {
+    console.warn("Socket.IO initialization warning:", e);
+  }
 
   server.on("upgrade", (request, socket, head) => {
-    if (request.url === "/api/ws") {
+    if (request.url?.startsWith("/api/ws")) {
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit("connection", ws, request);
       });
-    } else {
+    } else if (!request.url?.startsWith("/socket.io")) {
       socket.destroy();
     }
   });
@@ -2820,12 +2805,4 @@ async function setupVite() {
 
 setupVite().catch(err => { console.error("Fatal error during startup:", err); process.exit(1); });
 
-app.get("/api/debug-state", (req, res) => {
-  res.json({
-    upstoxConfig,
-    botConfig,
-    paperPositions,
-    botLogs: botLogs.slice(0, 5),
-  });
-});
 declare global { var io: any; }
