@@ -903,16 +903,16 @@ let ai = new GoogleGenAI({
 });
 let globalGeminiKey = process.env.GEMINI_API_KEY || "";
 
-// Upstox In-Memory Credentials & Session Cache (can be set via .env or client settings)
+// Upstox In-Memory Credentials & Session Cache (pre-saved with user's exact credentials so Render deployments always have them ready)
 let upstoxConfig = {
   apiKey: process.env.UPSTOX_API_KEY || "3ab5711d-8891-480b-b0c1-29662852de49",
-  apiSecret: process.env.UPSTOX_API_SECRET || "",
+  apiSecret: process.env.UPSTOX_API_SECRET || "jl5s7qy9r0",
   redirectUri: process.env.UPSTOX_REDIRECT_URI || "https://sajad-trading-view.onrender.com",
   accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
   userName: "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
   userEmail: "sajadthazhepeedikayila@gmail.com",
   userClientCode: "5VCABX",
-  mobile: "",
+  mobile: process.env.UPSTOX_MOBILE || "9847989434",
   pin: process.env.UPSTOX_PIN || "984798",
   totpSecret: "",
   tokenGeneratedAt: "",
@@ -1138,10 +1138,10 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
   );
 
   res.json({
-    apiKey: upstoxConfig.apiKey,
-    apiSecret: hasValidSecret ? "••••••••" : "",
-    hasApiSecret: hasValidSecret,
-    redirectUri: upstoxConfig.redirectUri,
+    apiKey: upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49",
+    apiSecret: upstoxConfig.apiSecret || "jl5s7qy9r0",
+    hasApiSecret: true,
+    redirectUri: upstoxConfig.redirectUri || "https://sajad-trading-view.onrender.com",
     accessToken: upstoxConfig.accessToken,
     hasToken: isConnected,
     isConnected,
@@ -1156,7 +1156,7 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     availableMargin,
     usedMargin,
     holdingsCount,
-    mobile: upstoxConfig.mobile || "",
+    mobile: upstoxConfig.mobile || "9847989434",
     pin: upstoxConfig.pin || "984798",
     publicWebhookRelayUrl: PUBLIC_WEBHOOK_RELAY_URL,
     lastWebhookDiagnostic,
@@ -1667,16 +1667,18 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         validateOtpToken: otpGenData.data.validateOTPToken,
         cookies: cookieJar,
         apiKey: key,
-        apiSecret: secret,
+        apiSecret: secret || "jl5s7qy9r0",
         redirectUri: uri,
         mobile: cleanMobile,
         pin: cleanPin,
         createdAt: Date.now(),
       };
+      await savePostgresDb().catch(() => {});
 
       return res.json({
         success: true,
         mobile: cleanMobile,
+        sessionBackup: activeAutoOtpSession,
         message:
           otpGenData.data.message ||
           `📲 നിങ്ങളുടെ ${cleanMobile.slice(0, 2)}******${cleanMobile.slice(-2)} എന്ന നമ്പറിലേക്ക് Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകുക — PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`,
@@ -1701,12 +1703,15 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
 
 // Step 3, 4, 5 Automatic: Verify 6-Digit SMS OTP -> Auto-Submit PIN (984798) -> Auto-Authorize OAuth -> Auto-Exchange Access Token!
 app.post("/api/market/totp-login", async (req: Request, res: Response) => {
-  const { totp, pin, apiKey, apiSecret, mobile } = req.body;
+  const { totp, pin, apiKey, apiSecret, mobile, sessionBackup } = req.body;
   const cleanTotp = String(totp || "").replace(/\D+/g, "").trim();
   const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
   const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
   if (apiSecret && apiSecret !== "••••••••" && apiSecret.trim() !== "") {
     upstoxConfig.apiSecret = apiSecret.trim();
+  }
+  if (!upstoxConfig.apiSecret || upstoxConfig.apiSecret.includes("•")) {
+    upstoxConfig.apiSecret = "jl5s7qy9r0";
   }
   if (mobile && String(mobile).replace(/\D+/g, "").length >= 10) {
     upstoxConfig.mobile = String(mobile).replace(/\D+/g, "").slice(-10);
@@ -1721,12 +1726,17 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
     });
   }
 
+  // Restore session from client backup if Render restarted between sending OTP and entering OTP
+  if (!activeAutoOtpSession && sessionBackup && sessionBackup.validateOtpToken) {
+    activeAutoOtpSession = sessionBackup;
+  }
+
   // PATH A: If we have an active Automated SMS OTP session, complete Steps 3, 4, 5 automatically!
   if (activeAutoOtpSession && Date.now() - activeAutoOtpSession.createdAt < 15 * 60 * 1000) {
     try {
       const sess = activeAutoOtpSession;
       const pinToUse = cleanPin || sess.pin || "984798";
-      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret;
+      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret || "jl5s7qy9r0";
 
       // Step 3: Verify the 6-digit SMS OTP (/login/open/v5/auth/1fa/otp-totp/verify)
       let verifyRes = await fetch(
@@ -2995,6 +3005,7 @@ async function savePostgresDb() {
   const dbData = {
     botConfig,
     upstoxConfig,
+    activeAutoOtpSession,
     paperOrders,
     paperPositions,
     paperTradeHistory,
@@ -3038,8 +3049,14 @@ async function loadPostgresDb() {
     if (!upstoxConfig.apiKey) {
       upstoxConfig.apiKey = "3ab5711d-8891-480b-b0c1-29662852de49";
     }
-    if (upstoxConfig.apiSecret && upstoxConfig.apiSecret.includes("•")) {
-      upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || "";
+    if (!upstoxConfig.apiSecret || upstoxConfig.apiSecret.includes("•")) {
+      upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || "jl5s7qy9r0";
+    }
+    if (!upstoxConfig.mobile || String(upstoxConfig.mobile).replace(/\D+/g, "").length !== 10) {
+      upstoxConfig.mobile = process.env.UPSTOX_MOBILE || "9847989434";
+    }
+    if (!upstoxConfig.pin) {
+      upstoxConfig.pin = process.env.UPSTOX_PIN || "984798";
     }
   };
 
@@ -3050,12 +3067,17 @@ async function loadPostgresDb() {
       const data = JSON.parse(raw);
       if (data.botConfig) botConfig = { ...botConfig, ...data.botConfig };
       if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
+      if (data.activeAutoOtpSession) activeAutoOtpSession = data.activeAutoOtpSession;
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
       normalizeUpstoxCfg();
+    } else {
+      normalizeUpstoxCfg();
     }
-  } catch (err) {}
+  } catch (err) {
+    normalizeUpstoxCfg();
+  }
 
   if (!postgresAvailable) return;
 
@@ -3065,6 +3087,7 @@ async function loadPostgresDb() {
       const data = rows[0].data as any;
       if (data.botConfig) botConfig = { ...botConfig, ...data.botConfig };
       if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
+      if (data.activeAutoOtpSession) activeAutoOtpSession = data.activeAutoOtpSession;
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;

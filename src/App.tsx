@@ -146,7 +146,7 @@ export const App: React.FC = () => {
   // Upstox API configuration
   const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
     apiKey: '3ab5711d-8891-480b-b0c1-29662852de49',
-    apiSecret: '',
+    apiSecret: 'jl5s7qy9r0',
     redirectUri: 'https://sajad-trading-view.onrender.com',
     accessToken: '',
     isConnected: false,

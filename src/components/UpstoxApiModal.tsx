@@ -27,6 +27,8 @@ interface UpstoxApiModalProps {
 }
 
 const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
+const DEFAULT_API_SECRET = 'jl5s7qy9r0';
+const DEFAULT_MOBILE = '9847989434';
 const DEFAULT_REDIRECT_URI = 'https://sajad-trading-view.onrender.com';
 
 export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
@@ -43,7 +45,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [activeTab, setActiveTab] = useState<'DAILY_TOKEN' | 'API_KEYS'>('API_KEYS');
 
   const [apiKey, setApiKey] = useState(config.apiKey || DEFAULT_API_KEY);
-  const [apiSecret, setApiSecret] = useState(config.apiSecret || '');
+  const [apiSecret, setApiSecret] = useState(
+    config.apiSecret && config.apiSecret !== '••••••••' ? config.apiSecret : DEFAULT_API_SECRET
+  );
   const [accessToken, setAccessToken] = useState(config.accessToken || '');
   const [redirectUri, setRedirectUri] = useState(
     config.redirectUri && !config.redirectUri.includes('localhost') && !config.redirectUri.includes('127.0.0.1')
@@ -51,18 +55,20 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       : DEFAULT_REDIRECT_URI
   );
 
-  // Saved mobile number (entered once, saved forever in localStorage & database)
+  // Saved mobile number (pre-saved with user's 9847989434)
   const [savedMobile, setSavedMobile] = useState(() => {
     try {
-      return localStorage.getItem('upstox_saved_mobile') || '';
+      const m = localStorage.getItem('upstox_saved_mobile');
+      return m && m.length === 10 ? m : DEFAULT_MOBILE;
     } catch {
-      return '';
+      return DEFAULT_MOBILE;
     }
   });
 
   // Single OTP / Code input in Tab 2
   const [otpInput, setOtpInput] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
+  const [otpSessionBackup, setOtpSessionBackup] = useState<any>(null);
   const [showKeySettings, setShowKeySettings] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -74,7 +80,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setApiKey(config.apiKey || DEFAULT_API_KEY);
-      setApiSecret(config.apiSecret || '');
+      setApiSecret(
+        config.apiSecret && config.apiSecret !== '••••••••' ? config.apiSecret : DEFAULT_API_SECRET
+      );
       setAccessToken(config.accessToken || '');
       const cleanUri =
         config.redirectUri && !config.redirectUri.includes('localhost') && !config.redirectUri.includes('127.0.0.1')
@@ -83,7 +91,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       setRedirectUri(cleanUri);
       setStatusMsg(null);
 
-      // Load saved mobile from backend if available
+      // Load saved mobile & secret from backend if available
       fetch('/api/market/config')
         .then((r) => r.json())
         .then((data) => {
@@ -92,6 +100,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             try {
               localStorage.setItem('upstox_saved_mobile', String(data.mobile));
             } catch {}
+          }
+          if (data.apiSecret && data.apiSecret !== '••••••••') {
+            setApiSecret(String(data.apiSecret));
           }
         })
         .catch(() => {});
@@ -318,6 +329,12 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         if (otpRes.ok && otpData.success) {
           setOtpInput('');
           setOtpRequested(true);
+          if (otpData.sessionBackup) {
+            setOtpSessionBackup(otpData.sessionBackup);
+            try {
+              localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
+            } catch {}
+          }
           setStatusMsg({
             type: 'success',
             text:
@@ -335,15 +352,23 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
       // CASE B: User entered the 6-digit OTP -> Verify OTP + Auto-enter PIN 984798 + Auto-generate Access Token!
       if (/^\d{6}$/.test(digitsOnly)) {
+        let backupToUse = otpSessionBackup;
+        if (!backupToUse) {
+          try {
+            const raw = localStorage.getItem('upstox_otp_session_backup');
+            if (raw) backupToUse = JSON.parse(raw);
+          } catch {}
+        }
         const res = await fetch('/api/market/totp-login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             totp: digitsOnly,
             pin: '984798',
-            mobile: savedMobile,
+            mobile: savedMobile || DEFAULT_MOBILE,
             apiKey: cleanKey,
-            apiSecret,
+            apiSecret: apiSecret || DEFAULT_API_SECRET,
+            sessionBackup: backupToUse,
           }),
         });
         const data = await res.json();
@@ -351,7 +376,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setAccessToken(data.accessToken);
           setOtpInput('');
           setOtpRequested(false);
+          setOtpSessionBackup(null);
           try {
+            localStorage.removeItem('upstox_otp_session_backup');
             localStorage.setItem('upstox_daily_token', data.accessToken);
             localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
           } catch (e) {}
@@ -386,7 +413,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           body: JSON.stringify({
             code: trimmedInput,
             apiKey: cleanKey,
-            apiSecret,
+            apiSecret: apiSecret || DEFAULT_API_SECRET,
             redirectUri: cleanUri,
           }),
         });
@@ -421,7 +448,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       }
 
       // CASE D: OTP box is empty -> User clicked "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" to request SMS OTP automatically!
-      const cleanSavedMobile = savedMobile.replace(/\D+/g, '').slice(-10);
+      const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
       if (cleanSavedMobile.length === 10) {
         const otpRes = await fetch('/api/market/send-sms-otp', {
           method: 'POST',
@@ -429,7 +456,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           body: JSON.stringify({
             mobile: cleanSavedMobile,
             apiKey: cleanKey,
-            apiSecret,
+            apiSecret: apiSecret || DEFAULT_API_SECRET,
             redirectUri: cleanUri,
             pin: '984798',
           }),
@@ -437,6 +464,12 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         const otpData = await otpRes.json();
         if (otpRes.ok && otpData.success) {
           setOtpRequested(true);
+          if (otpData.sessionBackup) {
+            setOtpSessionBackup(otpData.sessionBackup);
+            try {
+              localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
+            } catch {}
+          }
           setStatusMsg({
             type: 'success',
             text:
