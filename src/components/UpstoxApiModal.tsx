@@ -91,8 +91,17 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       setRedirectUri(cleanUri);
       setStatusMsg(null);
 
-      // Load saved mobile & secret from backend if available
-      fetch('/api/market/config')
+      // Load saved mobile & secret from backend if available (and pass our saved daily token so server restores it if Render just woke up)
+      let localTok = config.accessToken || '';
+      if (!localTok) {
+        try {
+          localTok = localStorage.getItem('upstox_daily_token') || '';
+        } catch {}
+      }
+      const reqHeaders: Record<string, string> = {};
+      if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
+
+      fetch('/api/market/config', { headers: reqHeaders })
         .then((r) => r.json())
         .then((data) => {
           if (data.mobile && String(data.mobile).length === 10) {
@@ -104,6 +113,18 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           if (data.apiSecret && data.apiSecret !== '••••••••') {
             setApiSecret(String(data.apiSecret));
           }
+          if (data.isConnected && data.accessToken) {
+            setAccessToken(data.accessToken);
+            onSaveConfig({
+              accessToken: data.accessToken,
+              isConnected: true,
+              userName: data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
+              userClientCode: data.userClientCode || '5VCABX',
+              availableMargin: data.availableMargin || 0,
+              usedMargin: data.usedMargin || 0,
+              todayTokenValid: true,
+            });
+          }
         })
         .catch(() => {});
     }
@@ -114,7 +135,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     if (!isOpen || config.isConnected) return;
     const pollTimer = setInterval(async () => {
       try {
-        const res = await fetch('/api/market/config');
+        let localTok = '';
+        try {
+          localTok = localStorage.getItem('upstox_daily_token') || '';
+        } catch {}
+        const reqHeaders: Record<string, string> = {};
+        if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
+
+        const res = await fetch('/api/market/config', { headers: reqHeaders });
         if (!res.ok) return;
         const data = await res.json();
         if (data.isConnected && data.accessToken) {
@@ -185,10 +213,25 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     setCheckingStatus(true);
     setStatusMsg(null);
     try {
-      const res = await fetch('/api/market/config');
+      let localTok = accessToken || config.accessToken || '';
+      if (!localTok) {
+        try {
+          localTok = localStorage.getItem('upstox_daily_token') || '';
+        } catch {}
+      }
+      const reqHeaders: Record<string, string> = {};
+      if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
+
+      const res = await fetch('/api/market/config', { headers: reqHeaders });
       const data = await res.json();
       if (data.isConnected) {
         setLiveHoldingsCount(typeof data.holdingsCount === 'number' ? data.holdingsCount : null);
+        if (data.accessToken) {
+          setAccessToken(data.accessToken);
+          try {
+            localStorage.setItem('upstox_daily_token', data.accessToken);
+          } catch {}
+        }
         await onSaveConfig({
           isConnected: true,
           accessToken: data.accessToken,
@@ -207,7 +250,12 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               : `✅ Upstox Token is LIVE! Margin: ₹${Number(data.availableMargin || 0).toLocaleString('en-IN')} • Holdings: ${data.holdingsCount ?? 0} stocks.`,
         });
       } else {
-        await onSaveConfig({ isConnected: false, accessToken: '' });
+        if (data.tokenExpired) {
+          try {
+            localStorage.removeItem('upstox_daily_token');
+          } catch {}
+          await onSaveConfig({ isConnected: false, accessToken: '' });
+        }
         setStatusMsg({
           type: 'error',
           text:

@@ -177,6 +177,19 @@ export const App: React.FC = () => {
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
+  // 0. 24x7 Render Anti-Sleep Wakeup Heartbeat (keeps Render server awake continuously)
+  useEffect(() => {
+    const triggerWakeup = () => {
+      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => {});
+      if (typeof window !== 'undefined' && !window.location.hostname.includes('aizabiz.onrender.com')) {
+        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+      }
+    };
+    triggerWakeup();
+    const wakeupInterval = setInterval(triggerWakeup, 4 * 60 * 1000); // Every 4 minutes
+    return () => clearInterval(wakeupInterval);
+  }, []);
+
   // Load configuration from API on mount & auto-restore saved Upstox daily token
   useEffect(() => {
     const fetchInitData = async () => {
@@ -225,11 +238,16 @@ export const App: React.FC = () => {
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
           const cfg = configRes.value;
-          if (!cfg.isConnected && savedDailyToken) {
+          if (cfg.tokenExpired && savedDailyToken) {
             try {
               localStorage.removeItem('upstox_daily_token');
             } catch (e) {}
             cfg.accessToken = '';
+          } else if (cfg.isConnected && cfg.accessToken) {
+            try {
+              localStorage.setItem('upstox_daily_token', cfg.accessToken);
+            } catch (e) {}
+            setMode('UPSTOX_LIVE');
           }
           setApiConfig(prev => ({ ...prev, ...cfg }));
         }

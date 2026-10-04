@@ -923,11 +923,17 @@ let upstoxConfig = {
 
 // ================= API ROUTES =================
 
-// 1. Health check & Render Keep-Alive / Wake-up Endpoint
+// 1. Health check & Render 24x7 Anti-Sleep / Keep-Alive Wakeup Engine
+let lastWakeupPingAt = new Date().toISOString();
+let wakeupPingCount = 0;
+
 app.get("/api/health", (req: Request, res: Response) => {
   res.json({
     status: "ok",
     time: new Date().toISOString(),
+    uptimeSeconds: Math.floor(process.uptime()),
+    lastWakeupPingAt,
+    wakeupPingCount,
     broker: "Upstox v2 Engine",
   });
 });
@@ -937,32 +943,89 @@ app.get("/api/ping", (req: Request, res: Response) => {
     status: "awake",
     time: new Date().toISOString(),
     uptime: process.uptime(),
+    lastWakeupPingAt,
+    wakeupPingCount,
   });
 });
 
-// Wakeup / Keep-Alive ping for Render
-setInterval(
-  () => {
-    const url =
-      process.env.RENDER_EXTERNAL_URL ||
-      `http://localhost:${3000}`;
-    fetch(`${url}/api/ping`)
-      .then((res) => res.json())
-      .then((data) => console.log("Keep-alive ping OK:", data.time))
-      .catch((err) => console.error("Keep-alive ping failed:", err.message));
-  },
-  14 * 60 * 1000,
-); // 14 minutes
+app.get("/api/wakeup", (req: Request, res: Response) => {
+  res.json({
+    status: "awake_24x7",
+    message: "Render Anti-Sleep Wakeup Engine Active",
+    time: new Date().toISOString(),
+    uptime: process.uptime(),
+    lastWakeupPingAt,
+    wakeupPingCount,
+  });
+});
+
+// 24x7 Multi-Target Anti-Sleep Wakeup Loop for Render (runs every 5 minutes so Render's 15-min idle timer never triggers)
+async function executeRenderWakeupPing() {
+  const targets = Array.from(
+    new Set(
+      [
+        process.env.RENDER_EXTERNAL_URL,
+        "https://aizabiz.onrender.com",
+        "https://sajad-trading-view.onrender.com",
+        `http://127.0.0.1:${PORT}`,
+      ].filter(Boolean) as string[],
+    ),
+  );
+
+  wakeupPingCount += 1;
+  lastWakeupPingAt = new Date().toISOString();
+
+  for (const base of targets) {
+    try {
+      const cleanBase = base.replace(/\/+$/, "");
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      await fetch(`${cleanBase}/api/ping?t=${Date.now()}`, {
+        signal: ctrl.signal,
+        headers: {
+          "User-Agent": "AIZABIZ-24x7-Render-Wakeup-Engine/1.0",
+          Accept: "application/json",
+          "Cache-Control": "no-cache",
+        },
+      });
+      clearTimeout(timer);
+    } catch (err) {
+      // Ignore unreachable secondary URLs quietly
+    }
+  }
+}
+
+// Run initial wakeup ping 15 seconds after boot, then every 5 minutes (300,000 ms)
+setTimeout(executeRenderWakeupPing, 15 * 1000);
+setInterval(executeRenderWakeupPing, 5 * 60 * 1000);
 
 // 2. Upstox API Auth & Configuration
 const invalidTokens = new Set<string>();
+
+function isUpstoxAuthFailureError(resStatus: number, data: any): boolean {
+  if (resStatus === 401) return true;
+  const errCode = String(data?.errors?.[0]?.errorCode || data?.errors?.[0]?.code || "");
+  if (
+    errCode === "UDAPI100050" ||
+    errCode === "UDAPI100057" ||
+    errCode === "UDAPI100068" ||
+    errCode === "UDAPI100016"
+  ) {
+    return true;
+  }
+  const msg = String(data?.errors?.[0]?.message || data?.message || "").toLowerCase();
+  return msg.includes("invalid token") || msg.includes("token has expired") || msg.includes("unauthorized");
+}
 
 app.use("/api/market", (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     const token = authHeader.substring(7).trim();
-    if (token && token.length > 10 && !invalidTokens.has(token)) {
-      upstoxConfig.accessToken = token;
+    if (token && token.length > 30 && !invalidTokens.has(token)) {
+      if (upstoxConfig.accessToken !== token) {
+        upstoxConfig.accessToken = token;
+        savePostgresDb().catch(() => {});
+      }
     }
   }
   next();
@@ -972,6 +1035,28 @@ app.use("/api/market", (req, res, next) => {
 let lastWebhookDiagnostic = "";
 const PUBLIC_WEBHOOK_RELAY_TOPIC = "upstox_live_sajad_5vcabx_3ab5711d";
 export const PUBLIC_WEBHOOK_RELAY_URL = `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}`;
+let lastPublishedRelayToken = "";
+
+async function publishTokenToCloudRelay(tokenToSave: string) {
+  const clean = (tokenToSave || "").trim();
+  if (!clean || clean.length < 30 || clean === lastPublishedRelayToken) return;
+  lastPublishedRelayToken = clean;
+  try {
+    await fetch(PUBLIC_WEBHOOK_RELAY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        Title: "Upstox Daily Token Backup",
+      },
+      body: JSON.stringify({
+        access_token: clean,
+        user_id: upstoxConfig.userClientCode || "5VCABX",
+        user_name: upstoxConfig.userName || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
+        saved_at: new Date().toISOString(),
+      }),
+    });
+  } catch (e) {}
+}
 
 async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: string) {
   const cleanToken = (tokenCandidate || "").trim();
@@ -998,7 +1083,7 @@ async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: stri
       lastWebhookDiagnostic = `✅ Token auto-activated via ${sourceLabel} at ${upstoxConfig.tokenGeneratedAt}`;
       await savePostgresDb().catch(() => {});
       return true;
-    } else {
+    } else if (isUpstoxAuthFailureError(pRes.status, pData)) {
       invalidTokens.add(cleanToken);
     }
   } catch (e) {}
@@ -1015,7 +1100,7 @@ async function syncTokenFromRenderWebhookBridge() {
     const relayCtrl = new AbortController();
     const relayTimeout = setTimeout(() => relayCtrl.abort(), 3000);
     const relayRes = await fetch(
-      `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}/json?poll=1&since=12h`,
+      `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}/json?poll=1&since=18h`,
       {
         signal: relayCtrl.signal,
         headers: { Accept: "application/x-ndjson, application/json, text/plain" },
@@ -1030,7 +1115,7 @@ async function syncTokenFromRenderWebhookBridge() {
         // Extract any JWT token (eyJ...) from the webhook message
         const jwtMatch = line.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
         if (jwtMatch && jwtMatch[0]) {
-          const ok = await activateDiscoveredToken(jwtMatch[0], "WhatsApp/Webhook Relay");
+          const ok = await activateDiscoveredToken(jwtMatch[0], "Cloud Token Backup Relay");
           if (ok) return true;
         }
         try {
@@ -1038,7 +1123,7 @@ async function syncTokenFromRenderWebhookBridge() {
           const innerStr = typeof wrapper.message === "string" ? wrapper.message : JSON.stringify(wrapper);
           const innerJwt = innerStr.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
           if (innerJwt && innerJwt[0]) {
-            const ok = await activateDiscoveredToken(innerJwt[0], "WhatsApp/Webhook Relay");
+            const ok = await activateDiscoveredToken(innerJwt[0], "Cloud Token Backup Relay");
             if (ok) return true;
           }
         } catch {}
@@ -1085,57 +1170,74 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
   let availableMargin = 0;
   let usedMargin = 0;
   let holdingsCount = 0;
-  let userName = upstoxConfig.userName || "";
-  let userEmail = upstoxConfig.userEmail || "";
-  let userClientCode = upstoxConfig.userClientCode || "";
+  let userName = upstoxConfig.userName || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+  let userEmail = upstoxConfig.userEmail || "sajadthazhepeedikayila@gmail.com";
+  let userClientCode = upstoxConfig.userClientCode || "5VCABX";
 
   if (isConnected) {
     try {
-      const [fundsRes, holdingsRes] = await Promise.all([
+      const [profileRes, fundsRes, holdingsRes] = await Promise.all([
+        fetch("https://api.upstox.com/v2/user/profile", {
+          headers: {
+            Authorization: `Bearer ${upstoxConfig.accessToken}`,
+            Accept: "application/json",
+            "Api-Version": "2.0",
+          },
+        }),
         fetch("https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC", {
           headers: {
             Authorization: `Bearer ${upstoxConfig.accessToken}`,
             Accept: "application/json",
             "Api-Version": "2.0",
           },
-        }),
+        }).catch(() => null),
         fetch("https://api.upstox.com/v2/portfolio/long-term-holdings", {
           headers: {
             Authorization: `Bearer ${upstoxConfig.accessToken}`,
             Accept: "application/json",
             "Api-Version": "2.0",
           },
-        }),
+        }).catch(() => null),
       ]);
-      const fundsData = await fundsRes.json();
-      const holdingsData = await holdingsRes.json().catch(() => null);
+
+      const profileData = await profileRes.json().catch(() => null);
+      const fundsData = fundsRes ? await fundsRes.json().catch(() => null) : null;
+      const holdingsData = holdingsRes ? await holdingsRes.json().catch(() => null) : null;
 
       if (holdingsData && holdingsData.status === "success" && Array.isArray(holdingsData.data)) {
         holdingsCount = holdingsData.data.length;
       }
 
       if (
+        fundsData &&
         fundsData.status === "success" &&
         fundsData.data &&
         fundsData.data.equity
       ) {
         availableMargin = fundsData.data.equity.available_margin || 0;
         usedMargin = fundsData.data.equity.used_margin || 0;
-      } else if (fundsData.status === "error") {
-        // Token invalid or expired (e.g. UDAPI100050, UDAPI100057, UDAPI100068)
+      }
+
+      if (profileData && profileData.status === "success" && profileData.data) {
+        isConnected = true;
+        userName = profileData.data.user_name || userName;
+        userEmail = profileData.data.email || userEmail;
+        userClientCode = profileData.data.user_id || userClientCode;
+        upstoxConfig.userName = userName;
+        upstoxConfig.userEmail = userEmail;
+        upstoxConfig.userClientCode = userClientCode;
+      } else if (profileData && isUpstoxAuthFailureError(profileRes.status, profileData)) {
+        // Only invalidate token on explicit 401 / UDAPI100050 auth failure, never on weekend/evening margin maintenance or rate limit!
         invalidTokens.add(upstoxConfig.accessToken);
         upstoxConfig.accessToken = "";
         isConnected = false;
         tokenExpired = true;
       }
     } catch (e) {
-      isConnected = false;
+      // Network hiccup: keep existing valid token instead of wiping it!
+      isConnected = Boolean(upstoxConfig.accessToken);
     }
   }
-
-  const hasValidSecret = Boolean(
-    upstoxConfig.apiSecret && !upstoxConfig.apiSecret.includes("•"),
-  );
 
   res.json({
     apiKey: upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49",
@@ -1202,7 +1304,9 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
             "en-IN",
           );
           upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
-        } else {
+          await savePostgresDb().catch(() => {});
+          publishTokenToCloudRelay(token).catch(() => {});
+        } else if (isUpstoxAuthFailureError(response.status, data)) {
           invalidTokens.add(token);
           upstoxConfig.accessToken = "";
           return res
@@ -1213,15 +1317,14 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
             });
         }
       } catch (err) {
-        upstoxConfig.accessToken = "";
         return res
           .status(500)
           .json({ success: false, error: "Failed to validate token" });
       }
-    } else {
-      upstoxConfig.accessToken = "";
     }
   }
+
+  await savePostgresDb().catch(() => {});
 
   res.json({
     success: true,
@@ -1244,8 +1347,12 @@ app.post("/api/market/save-config", (req: Request, res: Response) => {
   if (redirectUri) upstoxConfig.redirectUri = redirectUri.trim();
   if (mobile && String(mobile).trim()) upstoxConfig.mobile = String(mobile).trim();
   if (pin && String(pin).trim()) upstoxConfig.pin = String(pin).trim();
-  if (typeof accessToken === "string")
-    upstoxConfig.accessToken = accessToken.trim();
+  if (typeof accessToken === "string" && accessToken.trim().length > 20) {
+    const cleanToken = accessToken.trim();
+    upstoxConfig.accessToken = cleanToken;
+    invalidTokens.delete(cleanToken);
+    publishTokenToCloudRelay(cleanToken).catch(() => {});
+  }
 
   savePostgresDb().catch(() => {});
 
@@ -1297,6 +1404,10 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
       upstoxConfig.userClientCode = data.data.user_id || "UPSTOX_USER";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      botConfig.mode = "UPSTOX_LIVE";
+      invalidTokens.delete(token);
+      await savePostgresDb().catch(() => {});
+      publishTokenToCloudRelay(token).catch(() => {});
 
       return res.json({
         success: true,
@@ -1311,7 +1422,9 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
         },
       });
     } else {
-      invalidTokens.add(token);
+      if (isUpstoxAuthFailureError(response.status, data)) {
+        invalidTokens.add(token);
+      }
       upstoxConfig.accessToken = "";
       return res.status(401).json({
         success: false,
@@ -1321,7 +1434,6 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
       });
     }
   } catch (err: any) {
-    upstoxConfig.accessToken = "";
     return res.status(500).json({
       success: false,
       error: "Connection error while validating token. Please try again.",
@@ -1382,6 +1494,7 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
         botConfig.mode = "UPSTOX_LIVE";
         invalidTokens.delete(data.access_token);
         await savePostgresDb().catch(() => {});
+        publishTokenToCloudRelay(data.access_token).catch(() => {});
 
         return res.send(`
           <html><body style="background:#0b0f19;color:#34d399;font-family:sans-serif;padding:40px;text-align:center;">
@@ -1897,6 +2010,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         botConfig.mode = "UPSTOX_LIVE";
         invalidTokens.delete(tokenData.access_token);
         await savePostgresDb().catch(() => {});
+        publishTokenToCloudRelay(tokenData.access_token).catch(() => {});
 
         return res.json({
           success: true,
@@ -1957,6 +2071,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       botConfig.mode = "UPSTOX_LIVE";
       invalidTokens.delete(token);
       await savePostgresDb().catch(() => {});
+      publishTokenToCloudRelay(token).catch(() => {});
 
       return res.json({
         success: true,
@@ -2125,7 +2240,9 @@ app.post("/api/market/token", async (req: Request, res: Response) => {
       upstoxConfig.userClientCode = data.user_id || upstoxConfig.userClientCode || "";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      invalidTokens.delete(data.access_token);
       savePostgresDb();
+      publishTokenToCloudRelay(data.access_token).catch(() => {});
 
       return res.json({
         success: true,
@@ -3687,7 +3804,7 @@ async function broadcastUpstoxQuotesToWs() {
           }
         });
       }
-    } else if (data.status === "error") {
+    } else if (data.status === "error" && isUpstoxAuthFailureError(response.status, data)) {
       invalidTokens.add(token);
       upstoxConfig.accessToken = "";
     }
@@ -3737,6 +3854,10 @@ app.get("/api/debug-state", (req, res) => {
 });
 
 async function setupVite() {
+  await loadPostgresDb().catch(() => {});
+  if (!upstoxConfig.accessToken) {
+    await syncTokenFromRenderWebhookBridge().catch(() => {});
+  }
   const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
   if (!isProd) {
     const vite = await createViteServer({
