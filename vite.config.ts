@@ -9,36 +9,49 @@ export default defineConfig({
     hmr: false,
     watch: null,
   },
+  build: {
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'charts-vendor': ['recharts', 'd3', 'lightweight-charts'],
+          'ui-vendor': ['lucide-react', 'motion'],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
+      includeAssets: ['favicon.ico', 'icon.svg', 'launchericon-192x192.png', 'launchericon-512x512.png'],
       manifest: {
         id: '/',
-        name: 'Mobile Trading App',
-        short_name: 'TradeApp',
-        description: 'A modern installable mobile trading application.',
+        name: 'AIZABIZ PRO Trading Terminal',
+        short_name: 'AIZABIZ',
+        description: 'Professional Live Algorithmic Trading & Analysis Terminal for Android & Web',
         theme_color: '#0f172a',
-        background_color: '#0f172a',
+        background_color: '#090d16',
         display: 'standalone',
+        orientation: 'portrait-primary',
         start_url: '/',
         scope: '/',
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: '/launchericon-192x192.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-512x512.png',
+            src: '/launchericon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-maskable-512x512.png',
+            src: '/launchericon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',

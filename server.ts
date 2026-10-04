@@ -1046,24 +1046,29 @@ async function syncTokenFromRenderWebhookBridge() {
     }
   } catch (e) {}
 
-  // 2. Also check Render Server if it is awake
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2500);
-    const res = await fetch("https://sajad-trading-view.onrender.com/api/market/config", {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const data = await res.json();
-      const remoteToken = (data.accessToken || data.access_token || "").trim();
-      if (remoteToken) {
-        const ok = await activateDiscoveredToken(remoteToken, "Render Server Bridge");
-        if (ok) return true;
+  // 2. Also check Render Servers (https://aizabiz.onrender.com and https://sajad-trading-view.onrender.com) if awake
+  for (const renderBase of [
+    "https://aizabiz.onrender.com",
+    "https://sajad-trading-view.onrender.com",
+  ]) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(`${renderBase}/api/market/config`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json();
+        const remoteToken = (data.accessToken || data.access_token || "").trim();
+        if (remoteToken) {
+          const ok = await activateDiscoveredToken(remoteToken, `Render Server (${renderBase})`);
+          if (ok) return true;
+        }
       }
-    }
-  } catch (e) {}
+    } catch (e) {}
+  }
   return false;
 }
 
