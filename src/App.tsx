@@ -145,14 +145,14 @@ export const App: React.FC = () => {
 
   // Upstox API configuration
   const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
-    apiKey: '',
+    apiKey: '3ab5711d-8891-480b-b0c1-29662852de49',
     apiSecret: '',
-    redirectUri: 'https://127.0.0.1:3000',
+    redirectUri: 'https://sajad-trading-view.onrender.com',
     accessToken: '',
     isConnected: false,
-    userName: '',
-    userEmail: '',
-    userClientCode: '',
+    userName: 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
+    userEmail: 'sajadthazhepeedikayila@gmail.com',
+    userClientCode: '5VCABX',
     broker: 'Live Market Feed Active',
     availableMargin: 0,
     usedMargin: 0,
@@ -181,6 +181,29 @@ export const App: React.FC = () => {
   useEffect(() => {
     const fetchInitData = async () => {
       try {
+        // Check if Upstox OAuth redirected back to root URL with ?code=...
+        const urlParams = new URLSearchParams(window.location.search);
+        const oauthCode = urlParams.get('code');
+        if (oauthCode) {
+          try {
+            const cleanRedirectUri = window.location.origin;
+            const tokenRes = await fetch('/api/market/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                code: oauthCode,
+                redirectUri: cleanRedirectUri,
+              }),
+            });
+            const tokenData = await tokenRes.json();
+            if (tokenData.accessToken) {
+              localStorage.setItem('upstox_daily_token', tokenData.accessToken);
+              localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          } catch (e) {}
+        }
+
         let savedDailyToken = '';
         try {
           savedDailyToken = localStorage.getItem('upstox_daily_token') || '';
@@ -556,7 +579,7 @@ export const App: React.FC = () => {
   }, [apiConfig.isConnected, apiConfig.accessToken, fetchHoldings, fetchLivePositions]);
 
   // Order Placement
-  const handlePlaceOrder = (orderData: {
+  const handlePlaceOrder = async (orderData: {
     symbol: string;
     transactionType: OrderTransactionType;
     orderType: any;
@@ -568,6 +591,42 @@ export const App: React.FC = () => {
     target?: number;
   }) => {
     const executedPrice = orderData.price;
+    if (executedPrice <= 0 && mode === 'PAPER_TRADING') {
+      return;
+    }
+
+    if (mode === 'UPSTOX_LIVE') {
+      try {
+        const res = await fetch('/api/trading/order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: 'UPSTOX_LIVE',
+            symbol: orderData.symbol,
+            initialType: orderData.transactionType,
+            quantity: orderData.quantity,
+            price: orderData.orderType === 'MARKET' ? 0 : orderData.price,
+          }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setBotLogs(prev => [
+            {
+              id: Date.now().toString(),
+              timestamp: new Date().toLocaleTimeString(),
+              message: `[UPSTOX ORDER ERROR] ${data.error || 'Order rejected by Upstox API'}`,
+              type: 'ERROR',
+            },
+            ...prev.slice(0, 199),
+          ]);
+          return;
+        }
+        fetchLivePositions();
+      } catch (e: any) {
+        return;
+      }
+    }
+
     const orderIdTime = Date.now().toString().slice(-6);
     const newOrder: Order = {
       id: `ord_${Date.now()}`,
@@ -860,15 +919,15 @@ export const App: React.FC = () => {
         }
       });
 
-      // Scan allowed symbols for automated entry if position limit not exceeded
-      if (positions.length < (botConfig.maxTradesPerDay || 5)) {
+      // Scan allowed symbols for automated entry if position limit not exceeded (only when real live quotes & candles exist)
+      if (isWsConnected && candles.length >= 20 && positions.length < (botConfig.maxTradesPerDay || 5)) {
         const allowed = botConfig.allowedSymbols?.length > 0 ? botConfig.allowedSymbols : ['NIFTY 50', 'BANKNIFTY'];
         for (const sym of allowed) {
           const alreadyOpen = positions.some(p => p.symbol.startsWith(sym));
           if (alreadyOpen) continue;
 
           const q = quotes.find(item => item.symbol === sym);
-          if (!q) continue;
+          if (!q || !q.ltp || q.ltp <= 0) continue;
 
           const sig = analyzeTradingSignals(
             q.symbol,
@@ -1220,6 +1279,10 @@ export const App: React.FC = () => {
                   signals={signals}
                   language={language}
                   onExecuteSignal={handleExecuteSignal}
+                  optionChainData={optionChainData}
+                  quotes={quotes}
+                  tradeHistory={tradeHistory}
+                  activeSignal={activeSignal}
                 />
               </div>
             )}
@@ -1259,6 +1322,8 @@ export const App: React.FC = () => {
                   onSquareOffAll={handleSquareOffAll}
                   totalPnL={totalPnL}
                   onRefreshHoldings={fetchHoldings}
+                  isConnected={apiConfig.isConnected}
+                  onOpenApiModal={() => setIsApiModalOpen(true)}
                   onOpenOrderModal={(type, sym, prc) => {
                     setOrderModalData({ symbol: sym, price: prc, type });
                     setIsOrderModalOpen(true);
@@ -1287,6 +1352,8 @@ export const App: React.FC = () => {
                   totalPnL={totalPnL}
                   initialTab="HOLDINGS"
                   onRefreshHoldings={fetchHoldings}
+                  isConnected={apiConfig.isConnected}
+                  onOpenApiModal={() => setIsApiModalOpen(true)}
                   onOpenOrderModal={(type, sym, prc) => {
                     setOrderModalData({ symbol: sym, price: prc, type });
                     setIsOrderModalOpen(true);
@@ -1414,8 +1481,19 @@ export const App: React.FC = () => {
         isOpen={isApiModalOpen}
         onClose={() => setIsApiModalOpen(false)}
         config={apiConfig}
+        onRefreshPortfolio={() => {
+          fetchHoldings();
+          fetchLivePositions();
+        }}
         onSaveConfig={async (cfg) => {
           setApiConfig(prev => ({ ...prev, ...cfg }));
+          if (cfg.isConnected) {
+            setMode('UPSTOX_LIVE');
+            setTimeout(() => {
+              fetchHoldings();
+              fetchLivePositions();
+            }, 300);
+          }
           try {
             await fetch('/api/market/save-config', {
               method: 'POST',

@@ -32,6 +32,8 @@ interface OrderBookPositionsProps {
   initialTab?: 'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY';
   onOpenOrderModal?: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
   onRefreshHoldings?: () => void;
+  isConnected?: boolean;
+  onOpenApiModal?: () => void;
 }
 
 
@@ -293,10 +295,18 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   initialTab = 'POSITIONS',
   onOpenOrderModal,
   onRefreshHoldings,
+  isConnected = false,
+  onOpenApiModal,
 }) => {
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY'>(initialTab);
   const [positionFilter, setPositionFilter] = useState<'ALL' | 'OPTIONS' | 'INDEX_EQUITY'>('ALL');
+
+  React.useEffect(() => {
+    if (activeTab === 'HOLDINGS' && onRefreshHoldings) {
+      onRefreshHoldings();
+    }
+  }, [activeTab, onRefreshHoldings]);
 
   React.useEffect(() => {
     if (initialTab) {
@@ -597,34 +607,56 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
             {/* Holdings List */}
             {holdings.length === 0 ? (
-              <div className="p-10 text-center text-slate-400 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40">
-                <PieChart className="w-10 h-10 mx-auto mb-2 text-indigo-400 opacity-60" />
-                <p className="text-sm font-bold text-slate-200">
-                  {language === 'ml' ? 'ഹോൾഡിങ്സ് (Holdings) ലിസ്റ്റ് ഒഴിഞ്ഞിരിക്കുന്നു' : 'Holdings List is Currently Empty'}
-                </p>
-                <div className="mt-3 p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-left text-xs max-w-lg mx-auto space-y-2">
+              <div className="p-8 text-center text-slate-400 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 space-y-4">
+                <PieChart className="w-10 h-10 mx-auto text-indigo-400 opacity-60" />
+                <div>
+                  <p className="text-sm font-bold text-slate-200">
+                    {!isConnected
+                      ? language === 'ml'
+                        ? '🔴 Upstox ലൈവ് ടോക്കൺ കണക്റ്റ് ചെയ്തിട്ടില്ല!'
+                        : '🔴 Upstox Live Token is Not Connected!'
+                      : language === 'ml'
+                      ? 'ഹോൾഡിങ്സ് (Holdings) ലിസ്റ്റ് ഒഴിഞ്ഞിരിക്കുന്നു'
+                      : 'Holdings List is Currently Empty'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {!isConnected
+                      ? language === 'ml'
+                        ? 'നിങ്ങളുടെ Upstox അക്കൗണ്ടിലെ ഹോൾഡിങ്‌സ് കാണുന്നതിന് ഇന്നത്തെ Access Token ആക്റ്റീവ് ആക്കേണ്ടതുണ്ട്.'
+                        : 'Please activate today\'s Upstox Access Token to load your Demat Holdings.'
+                      : language === 'ml'
+                      ? 'നിങ്ങളുടെ Upstox അക്കൗണ്ടിൽ നിലവിൽ ഡെലിവറി (CNC) ഓഹരികൾ ഒന്നും കാണുന്നില്ല.'
+                      : 'No Delivery (CNC) holdings returned from your Upstox Demat account.'}
+                  </p>
+                </div>
+
+                {!isConnected && onOpenApiModal && (
+                  <button
+                    type="button"
+                    onClick={onOpenApiModal}
+                    className="mx-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-extrabold shadow-lg shadow-emerald-950 transition flex items-center gap-2"
+                  >
+                    <span>🔑 {language === 'ml' ? 'Upstox ടോക്കൺ കണക്റ്റ് ചെയ്യുക' : 'Connect Upstox Token'}</span>
+                  </button>
+                )}
+
+                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-left text-xs max-w-lg mx-auto space-y-2">
                   <p className="text-amber-400 font-bold flex items-center gap-1.5">
                     <span>💡</span>
-                    <span>{language === 'ml' ? 'കാരണങ്ങൾ (Important Notes):' : 'Why are my holdings not showing?'}</span>
+                    <span>{language === 'ml' ? 'ശ്രദ്ധിക്കുക (Important Notes):' : 'Why are my holdings not showing?'}</span>
                   </p>
                   <ul className="list-disc list-inside text-slate-300 space-y-1 text-[11px]">
                     <li>
+                      <strong>{language === 'ml' ? 'Upstox ടോക്കൺ സ്റ്റാറ്റസ്:' : 'Upstox Token Status:'}</strong>{' '}
+                      {language === 'ml'
+                        ? 'API Key & Secret മാത്രം സേവ് ചെയ്താൽ ഹോൾഡിങ്‌സ് വരില്ല; ഇന്നത്തെ Access Token ജനറേറ്റ് ചെയ്ത് "🟢 Upstox ലൈവ് കണക്റ്റഡ്" ആണെന്ന് ഉറപ്പാക്കുക.'
+                        : 'Saving API Key & Secret alone is not enough; generate today\'s Access Token so status turns Green.'}
+                    </li>
+                    <li>
                       <strong>{language === 'ml' ? 'ഇൻട്രാഡേ & ഓപ്ഷൻ ട്രേഡുകൾ:' : 'Intraday & Option Positions:'}</strong>{' '}
-                      {language === 'ml' 
-                        ? 'ഓപ്ഷനുകളും ഇൻട്രാഡേ ട്രേഡുകളും "Active Positions" ടാബിലാണ് കാണിക്കുക (ഹോൾഡിങ്സിൽ വരില്ല).' 
-                        : 'Option contracts and intraday MIS trades appear in the "Active Positions" tab, not under Holdings.'}
-                    </li>
-                    <li>
-                      <strong>{language === 'ml' ? 'ദീർഘകാല ഓഹരികൾ (CNC):' : 'Long-term Equity (CNC):'}</strong>{' '}
                       {language === 'ml'
-                        ? 'Upstox-ൽ ഡെലിവറി വഴി വാങ്ങി അക്കൗണ്ടിലുള്ള യഥാർത്ഥ ഓഹരികളാണ് ഇവിടെ വരുന്നത്.'
-                        : 'Only settled equity stocks purchased as Delivery (CNC) will be reflected under Holdings.'}
-                    </li>
-                    <li>
-                      <strong>{language === 'ml' ? 'Upstox ടോക്കൺ സ്റ്റാറ്റസ്:' : 'Upstox Token Sync:'}</strong>{' '}
-                      {language === 'ml'
-                        ? 'Upstox API കണക്ഷൻ സജീവമാണെന്ന് ഉറപ്പാക്കുക. മുകളിലെ "പോർട്ട്ഫോളിയോ സിങ്ക്" ബട്ടൺ അമർത്തുക.'
-                        : 'Ensure your Upstox API token is active today and click the "Sync Holdings" button above.'}
+                        ? 'ഓപ്ഷനുകളും ഇൻട്രാഡേ ട്രേഡുകളും "Active Positions" ടാബിലാണ് കാണിക്കുക.'
+                        : 'Option contracts and intraday trades appear in the "Active Positions" tab.'}
                     </li>
                   </ul>
                 </div>

@@ -905,15 +905,15 @@ let globalGeminiKey = process.env.GEMINI_API_KEY || "";
 
 // Upstox In-Memory Credentials & Session Cache (can be set via .env or client settings)
 let upstoxConfig = {
-  apiKey: process.env.UPSTOX_API_KEY || "",
+  apiKey: process.env.UPSTOX_API_KEY || "3ab5711d-8891-480b-b0c1-29662852de49",
   apiSecret: process.env.UPSTOX_API_SECRET || "",
-  redirectUri: process.env.UPSTOX_REDIRECT_URI || "http://localhost:8080/",
+  redirectUri: process.env.UPSTOX_REDIRECT_URI || "https://sajad-trading-view.onrender.com",
   accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
-  userName: "Upstox Trader",
-  userEmail: "",
-  userClientCode: "",
+  userName: "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
+  userEmail: "sajadthazhepeedikayila@gmail.com",
+  userClientCode: "5VCABX",
   mobile: "",
-  pin: "",
+  pin: process.env.UPSTOX_PIN || "984798",
   totpSecret: "",
   tokenGeneratedAt: "",
   tokenExpiresAt: "",
@@ -968,32 +968,146 @@ app.use("/api/market", (req, res, next) => {
   next();
 });
 
+// Auto-Sync Approved Token from Public Webhook Relay (ntfy.sh) & Render Bridge
+let lastWebhookDiagnostic = "";
+const PUBLIC_WEBHOOK_RELAY_TOPIC = "upstox_live_sajad_5vcabx_3ab5711d";
+export const PUBLIC_WEBHOOK_RELAY_URL = `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}`;
+
+async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: string) {
+  const cleanToken = (tokenCandidate || "").trim();
+  if (!cleanToken || cleanToken.length < 30 || invalidTokens.has(cleanToken)) {
+    return false;
+  }
+  try {
+    const pRes = await fetch("https://api.upstox.com/v2/user/profile", {
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        Accept: "application/json",
+        "Api-Version": "2.0",
+      },
+    });
+    const pData = await pRes.json();
+    if (pData.status === "success" && pData.data) {
+      upstoxConfig.accessToken = cleanToken;
+      upstoxConfig.userName = pData.data.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+      upstoxConfig.userEmail = pData.data.email || upstoxConfig.userEmail || "";
+      upstoxConfig.userClientCode = pData.data.user_id || "5VCABX";
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      botConfig.mode = "UPSTOX_LIVE";
+      lastWebhookDiagnostic = `✅ Token auto-activated via ${sourceLabel} at ${upstoxConfig.tokenGeneratedAt}`;
+      await savePostgresDb().catch(() => {});
+      return true;
+    } else {
+      invalidTokens.add(cleanToken);
+    }
+  } catch (e) {}
+  return false;
+}
+
+async function syncTokenFromRenderWebhookBridge() {
+  if (upstoxConfig.accessToken && !invalidTokens.has(upstoxConfig.accessToken)) {
+    return true;
+  }
+
+  // 1. Check Public 24x7 Webhook Relay (https://ntfy.sh/upstox_live_sajad_5vcabx_3ab5711d)
+  try {
+    const relayCtrl = new AbortController();
+    const relayTimeout = setTimeout(() => relayCtrl.abort(), 3000);
+    const relayRes = await fetch(
+      `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}/json?poll=1&since=12h`,
+      {
+        signal: relayCtrl.signal,
+        headers: { Accept: "application/x-ndjson, application/json, text/plain" },
+      },
+    );
+    clearTimeout(relayTimeout);
+    if (relayRes.ok) {
+      const text = await relayRes.text();
+      const lines = text.trim().split("\n").reverse();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        // Extract any JWT token (eyJ...) from the webhook message
+        const jwtMatch = line.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+        if (jwtMatch && jwtMatch[0]) {
+          const ok = await activateDiscoveredToken(jwtMatch[0], "WhatsApp/Webhook Relay");
+          if (ok) return true;
+        }
+        try {
+          const wrapper = JSON.parse(line);
+          const innerStr = typeof wrapper.message === "string" ? wrapper.message : JSON.stringify(wrapper);
+          const innerJwt = innerStr.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+          if (innerJwt && innerJwt[0]) {
+            const ok = await activateDiscoveredToken(innerJwt[0], "WhatsApp/Webhook Relay");
+            if (ok) return true;
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {}
+
+  // 2. Also check Render Server if it is awake
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch("https://sajad-trading-view.onrender.com/api/market/config", {
+      signal: controller.signal,
+      headers: { Accept: "application/json" },
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      const remoteToken = (data.accessToken || data.access_token || "").trim();
+      if (remoteToken) {
+        const ok = await activateDiscoveredToken(remoteToken, "Render Server Bridge");
+        if (ok) return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 app.get("/api/market/config", async (req: Request, res: Response) => {
   if (upstoxConfig.accessToken && invalidTokens.has(upstoxConfig.accessToken)) {
     upstoxConfig.accessToken = "";
+  }
+  if (!upstoxConfig.accessToken) {
+    await syncTokenFromRenderWebhookBridge();
   }
   let isConnected = Boolean(upstoxConfig.accessToken);
   let tokenExpired = false;
 
   let availableMargin = 0;
   let usedMargin = 0;
+  let holdingsCount = 0;
   let userName = upstoxConfig.userName || "";
   let userEmail = upstoxConfig.userEmail || "";
   let userClientCode = upstoxConfig.userClientCode || "";
 
   if (isConnected) {
     try {
-      const fundsRes = await fetch(
-        "https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC",
-        {
+      const [fundsRes, holdingsRes] = await Promise.all([
+        fetch("https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC", {
           headers: {
             Authorization: `Bearer ${upstoxConfig.accessToken}`,
             Accept: "application/json",
             "Api-Version": "2.0",
           },
-        },
-      );
+        }),
+        fetch("https://api.upstox.com/v2/portfolio/long-term-holdings", {
+          headers: {
+            Authorization: `Bearer ${upstoxConfig.accessToken}`,
+            Accept: "application/json",
+            "Api-Version": "2.0",
+          },
+        }),
+      ]);
       const fundsData = await fundsRes.json();
+      const holdingsData = await holdingsRes.json().catch(() => null);
+
+      if (holdingsData && holdingsData.status === "success" && Array.isArray(holdingsData.data)) {
+        holdingsCount = holdingsData.data.length;
+      }
 
       if (
         fundsData.status === "success" &&
@@ -1014,9 +1128,14 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     }
   }
 
+  const hasValidSecret = Boolean(
+    upstoxConfig.apiSecret && !upstoxConfig.apiSecret.includes("•"),
+  );
+
   res.json({
     apiKey: upstoxConfig.apiKey,
-    apiSecret: upstoxConfig.apiSecret ? "••••••••" : "",
+    apiSecret: hasValidSecret ? "••••••••" : "",
+    hasApiSecret: hasValidSecret,
     redirectUri: upstoxConfig.redirectUri,
     accessToken: upstoxConfig.accessToken,
     hasToken: isConnected,
@@ -1031,14 +1150,23 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     todayTokenValid: isConnected,
     availableMargin,
     usedMargin,
+    holdingsCount,
+    mobile: upstoxConfig.mobile || "",
+    pin: upstoxConfig.pin || "984798",
+    publicWebhookRelayUrl: PUBLIC_WEBHOOK_RELAY_URL,
+    lastWebhookDiagnostic,
   });
 });
 
 app.post("/api/market/config", async (req: Request, res: Response) => {
-  const { apiKey, apiSecret, redirectUri, accessToken } = req.body;
-  if (apiKey !== undefined) upstoxConfig.apiKey = apiKey;
-  if (apiSecret !== undefined) upstoxConfig.apiSecret = apiSecret;
-  if (redirectUri !== undefined) upstoxConfig.redirectUri = redirectUri;
+  const { apiKey, apiSecret, redirectUri, accessToken, mobile, pin } = req.body;
+  if (apiKey !== undefined) upstoxConfig.apiKey = apiKey.trim();
+  if (apiSecret !== undefined && apiSecret !== "••••••••" && apiSecret.trim() !== "") {
+    upstoxConfig.apiSecret = apiSecret.trim();
+  }
+  if (redirectUri !== undefined) upstoxConfig.redirectUri = redirectUri.trim();
+  if (mobile !== undefined && String(mobile).trim()) upstoxConfig.mobile = String(mobile).trim();
+  if (pin !== undefined && String(pin).trim()) upstoxConfig.pin = String(pin).trim();
 
   if (typeof accessToken === "string") {
     let token = accessToken.trim();
@@ -1105,17 +1233,22 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
 });
 
 app.post("/api/market/save-config", (req: Request, res: Response) => {
-  const { apiKey, apiSecret, redirectUri, accessToken } = req.body;
-  if (apiKey) upstoxConfig.apiKey = apiKey;
-  if (apiSecret) upstoxConfig.apiSecret = apiSecret;
-  if (redirectUri) upstoxConfig.redirectUri = redirectUri;
+  const { apiKey, apiSecret, redirectUri, accessToken, mobile, pin } = req.body;
+  if (apiKey) upstoxConfig.apiKey = apiKey.trim();
+  if (apiSecret && apiSecret !== "••••••••") upstoxConfig.apiSecret = apiSecret.trim();
+  if (redirectUri) upstoxConfig.redirectUri = redirectUri.trim();
+  if (mobile && String(mobile).trim()) upstoxConfig.mobile = String(mobile).trim();
+  if (pin && String(pin).trim()) upstoxConfig.pin = String(pin).trim();
   if (typeof accessToken === "string")
     upstoxConfig.accessToken = accessToken.trim();
+
+  savePostgresDb().catch(() => {});
 
   res.json({
     success: true,
     message: "Upstox configuration updated successfully",
     isConnected: Boolean(upstoxConfig.accessToken),
+    mobile: upstoxConfig.mobile,
   });
 });
 
@@ -1198,9 +1331,145 @@ app.post("/api/market/clear-token", (req: Request, res: Response) => {
   upstoxConfig.tokenExpiresAt = "";
   res.json({
     success: true,
-    message: "Daily Upstox token cleared. Switched to Paper Trading Mmode.",
+    message: "Daily Upstox token cleared. Switched to Paper Trading Mode.",
   });
 });
+
+// Upstox Postback, Notifier Webhook & OAuth Callback Endpoint (handles both GET ?code= and POST webhook payloads on /api/market/webhook, /api/market/notifier, and POST /)
+const handleUpstoxWebhook = async (req: Request, res: Response) => {
+  try {
+    // 0. If Upstox redirected via GET with ?code=... (because user set Redirect URL to /api/market/webhook)
+    const oauthCode = (req.query.code as string) || "";
+    if (req.method === "GET" && oauthCode) {
+      const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+      const host = req.headers.host;
+      const callbackUri =
+        upstoxConfig.redirectUri || `${protocol}://${host}/api/market/webhook`;
+
+      const params = new URLSearchParams();
+      params.append("code", oauthCode.trim());
+      params.append("client_id", upstoxConfig.apiKey);
+      params.append("client_secret", upstoxConfig.apiSecret);
+      params.append("redirect_uri", callbackUri);
+      params.append("grant_type", "authorization_code");
+
+      const response = await fetch(
+        "https://api.upstox.com/v2/login/authorization/token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+            "Api-Version": "2.0",
+          },
+          body: params.toString(),
+        },
+      );
+      const data = await response.json();
+
+      if (data.access_token) {
+        upstoxConfig.accessToken = data.access_token;
+        upstoxConfig.userName = data.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+        upstoxConfig.userEmail = data.email || upstoxConfig.userEmail || "";
+        upstoxConfig.userClientCode = data.user_id || "5VCABX";
+        upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+        upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+        botConfig.mode = "UPSTOX_LIVE";
+        invalidTokens.delete(data.access_token);
+        await savePostgresDb().catch(() => {});
+
+        return res.send(`
+          <html><body style="background:#0b0f19;color:#34d399;font-family:sans-serif;padding:40px;text-align:center;">
+            <h2>✅ Upstox Access Token ഓട്ടോമാറ്റിക്കായി ആക്റ്റീവ് ആയി!</h2>
+            <p style="color:#cbd5e1;">അക്കൗണ്ട്: <b>${upstoxConfig.userName} (${upstoxConfig.userClientCode})</b></p>
+            <p style="color:#94a3b8;font-size:13px;">ലൈവ് ട്രേഡിംഗും ഹോൾഡിങ്‌സും സജീവമായി. ആപ്പിലേക്ക് തിരികെ പോകുന്നു...</p>
+            <script>
+              try {
+                localStorage.setItem('upstox_daily_token', ${JSON.stringify(data.access_token)});
+                if (window.opener) {
+                  window.opener.postMessage({
+                    type: 'UPSTOX_OAUTH_SUCCESS',
+                    accessToken: ${JSON.stringify(data.access_token)},
+                    userName: ${JSON.stringify(upstoxConfig.userName)},
+                    userClientCode: ${JSON.stringify(upstoxConfig.userClientCode)}
+                  }, '*');
+                  setTimeout(() => window.close(), 800);
+                } else {
+                  setTimeout(() => { window.location.href = '/'; }, 800);
+                }
+              } catch (e) {
+                window.location.href = '/';
+              }
+            </script>
+          </body></html>
+        `);
+      }
+    }
+
+    const payload = req.body || {};
+    const rawStr = typeof payload === "string" ? payload : JSON.stringify(payload);
+    lastWebhookDiagnostic = `${new Date().toLocaleTimeString("en-IN")}: ${rawStr.slice(0, 200)}`;
+
+    // 1. Check if Upstox Notifier Webhook pushed a new access_token (check all fields + regex JWT match)
+    let incomingToken =
+      payload.access_token ||
+      payload.accessToken ||
+      payload.token ||
+      payload.data?.access_token ||
+      payload.data?.accessToken ||
+      payload.data?.token ||
+      (req.query.access_token as string) ||
+      (req.query.token as string) ||
+      "";
+
+    if (!incomingToken && rawStr.includes("eyJ")) {
+      const jwtMatch = rawStr.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+      if (jwtMatch && jwtMatch[0]) {
+        incomingToken = jwtMatch[0];
+      }
+    }
+
+    if (incomingToken && typeof incomingToken === "string") {
+      const cleanToken = incomingToken.replace(/^Bearer\s+/i, "").trim();
+      upstoxConfig.accessToken = cleanToken;
+      if (payload.user_id || payload.client_id) {
+        upstoxConfig.userClientCode = payload.user_id || payload.client_id;
+      }
+      if (payload.user_name) {
+        upstoxConfig.userName = payload.user_name;
+      }
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      botConfig.mode = "UPSTOX_LIVE";
+      invalidTokens.delete(cleanToken);
+      await savePostgresDb().catch(() => {});
+      botLogs.unshift({
+        id: Date.now().toString(),
+        time: new Date().toLocaleTimeString(),
+        message: `✅ Upstox Notifier Webhook വഴി പുതിയ Access Token ഓട്ടോമാറ്റിക്കായി ലഭിച്ചു!`,
+        type: "SUCCESS",
+      });
+    }
+
+    // 2. Check if Upstox Postback pushed an Order Update
+    if (payload.order_id && payload.status) {
+      botLogs.unshift({
+        id: Date.now().toString(),
+        time: new Date().toLocaleTimeString(),
+        message: `📦 Upstox Order Update [${payload.trading_symbol || payload.instrument_token}]: ${payload.transaction_type || ""} ${payload.status} @ ₹${payload.average_price || payload.price || 0}`,
+        type: payload.status === "complete" ? "SUCCESS" : "INFO",
+      });
+    }
+
+    res.status(200).json({ status: "success", received: true });
+  } catch (e: any) {
+    res.status(200).json({ status: "ok" });
+  }
+};
+
+app.all("/api/market/webhook", handleUpstoxWebhook);
+app.all("/api/market/notifier", handleUpstoxWebhook);
+app.post("/", handleUpstoxWebhook);
 
 // Validate token endpoint
 app.post("/api/market/validate-token", async (req: Request, res: Response) => {
@@ -1222,19 +1491,541 @@ app.post("/api/market/validate-token", async (req: Request, res: Response) => {
       return res.json({
         valid: true,
         userName: data.data.user_name || "Live Trader",
-        userEmail: data.data.email || "trader@upstox.com",
-        userClientCode: data.data.user_id || "UPSTOX_USER",
+        userEmail: data.data.email || "",
+        userClientCode: data.data.user_id || "",
       });
     } else {
-      return res.json({
-        valid: true, // Allow simulation/ manual token testing
-        userName: "Upstox Live Client",
-        userEmail: "trader@upstox.com",
-        userClientCode: "UP_CLIENT",
+      invalidTokens.add(token);
+      return res.status(401).json({
+        valid: false,
+        error: data.errors?.[0]?.message || "Invalid or expired Upstox token",
       });
     }
   } catch (e: any) {
-    return res.json({ valid: true, userName: "Upstox Trader" });
+    return res.status(500).json({ valid: false, error: e.message || "Token validation failed" });
+  }
+});
+
+// 2.5 Automated Upstox SMS OTP + Auto PIN (984798) + Auto OAuth Code + Auto Token Exchange Engine
+interface UpstoxAutoOtpSession {
+  requestId: string;
+  userId: string;
+  internalClientId: string;
+  validateOtpToken: string;
+  cookies: Record<string, string>;
+  apiKey: string;
+  apiSecret: string;
+  redirectUri: string;
+  mobile: string;
+  pin: string;
+  createdAt: number;
+}
+
+let activeAutoOtpSession: UpstoxAutoOtpSession | null = null;
+
+function mergeSetCookies(cookieJar: Record<string, string>, res: globalThis.Response) {
+  const rawList: string[] =
+    typeof (res.headers as any).getSetCookie === "function"
+      ? (res.headers as any).getSetCookie()
+      : res.headers.get("set-cookie")
+        ? [res.headers.get("set-cookie") as string]
+        : [];
+  for (const raw of rawList) {
+    const firstPart = raw.split(";")[0];
+    const eqIdx = firstPart.indexOf("=");
+    if (eqIdx > 0) {
+      const k = firstPart.slice(0, eqIdx).trim();
+      const v = firstPart.slice(eqIdx + 1).trim();
+      cookieJar[k] = v;
+    }
+  }
+}
+
+function formatCookieJar(cookieJar: Record<string, string>): string {
+  return Object.entries(cookieJar)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
+
+function buildUpstoxBrowserHeaders(requestId: string, cookieJar: Record<string, string>, extra: Record<string, string> = {}) {
+  const cookieStr = formatCookieJar(cookieJar);
+  return {
+    accept: "*/*",
+    "accept-language": "en-GB,en;q=0.9",
+    "content-type": "application/json",
+    origin: "https://login.upstox.com",
+    priority: "u=1, i",
+    referer: "https://login.upstox.com/",
+    "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "x-device-details":
+      "platform=WEB|osName=Mac OS/10.15.7|osVersion=Chrome/140.0.0.0|appVersion=4.0.0|modelName=Chrome|manufacturer=Apple|uuid=3Z1IVTlV4rUUGbNp8KP0|userAgent=Upstox 3.0 Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "x-request-id": requestId,
+    ...(cookieStr ? { cookie: cookieStr } : {}),
+    ...extra,
+  };
+}
+
+// Step 1 & 2 Automatic: Send SMS OTP to user's saved mobile number without opening Upstox web
+app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
+  const { mobile, apiKey, apiSecret, redirectUri, pin } = req.body;
+  const cleanMobile = String(mobile || upstoxConfig.mobile || "")
+    .replace(/\D+/g, "")
+    .slice(-10);
+  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  const secret = String(
+    apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || "",
+  ).trim();
+  const uri = String(redirectUri || upstoxConfig.redirectUri || "https://sajad-trading-view.onrender.com").trim();
+  const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
+
+  if (cleanMobile.length === 10) {
+    upstoxConfig.mobile = cleanMobile;
+  }
+  if (key) upstoxConfig.apiKey = key;
+  if (secret) upstoxConfig.apiSecret = secret;
+  if (uri) upstoxConfig.redirectUri = uri;
+  if (cleanPin) upstoxConfig.pin = cleanPin;
+  await savePostgresDb().catch(() => {});
+
+  if (cleanMobile.length !== 10) {
+    return res.status(400).json({
+      success: false,
+      needsMobile: true,
+      error:
+        "നിങ്ങളുടെ 10-അക്ക Upstox മൊബൈൽ നമ്പർ ഒരിക്കൽ മാത്രം നൽകുക (പിന്നീട് ഒരിക്കലും നൽകേണ്ടതില്ല — ആപ്പ് തനിയെ സേവ് ചെയ്തോളും).",
+    });
+  }
+
+  const requestId = "WPRO-" + Math.random().toString(36).substring(2, 12);
+  const cookieJar: Record<string, string> = {};
+
+  try {
+    // 1. Call authorization/dialog to obtain encrypted userId, internal client_id, and session cookies
+    const dialogUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(key)}&redirect_uri=${encodeURIComponent(uri)}`;
+    const dialogRes = await fetch(dialogUrl, {
+      method: "GET",
+      redirect: "manual",
+      headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
+    });
+    mergeSetCookies(cookieJar, dialogRes);
+
+    const loc = dialogRes.headers.get("location") || "";
+    if (!loc) {
+      return res.status(400).json({
+        success: false,
+        error: "Upstox ലോഗിൻ സെഷൻ തുടങ്ങാൻ കഴിഞ്ഞില്ല. API Key & Redirect URI പരിശോധിക്കുക.",
+      });
+    }
+
+    const parsedLoc = new URL(loc);
+    const userId = parsedLoc.searchParams.get("user_id") || "";
+    const internalClientId = parsedLoc.searchParams.get("client_id") || "";
+
+    // Follow redirect once to collect any login.upstox.com cookies
+    const loginPageRes = await fetch(loc, {
+      method: "GET",
+      redirect: "manual",
+      headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
+    });
+    mergeSetCookies(cookieJar, loginPageRes);
+
+    // 2. Automatically request SMS OTP from Upstox (/login/open/v6/auth/1fa/otp/generate)
+    const otpGenRes = await fetch(
+      "https://service.upstox.com/login/open/v6/auth/1fa/otp/generate",
+      {
+        method: "POST",
+        headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
+        body: JSON.stringify({
+          data: {
+            mobileNumber: cleanMobile,
+            userId: userId,
+            countryIsdCode: "+91",
+          },
+        }),
+      },
+    );
+    mergeSetCookies(cookieJar, otpGenRes);
+    const otpGenData = await otpGenRes.json();
+
+    if (otpGenData.success && otpGenData.data?.validateOTPToken) {
+      activeAutoOtpSession = {
+        requestId,
+        userId,
+        internalClientId,
+        validateOtpToken: otpGenData.data.validateOTPToken,
+        cookies: cookieJar,
+        apiKey: key,
+        apiSecret: secret,
+        redirectUri: uri,
+        mobile: cleanMobile,
+        pin: cleanPin,
+        createdAt: Date.now(),
+      };
+
+      return res.json({
+        success: true,
+        mobile: cleanMobile,
+        message:
+          otpGenData.data.message ||
+          `📲 നിങ്ങളുടെ ${cleanMobile.slice(0, 2)}******${cleanMobile.slice(-2)} എന്ന നമ്പറിലേക്ക് Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകുക — PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`,
+      });
+    } else {
+      const errMsg =
+        otpGenData.error?.message ||
+        "Upstox SMS OTP അയക്കാൻ കഴിഞ്ഞില്ല. മൊബൈൽ നമ്പർ ശരിയാണെന്ന് ഉറപ്പാക്കുക.";
+      return res.status(400).json({
+        success: false,
+        error: `${errMsg} (${otpGenData.error?.code || ""})`,
+        details: otpGenData,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: "Failed to trigger Upstox SMS OTP: " + err.message,
+    });
+  }
+});
+
+// Step 3, 4, 5 Automatic: Verify 6-Digit SMS OTP -> Auto-Submit PIN (984798) -> Auto-Authorize OAuth -> Auto-Exchange Access Token!
+app.post("/api/market/totp-login", async (req: Request, res: Response) => {
+  const { totp, pin, apiKey, apiSecret, mobile } = req.body;
+  const cleanTotp = String(totp || "").replace(/\D+/g, "").trim();
+  const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
+  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  if (apiSecret && apiSecret !== "••••••••" && apiSecret.trim() !== "") {
+    upstoxConfig.apiSecret = apiSecret.trim();
+  }
+  if (mobile && String(mobile).replace(/\D+/g, "").length >= 10) {
+    upstoxConfig.mobile = String(mobile).replace(/\D+/g, "").slice(-10);
+  }
+  if (cleanPin) upstoxConfig.pin = cleanPin;
+  if (key) upstoxConfig.apiKey = key;
+
+  if (!cleanTotp || cleanTotp.length !== 6) {
+    return res.status(400).json({
+      success: false,
+      error: "ദയവായി ഫോണിൽ വന്ന 6-അക്ക OTP കോഡ് നൽകുക (Please enter the 6-digit OTP code).",
+    });
+  }
+
+  // PATH A: If we have an active Automated SMS OTP session, complete Steps 3, 4, 5 automatically!
+  if (activeAutoOtpSession && Date.now() - activeAutoOtpSession.createdAt < 15 * 60 * 1000) {
+    try {
+      const sess = activeAutoOtpSession;
+      const pinToUse = cleanPin || sess.pin || "984798";
+      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret;
+
+      // Step 3: Verify the 6-digit SMS OTP (/login/open/v5/auth/1fa/otp-totp/verify)
+      let verifyRes = await fetch(
+        "https://service.upstox.com/login/open/v5/auth/1fa/otp-totp/verify",
+        {
+          method: "POST",
+          headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies),
+          body: JSON.stringify({
+            data: {
+              otp: cleanTotp,
+              validateOtpToken: sess.validateOtpToken,
+            },
+          }),
+        },
+      );
+      mergeSetCookies(sess.cookies, verifyRes);
+      let verifyData = await verifyRes.json();
+
+      if (!verifyData.success && verifyRes.status === 404) {
+        verifyRes = await fetch(
+          "https://service.upstox.com/login/open/v4/auth/1fa/otp-totp/verify",
+          {
+            method: "POST",
+            headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies),
+            body: JSON.stringify({
+              data: {
+                otp: cleanTotp,
+                validateOtpToken: sess.validateOtpToken,
+              },
+            }),
+          },
+        );
+        mergeSetCookies(sess.cookies, verifyRes);
+        verifyData = await verifyRes.json();
+      }
+
+      if (!verifyData.success) {
+        return res.status(400).json({
+          success: false,
+          error:
+            verifyData.error?.message ||
+            "നൽകിയ OTP തെറ്റാണ് അല്ലെങ്കിൽ സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കുക.",
+        });
+      }
+
+      // Extract profileId and userId if returned by OTP verification
+      const profileId =
+        verifyData.data?.userProfile?.profileId ||
+        verifyData.data?.accounts?.[0]?.profileId ||
+        sess.cookies["profile_id"] ||
+        "";
+      const verifiedUserId =
+        verifyData.data?.userProfile?.userId ||
+        verifyData.data?.accounts?.[0]?.userId ||
+        sess.cookies["user_id"] ||
+        "";
+
+      const pinHeaders: Record<string, string> = {};
+      if (profileId) pinHeaders["X-Profile-Id"] = String(profileId);
+      if (verifiedUserId) pinHeaders["X-User-Id"] = String(verifiedUserId);
+
+      // Step 4: Automatically submit 6-digit PIN (984798) in base64 (/login/open/v3/auth/2fa)
+      const encodedPin = Buffer.from(pinToUse, "utf-8").toString("base64");
+      const upstoxInternalRedirect = "https://api-v2.upstox.com/login/authorization/redirect";
+      const twoFaUrl = `https://service.upstox.com/login/open/v3/auth/2fa?client_id=${encodeURIComponent(sess.internalClientId)}&redirect_uri=${encodeURIComponent(upstoxInternalRedirect)}`;
+
+      const twoFaRes = await fetch(twoFaUrl, {
+        method: "POST",
+        headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies, pinHeaders),
+        body: JSON.stringify({
+          data: {
+            twoFAMethod: "SECRET_PIN",
+            inputText: encodedPin,
+          },
+        }),
+      });
+      mergeSetCookies(sess.cookies, twoFaRes);
+      const twoFaData = await twoFaRes.json();
+
+      if (!twoFaData.success) {
+        return res.status(400).json({
+          success: false,
+          error:
+            twoFaData.error?.message ||
+            "OTP ശരിയായിരുന്നു, എന്നാൽ PIN (984798) പരിശോധന പരാജയപ്പെട്ടു.",
+        });
+      }
+
+      // Check if 2FA response already gave redirectUri with ?code=
+      let finalRedirectUri = twoFaData.data?.redirectUri || "";
+
+      // Step 5: If redirectUri not yet returned, automatically call /login/v2/oauth/authorize
+      if (!finalRedirectUri || !finalRedirectUri.includes("code=")) {
+        const oauthUrl = `https://service.upstox.com/login/v2/oauth/authorize?client_id=${encodeURIComponent(sess.internalClientId)}&redirect_uri=${encodeURIComponent(upstoxInternalRedirect)}&requestId=${encodeURIComponent(sess.requestId)}&response_type=code`;
+        const oauthRes = await fetch(oauthUrl, {
+          method: "POST",
+          headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies, pinHeaders),
+          body: JSON.stringify({
+            data: {
+              userOAuthApproval: true,
+            },
+          }),
+        });
+        mergeSetCookies(sess.cookies, oauthRes);
+        const oauthData = await oauthRes.json();
+        if (oauthData.success && oauthData.data?.redirectUri) {
+          finalRedirectUri = oauthData.data.redirectUri;
+        }
+      }
+
+      // Extract ?code= from finalRedirectUri
+      let authCode = "";
+      if (finalRedirectUri) {
+        try {
+          const parsedRedirect = new URL(finalRedirectUri);
+          authCode = parsedRedirect.searchParams.get("code") || "";
+        } catch {
+          const m = finalRedirectUri.match(/[?&]code=([^&#\s]+)/);
+          if (m && m[1]) authCode = decodeURIComponent(m[1]);
+        }
+      }
+
+      if (!authCode) {
+        return res.status(400).json({
+          success: false,
+          error: "OTP-യും PIN-ഉം ശരിയായിരുന്നു, എന്നാൽ Authorization Code ലഭിച്ചില്ല. വീണ്ടും ശ്രമിക്കുക.",
+        });
+      }
+
+      // Step 6: Automatically exchange ?code= for the live JWT access_token!
+      const tokenParams = new URLSearchParams();
+      tokenParams.append("code", authCode.trim());
+      tokenParams.append("client_id", sess.apiKey);
+      tokenParams.append("client_secret", secretToUse);
+      tokenParams.append("redirect_uri", sess.redirectUri);
+      tokenParams.append("grant_type", "authorization_code");
+
+      const tokenRes = await fetch("https://api.upstox.com/v2/login/authorization/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          "Api-Version": "2.0",
+        },
+        body: tokenParams.toString(),
+      });
+      const tokenData = await tokenRes.json();
+
+      if (tokenData.access_token) {
+        activeAutoOtpSession = null;
+        upstoxConfig.accessToken = tokenData.access_token;
+        upstoxConfig.userName =
+          tokenData.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+        upstoxConfig.userEmail = tokenData.email || upstoxConfig.userEmail || "";
+        upstoxConfig.userClientCode = tokenData.user_id || "5VCABX";
+        upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+        upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+        botConfig.mode = "UPSTOX_LIVE";
+        invalidTokens.delete(tokenData.access_token);
+        await savePostgresDb().catch(() => {});
+
+        return res.json({
+          success: true,
+          accessToken: tokenData.access_token,
+          userName: upstoxConfig.userName,
+          userClientCode: upstoxConfig.userClientCode,
+          message:
+            "🎉 OTP പരിശോധിച്ചു, PIN (984798) ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!",
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error:
+            tokenData.errors?.[0]?.message ||
+            "ടോക്കൺ എക്സ്ചേഞ്ച് പരാജയപ്പെട്ടു. API Secret & Redirect URI പരിശോധിക്കുക.",
+        });
+      }
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: "ഓട്ടോമാറ്റിക് OTP + PIN ലോഗിൻ പിശക്: " + err.message,
+      });
+    }
+  }
+
+  // PATH B: Fallback to direct TOTP login if user didn't initiate an SMS OTP session
+  try {
+    const response = await fetch(
+      "https://api.upstox.com/v2/totp-login/authorization/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-api-key": key,
+          "Api-Version": "2.0",
+        },
+        body: JSON.stringify({
+          totp: cleanTotp,
+          pin: cleanPin,
+        }),
+      },
+    );
+
+    const data = await response.json();
+    const token = data.access_token || data.data?.access_token;
+
+    if (token) {
+      upstoxConfig.accessToken = token;
+      upstoxConfig.userName =
+        data.user_name || data.data?.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+      upstoxConfig.userEmail =
+        data.email || data.data?.email || upstoxConfig.userEmail || "";
+      upstoxConfig.userClientCode =
+        data.user_id || data.data?.user_id || "5VCABX";
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      botConfig.mode = "UPSTOX_LIVE";
+      invalidTokens.delete(token);
+      await savePostgresDb().catch(() => {});
+
+      return res.json({
+        success: true,
+        accessToken: token,
+        userName: upstoxConfig.userName,
+        userClientCode: upstoxConfig.userClientCode,
+      });
+    } else {
+      const errMsg =
+        data.errors?.[0]?.message ||
+        data.message ||
+        "ആദ്യം OTP ബോക്സ് ഒഴിച്ചിട്ട് 'സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക' അമർത്തി ഫോണിലേക്ക് SMS OTP വരുത്തുക, എന്നിട്ട് ആ 6-അക്ക OTP ഇവിടെ നൽകുക.";
+      return res.status(400).json({
+        success: false,
+        error: errMsg,
+        details: data,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: "Failed to contact Upstox OTP endpoint: " + err.message,
+    });
+  }
+});
+
+// Upstox V3 Access Token Request (Sends 1-Click Approval Notification to Upstox Mobile App & WhatsApp -> Pushes token to /api/market/webhook)
+app.post("/api/market/request-token-v3", async (req: Request, res: Response) => {
+  const { apiKey, apiSecret } = req.body;
+  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  const secret = String(
+    apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || "",
+  ).trim();
+
+  if (!key || !secret) {
+    return res.status(400).json({
+      success: false,
+      error: "API Secret നല്‍കിയിട്ടില്ല! ദയവായി API Secret നല്‍കിയ ശേഷം വീണ്ടും ശ്രമിക്കുക.",
+    });
+  }
+
+  upstoxConfig.apiKey = key;
+  upstoxConfig.apiSecret = secret;
+  await savePostgresDb().catch(() => {});
+
+  try {
+    const response = await fetch(
+      `https://api.upstox.com/v3/login/auth/token/request/${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_secret: secret,
+        }),
+      },
+    );
+
+    const data = await response.json();
+    if (response.ok && (data.status === "success" || data.data)) {
+      return res.json({
+        success: true,
+        message:
+          "📲 നിങ്ങളുടെ Upstox മൊബൈൽ ആപ്പിലേക്കും WhatsApp-ലേക്കും ടോക്കൺ റിക്വസ്റ്റ് അയച്ചു! ഫോണിൽ 'Approve' അമർത്തിയാൽ ഉടൻ ആപ്പ് തനിയെ ടോക്കൺ സ്വീകരിച്ച് ലൈവ് ആകും (നമ്പറോ PIN-ഓ അടിക്കേണ്ടതില്ല)!",
+        data,
+      });
+    } else {
+      const errMsg =
+        data.errors?.[0]?.message ||
+        data.message ||
+        "Upstox V3 Token Request അയക്കാൻ കഴിഞ്ഞില്ല (Upstox Developer App-ൽ Notifier Webhook URL സജ്ജീകരിച്ചിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക).";
+      return res.status(400).json({
+        success: false,
+        error: errMsg,
+        details: data,
+      });
+    }
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      error: "Error sending Upstox V3 token request: " + err.message,
+    });
   }
 });
 
@@ -1253,26 +2044,50 @@ app.get("/api/market/auth-url", (req: Request, res: Response) => {
   res.json({ loginUrl });
 });
 
-// Token Exchange Callback Handler
+// Token Exchange Callback Handler (POST from UI & GET from OAuth Redirect)
 app.post("/api/market/token", async (req: Request, res: Response) => {
-  const { cmode, apiKey, apiSecret, redirectUri } = req.body;
-  const key = apiKey || upstoxConfig.apiKey;
-  const secret = apiSecret || upstoxConfig.apiSecret;
-  const uri = redirectUri || upstoxConfig.redirectUri;
+  const { code, cmode, apiKey, apiSecret, redirectUri } = req.body;
+  let rawCode = (code || cmode || "").trim();
+  let detectedRedirectUri = "";
 
-  if (!cmode || !key || !secret) {
-    return res
-      .status(400)
-      .json({ error: "Missing cmode, apiKey or apiSecret for token exchange" });
+  // If user pasted a full redirected URL (e.g. http://localhost:8080/?code=xyz), extract code & origin
+  if (rawCode.includes("code=")) {
+    try {
+      const parsedUrl = new URL(rawCode);
+      rawCode = parsedUrl.searchParams.get("code") || rawCode;
+      detectedRedirectUri = `${parsedUrl.origin}${parsedUrl.pathname}`;
+    } catch {
+      const match = rawCode.match(/[?&]code=([^&#\s]+)/);
+      if (match && match[1]) rawCode = decodeURIComponent(match[1]);
+    }
   }
+
+  const key = (apiKey || upstoxConfig.apiKey || "").trim();
+  const secret = (
+    apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || ""
+  ).trim();
+  const uri = (redirectUri || detectedRedirectUri || upstoxConfig.redirectUri || "").trim();
+
+  if (!rawCode || !key || !secret) {
+    return res.status(400).json({
+      error: !secret
+        ? "API Secret നല്‍കിയിട്ടില്ല! ദയവായി Upstox API Secret നല്‍കിയ ശേഷം വീണ്ടും ശ്രമിക്കുക."
+        : "Missing authorization code, API Key, or API Secret for token exchange",
+    });
+  }
+
+  // Save credentials in memory
+  upstoxConfig.apiKey = key;
+  upstoxConfig.apiSecret = secret;
+  if (uri) upstoxConfig.redirectUri = uri;
 
   try {
     const params = new URLSearchParams();
-    params.append("cmode", cmode);
+    params.append("code", rawCode);
     params.append("client_id", key);
     params.append("client_secret", secret);
     params.append("redirect_uri", uri);
-    params.append("grant_type", "authorization_cmode");
+    params.append("grant_type", "authorization_code");
 
     const response = await fetch(
       "https://api.upstox.com/v2/login/authorization/token",
@@ -1290,25 +2105,123 @@ app.post("/api/market/token", async (req: Request, res: Response) => {
     const data = await response.json();
     if (data.access_token) {
       upstoxConfig.accessToken = data.access_token;
+      upstoxConfig.userName = data.user_name || "Upstox Trader";
+      upstoxConfig.userEmail = data.email || upstoxConfig.userEmail || "";
+      upstoxConfig.userClientCode = data.user_id || upstoxConfig.userClientCode || "";
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      savePostgresDb();
+
       return res.json({
         success: true,
         accessToken: data.access_token,
-        user_name: data.user_name || "Upstox Trader",
+        user_name: upstoxConfig.userName,
+        user_id: upstoxConfig.userClientCode,
       });
     } else {
-      return res
-        .status(400)
-        .json({
-          error: data.message || "Token exchange failed",
-          details: data,
-        });
+      const errMsg =
+        data.errors?.[0]?.message ||
+        data.message ||
+        "Token exchange failed. Check Redirect URI & API Secret.";
+      return res.status(400).json({
+        error: errMsg,
+        details: data,
+      });
     }
   } catch (err: any) {
-    return res
-      .status(500)
-      .json({
-        error: "Failed to contact Upstox token gateway: " + err.message,
-      });
+    return res.status(500).json({
+      error: "Failed to contact Upstox token gateway: " + err.message,
+    });
+  }
+});
+
+// Automatic OAuth Redirect Callback Endpoint (/api/market/callback?code=...)
+app.get("/api/market/callback", async (req: Request, res: Response) => {
+  const code = (req.query.code as string) || "";
+  if (!code) {
+    return res.status(400).send(`
+      <html><body style="background:#0b0f19;color:#f87171;font-family:sans-serif;padding:40px;text-align:center;">
+        <h2>Upstox Authorization Code ലഭ്യമല്ല</h2>
+        <p>ദയവായി Upstox API Keys & Redirect URI പരിശോധിച്ച് വീണ്ടും ശ്രമിക്കുക.</p>
+      </body></html>
+    `);
+  }
+
+  const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+  const host = req.headers.host;
+  const callbackUri = upstoxConfig.redirectUri || `${protocol}://${host}/api/market/callback`;
+
+  try {
+    const params = new URLSearchParams();
+    params.append("code", code.trim());
+    params.append("client_id", upstoxConfig.apiKey);
+    params.append("client_secret", upstoxConfig.apiSecret);
+    params.append("redirect_uri", callbackUri);
+    params.append("grant_type", "authorization_code");
+
+    const response = await fetch(
+      "https://api.upstox.com/v2/login/authorization/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          "Api-Version": "2.0",
+        },
+        body: params.toString(),
+      },
+    );
+    const data = await response.json();
+
+    if (data.access_token) {
+      upstoxConfig.accessToken = data.access_token;
+      upstoxConfig.userName = data.user_name || "Upstox Trader";
+      upstoxConfig.userEmail = data.email || "";
+      upstoxConfig.userClientCode = data.user_id || "";
+      upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
+      upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+      savePostgresDb();
+
+      return res.send(`
+        <html><body style="background:#0b0f19;color:#34d399;font-family:sans-serif;padding:40px;text-align:center;">
+          <h2>✅ Upstox Access Token വിജയകരമായി ആക്റ്റീവ് ആയി!</h2>
+          <p style="color:#cbd5e1;">അക്കൗണ്ട്: <b>${upstoxConfig.userName} (${upstoxConfig.userClientCode})</b></p>
+          <p style="color:#94a3b8;font-size:13px;">ഈ വിൻഡോ തനിയെ അടയും, അല്ലെങ്കിൽ ആപ്പിലേക്ക് തിരികെ പോകാം.</p>
+          <script>
+            try {
+              localStorage.setItem('upstox_daily_token', ${JSON.stringify(data.access_token)});
+              if (window.opener) {
+                window.opener.postMessage({
+                  type: 'UPSTOX_OAUTH_SUCCESS',
+                  accessToken: ${JSON.stringify(data.access_token)},
+                  userName: ${JSON.stringify(upstoxConfig.userName)},
+                  userClientCode: ${JSON.stringify(upstoxConfig.userClientCode)}
+                }, '*');
+                setTimeout(() => window.close(), 1200);
+              } else {
+                setTimeout(() => { window.location.href = '/'; }, 1500);
+              }
+            } catch (e) {}
+          </script>
+        </body></html>
+      `);
+    } else {
+      return res.send(`
+        <html><body style="background:#0b0f19;color:#fbbf24;font-family:sans-serif;padding:30px;text-align:center;">
+          <h3>Upstox Authorization Code ലഭിച്ചു!</h3>
+          <p style="color:#cbd5e1;">താഴെ കാണുന്ന കോഡ് കോപ്പി ചെയ്ത് ആപ്പിലെ "code=" ബോക്സിൽ പേസ്റ്റ് ചെയ്യുക:</p>
+          <div style="background:#1e293b;padding:14px;border-radius:10px;color:#38bdf8;font-family:monospace;font-size:18px;margin:16px auto;max-width:400px;word-break:break-all;">${code}</div>
+          <p style="color:#f87171;font-size:12px;">(${data.errors?.[0]?.message || "API Secret ആപ്പിൽ സേവ് ചെയ്യാത്തതിനാൽ ഓട്ടോ-എക്സ്ചേഞ്ച് നടന്നില്ല"})</p>
+        </body></html>
+      `);
+    }
+  } catch (err: any) {
+    return res.send(`
+      <html><body style="background:#0b0f19;color:#fbbf24;font-family:sans-serif;padding:30px;text-align:center;">
+        <h3>Upstox Authorization Code:</h3>
+        <div style="background:#1e293b;padding:14px;border-radius:10px;color:#38bdf8;font-family:monospace;font-size:18px;margin:16px auto;max-width:400px;">${code}</div>
+      </body></html>
+    `);
   }
 });
 
@@ -1423,9 +2336,11 @@ app.get("/api/market/positions", async (req: Request, res: Response) => {
 
 // Real-time Upstox Holdings
 app.get("/api/market/holdings", async (req: Request, res: Response) => {
+  const headerToken = req.headers.authorization?.replace("Bearer ", "").trim() || "";
   const token =
-    req.headers.authorization?.replace("Bearer ", "") ||
-    upstoxConfig.accessToken;
+    headerToken && !invalidTokens.has(headerToken)
+      ? headerToken
+      : upstoxConfig.accessToken;
   if (!token) return res.json([]);
 
   try {
@@ -1442,18 +2357,37 @@ app.get("/api/market/holdings", async (req: Request, res: Response) => {
     const data = await response.json();
     if (data.status === "success" && Array.isArray(data.data)) {
       return res.json(
-        data.data.map((h: any) => ({
-          symbol: h.trading_symbol || h.company_name || h.instrument_token,
-          companyName: h.company_name || h.trading_symbol || h.instrument_token,
-          instrumentKey: h.instrument_token,
-          quantity: h.quantity || h.t1_quantity || 0,
-          buyPrice: h.average_price || 0,
-          currentLTP: h.last_price || h.close_price || h.average_price || 0,
-          pnl: h.pnl || 0,
-          pnlPercent: h.average_price
-            ? (((h.last_price || h.average_price) - h.average_price) / h.average_price) * 100
-            : 0,
-        })),
+        data.data.map((h: any) => {
+          const baseQty = Number(h.quantity || 0);
+          const t1Qty = Number(h.t1_quantity || 0);
+          const colQty = Number(h.collateral_quantity || 0);
+          const totalQty = baseQty + t1Qty > 0 ? baseQty + t1Qty : colQty || baseQty;
+          const avgPrice = Number(h.average_price || h.close_price || 0);
+          const ltp = Number(h.last_price || h.close_price || avgPrice || 0);
+          const computedPnl =
+            h.pnl !== undefined && h.pnl !== null && Number(h.pnl) !== 0
+              ? Number(h.pnl)
+              : (ltp - avgPrice) * totalQty;
+          const sym =
+            h.trading_symbol ||
+            h.tradingsymbol ||
+            h.company_name ||
+            h.instrument_token ||
+            "STOCK";
+          return {
+            symbol: sym,
+            companyName: h.company_name || sym,
+            instrumentKey: h.instrument_token || `NSE_EQ|${sym}`,
+            quantity: totalQty,
+            buyPrice: avgPrice,
+            currentLTP: ltp,
+            pnl: Number(computedPnl.toFixed(2)),
+            pnlPercent:
+              avgPrice > 0
+                ? Number((((ltp - avgPrice) / avgPrice) * 100).toFixed(2))
+                : 0,
+          };
+        }),
       );
     }
     return res.json([]);
@@ -2088,6 +3022,22 @@ async function savePostgresDb() {
 }
 
 async function loadPostgresDb() {
+  const normalizeUpstoxCfg = () => {
+    if (
+      !upstoxConfig.redirectUri ||
+      upstoxConfig.redirectUri.includes("localhost") ||
+      upstoxConfig.redirectUri.includes("127.0.0.1")
+    ) {
+      upstoxConfig.redirectUri = "https://sajad-trading-view.onrender.com";
+    }
+    if (!upstoxConfig.apiKey) {
+      upstoxConfig.apiKey = "3ab5711d-8891-480b-b0c1-29662852de49";
+    }
+    if (upstoxConfig.apiSecret && upstoxConfig.apiSecret.includes("•")) {
+      upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || "";
+    }
+  };
+
   // First load from local_db.json if available
   try {
     if (fsSync.existsSync(LOCAL_DB_PATH)) {
@@ -2098,6 +3048,7 @@ async function loadPostgresDb() {
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
+      normalizeUpstoxCfg();
     }
   } catch (err) {}
 
@@ -2112,6 +3063,7 @@ async function loadPostgresDb() {
       if (data.paperOrders) paperOrders = data.paperOrders;
       if (data.paperPositions) paperPositions = data.paperPositions;
       if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
+      normalizeUpstoxCfg();
       console.log("Loaded persistent data from PostgreSQL Cloud SQL!");
     }
   } catch (e) {
@@ -2121,6 +3073,12 @@ async function loadPostgresDb() {
 
 loadPostgresDb().then(() => {
   setInterval(savePostgresDb, 5000);
+  // Continuously poll public webhook relay & Render bridge every 6 seconds when not connected
+  setInterval(() => {
+    if (!upstoxConfig.accessToken || invalidTokens.has(upstoxConfig.accessToken)) {
+      syncTokenFromRenderWebhookBridge().catch(() => {});
+    }
+  }, 6000);
 });
 
 const globalLiveQuotes: Record<string, any> = {};
