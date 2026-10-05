@@ -10,6 +10,8 @@ const _require =
 import {
   analyzeTradingSignals,
   enrichCandlesWithIndicators,
+  calculateTradeCharges,
+  calculateAffordableLotsWithBrokerage,
 } from "./src/utils/indicators";
 import express, { Request, Response } from "express";
 import path from "path";
@@ -58,7 +60,7 @@ let botConfig = {
   multiTimeframeEnabled: true,
   optionStrikeSelector: true,
   tradeMmode: "OPTIONS_ONLY", // 'OPTIONS_ONLY'
-  maxOptionLossCount: 4,
+  maxOptionLossCount: 3,
   maxOptionProfitCount: 15,
   minOptionProfitAmount: 300,
   dailyLossLocked: false,
@@ -88,6 +90,10 @@ let botSignals: any[] = [];
 app.get("/api/bot/config", (req, res) => res.json(botConfig));
 app.post("/api/bot/config", (req, res) => {
   botConfig = { ...botConfig, ...req.body };
+  botConfig.maxOptionLossCount = Math.min(
+    3,
+    Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
+  );
   botLogs.unshift({
     id: Date.now().toString(),
     time: new Date().toLocaleTimeString(),
@@ -124,16 +130,20 @@ app.get("/api/bot/diagnostics", (req, res) => {
 app.get("/api/bot/logs", (req, res) => res.json(botLogs.slice(0, 50)));
 app.get("/api/bot/signals", (req, res) => res.json(botSignals.slice(0, 20)));
 
+// Cache Option Contracts and Option Chains to prevent Upstox 429 rate-limit errors
+const optionContractCache: Record<string, { timestamp: number; data: any }> = {};
+const optionChainCache: Record<string, { timestamp: number; data: any }> = {};
+
 // Bot Loop Interval
 setInterval(async () => {
   if (!botConfig.enabled) return;
 
   try {
     // 1. Process active positions for Auto-Square Off (Target/SL)
-    let activePositions =
-      botConfig.mode === "PAPER_TRADING" ? paperPositions : [];
+    let activePositions: any[] =
+      botConfig.mode === "PAPER_TRADING" ? [...paperPositions] : [];
 
-    // Fetch live positions if in UPSTOX_LIVE  mode
+    // Fetch live positions if in UPSTOX_LIVE mode (strictly real Upstox positions only, never dummy/paper)
     if (botConfig.mode === "UPSTOX_LIVE" && upstoxConfig.accessToken) {
       try {
         const pRes = await fetch(
@@ -153,13 +163,19 @@ setInterval(async () => {
               id: p.trading_symbol || p.instrument_token,
               symbol: p.trading_symbol || p.instrument_token,
               instrumentKey: p.instrument_token,
+              product: p.product || "D",
+              productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
               type: p.quantity > 0 ? "BUY" : p.quantity < 0 ? "SELL" : "CLOSED",
               quantity: Math.abs(p.quantity || p.net_quantity || 0),
               buyPrice: p.average_price || p.buy_amount / (p.buy_quantity || 1),
               currentLTP: p.last_price || p.average_price,
               pnl: p.pnl || p.m2m,
+              mode: "UPSTOX_LIVE",
+              isOption:
+                /\b(CE|PE)\b/i.test(p.trading_symbol || "") ||
+                String(p.instrument_token || "").includes("FO"),
             }))
-            .filter((p: any) => p.type !== "CLOSED");
+            .filter((p: any) => p.type !== "CLOSED" && p.quantity > 0);
         }
       } catch (err) {
         console.error("Error fetching live positions for bot:", err);
@@ -183,8 +199,8 @@ setInterval(async () => {
       }
     });
 
-    let liveQuotesMap: any = {};
-    if (token) {
+    let liveQuotesMap: any = { ...(lastQuotesCache.data || {}) };
+    if (token && Object.keys(liveQuotesMap).length === 0) {
       try {
         const qRes = await fetch(
           `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(instruments.join(","))}`,
@@ -197,23 +213,35 @@ setInterval(async () => {
           },
         );
         const qData = await qRes.json();
-
         if (qData?.data) {
           liveQuotesMap = qData.data;
-          const mainKey =
-            (botConfig as any).selectedInstrumentKey || "NSE_INDEX|Nifty 50";
-          let mq = liveQuotesMap[mainKey] || Object.values(liveQuotesMap).find((q:any) => q.instrument_token === mainKey);
-          if (mq?.last_price) {
-            currentLiveQuote = mq.last_price;
-          }
         }
       } catch (e) {}
+    }
+    const mainKey =
+      (botConfig as any).selectedInstrumentKey || "NSE_INDEX|Nifty 50";
+    let mq =
+      liveQuotesMap[mainKey] ||
+      Object.values(liveQuotesMap).find(
+        (q: any) => q && q.instrument_token === mainKey,
+      );
+    if (mq?.last_price) {
+      currentLiveQuote = mq.last_price;
     }
 
     // Merge with global WS quotes
     for (const k in globalLiveQuotes) {
       if (!liveQuotesMap[k]) liveQuotesMap[k] = globalLiveQuotes[k];
     }
+
+    // Sanitize paperPositions: remove any corrupted position that accidentally got an INDEX key or dummy ₹100 price
+    paperPositions = paperPositions.filter(
+      (p) =>
+        p &&
+        p.instrumentKey &&
+        !String(p.instrumentKey).includes("INDEX") &&
+        !(p.buyPrice === 100 && p.currentLTP === 100),
+    );
 
     const nowIst = new Date(
       new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
@@ -294,6 +322,13 @@ setInterval(async () => {
             shouldSell = true;
             sellReason = `[PROFIT SHIELD] Profit reached ₹${pos.highestPnl.toFixed(0)}. Locked ₹${posPnL.toFixed(2)} before reversal!`;
           }
+        } else if (pos.highestPnl >= 300) {
+          // Early Net-Profit Lock: Once a trade is up >= ₹300, NEVER let it turn into a loss! Lock at least 75% of peak or ₹200+
+          const maxAllowedPullback = Math.min(65, pos.highestPnl * 0.22);
+          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+            shouldSell = true;
+            sellReason = `[FAST PROFIT HARVEST] Trade reached +₹${pos.highestPnl.toFixed(0)}. Locked +₹${posPnL.toFixed(2)} net profit above brokerage before pullback!`;
+          }
         }
 
         // Hard Floor Guarantee: Once a trade gained >= ₹1,000, NEVER allow profit to drop below 80% of peak or ₹800
@@ -316,13 +351,24 @@ setInterval(async () => {
             pos.highestLTP * (1 - (botConfig.trailingStepPercent || 5) / 100);
 
           // To prevent exiting at a loss when the trade was in profit,
-          // we ensure the stop loss is at least the buy price if highestLTP is significantly higher.
-          // (Cost-to-Cost trailing). If profit reached > trailingStepPercent, never exit in loss.
+          // we ensure the stop loss covers both the buy price AND full round-trip brokerage + taxes!
+          const posCharges = calculateTradeCharges(
+            pos.buyPrice,
+            pos.quantity || 1,
+            true,
+            ltp,
+          );
+          const breakEvenWithBrokerage =
+            pos.buyPrice +
+            posCharges.roundTripCharges / Math.max(1, pos.quantity || 1);
           const isCostToCostActive =
             pos.highestLTP >=
-            pos.buyPrice * (1 + (botConfig.trailingStepPercent || 5) / 100);
+            Math.max(
+              pos.buyPrice * (1 + (botConfig.trailingStepPercent || 5) / 100),
+              breakEvenWithBrokerage * 1.01,
+            );
           const effectiveStopPrice = isCostToCostActive
-            ? Math.max(trailingStopPrice, pos.buyPrice * 1.005) // Lock tiny profit to cover brokerage
+            ? Math.max(trailingStopPrice, breakEvenWithBrokerage * 1.005) // Lock net profit above full brokerage & taxes
             : Math.max(trailingStopPrice, staticStopLossPrice); // Standard trail, but never lower than strict SL
 
           if (ltp <= effectiveStopPrice) {
@@ -358,17 +404,36 @@ setInterval(async () => {
             `🛡️ <b>Exit Reason:</b> ${sellReason}\n` +
             `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
           ).catch(() => {});
-          if (botConfig.mode === "PAPER_TRADING") {
+          if (pos.mode === "PAPER_TRADING" || paperPositions.some((p) => p.id === pos.id)) {
             const closedPos = paperPositions.find((p) => p.id === pos.id);
             if (closedPos) {
               closedPos.sellPrice = closedPos.currentLTP;
-              closedPos.realizedPnL = closedPos.pnl;
+              closedPos.realizedPnL = Number((closedPos.pnl || 0).toFixed(2));
               closedPos.closeTime = new Date().toISOString();
+              closedPos.mode = "PAPER_TRADING";
               paperTradeHistory.unshift(closedPos);
               if (paperTradeHistory.length > 200)
                 paperTradeHistory.length = 200;
+              paperOrders.unshift({
+                id: "ORD" + Date.now(),
+                orderId: "PAP_" + Date.now().toString().slice(-6),
+                symbol: closedPos.symbol,
+                instrumentKey: closedPos.instrumentKey,
+                transactionType: "SELL",
+                type: "SELL",
+                orderType: "MARKET",
+                productType: closedPos.productType || "INTRADAY",
+                quantity: closedPos.quantity,
+                price: closedPos.currentLTP,
+                executedPrice: closedPos.currentLTP,
+                status: "COMPLETE",
+                timestamp: new Date().toLocaleTimeString("en-IN"),
+                time: new Date().toISOString(),
+                mode: "PAPER_TRADING",
+              });
             }
             paperPositions = paperPositions.filter((p) => p.id !== pos.id);
+            savePostgresDb().catch(() => {});
           } else if (botConfig.mode === "UPSTOX_LIVE") {
             // Place sell order via Upstox API
             try {
@@ -382,13 +447,13 @@ setInterval(async () => {
                 },
                 body: JSON.stringify({
                   quantity: pos.quantity,
-                  product: "D", // Or 'I' depending on pos
+                  product: pos.product || (pos.productType === "INTRADAY" ? "I" : "D"),
                   validity: "DAY",
                   price: 0,
                   tag: "bot_target_profit",
                   instrument_token: pos.instrumentKey,
                   order_type: "MARKET",
-                  transaction_type: "SELL",
+                  transaction_type: pos.type === "SELL" ? "BUY" : "SELL",
                   disclosed_quantity: 0,
                   trigger_price: 0,
                   is_amo: false,
@@ -404,17 +469,36 @@ setInterval(async () => {
             type: "ERROR",
           });
           if (botLogs.length > 200) botLogs.length = 200;
-          if (botConfig.mode === "PAPER_TRADING") {
+          if (pos.mode === "PAPER_TRADING" || paperPositions.some((p) => p.id === pos.id)) {
             const closedPos = paperPositions.find((p) => p.id === pos.id);
             if (closedPos) {
               closedPos.sellPrice = closedPos.currentLTP;
-              closedPos.realizedPnL = closedPos.pnl;
+              closedPos.realizedPnL = Number((closedPos.pnl || 0).toFixed(2));
               closedPos.closeTime = new Date().toISOString();
+              closedPos.mode = "PAPER_TRADING";
               paperTradeHistory.unshift(closedPos);
               if (paperTradeHistory.length > 200)
                 paperTradeHistory.length = 200;
+              paperOrders.unshift({
+                id: "ORD" + Date.now(),
+                orderId: "PAP_" + Date.now().toString().slice(-6),
+                symbol: closedPos.symbol,
+                instrumentKey: closedPos.instrumentKey,
+                transactionType: "SELL",
+                type: "SELL",
+                orderType: "MARKET",
+                productType: closedPos.productType || "INTRADAY",
+                quantity: closedPos.quantity,
+                price: closedPos.currentLTP,
+                executedPrice: closedPos.currentLTP,
+                status: "COMPLETE",
+                timestamp: new Date().toLocaleTimeString("en-IN"),
+                time: new Date().toISOString(),
+                mode: "PAPER_TRADING",
+              });
             }
             paperPositions = paperPositions.filter((p) => p.id !== pos.id);
+            savePostgresDb().catch(() => {});
           } else if (botConfig.mode === "UPSTOX_LIVE") {
             // Place sell order via Upstox API
             try {
@@ -428,13 +512,13 @@ setInterval(async () => {
                 },
                 body: JSON.stringify({
                   quantity: pos.quantity,
-                  product: "D", // Defaulting to Delivery for options, ideally  atch pos product
+                  product: pos.product || (pos.productType === "INTRADAY" ? "I" : "D"),
                   validity: "DAY",
                   price: 0,
                   tag: "bot_stop_loss",
                   instrument_token: pos.instrumentKey,
                   order_type: "MARKET",
-                  transaction_type: "SELL",
+                  transaction_type: pos.type === "SELL" ? "BUY" : "SELL",
                   disclosed_quantity: 0,
                   trigger_price: 0,
                   is_amo: false,
@@ -447,19 +531,32 @@ setInterval(async () => {
     }
 
     // 2. If no positions, look for entry
-    // Check Circuit Breaker
+    // Check Circuit Breaker (Daily Max Loss Limit ₹ AND Max Daily Option Losses = 3)
+    const todayOptionLossCount = paperTradeHistory.filter(
+      (trade) => (trade.realizedPnL || 0) < 0,
+    ).length;
+    const maxAllowedOptionLosses = Math.min(
+      3,
+      Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
+    );
     let todayRealizedPnL = paperTradeHistory.reduce(
       (acc, trade) => acc + (trade.realizedPnL || 0),
       0,
     );
-    if (todayRealizedPnL <= -botConfig.dailyMaxLossLimit) {
+    if (
+      todayRealizedPnL <= -botConfig.dailyMaxLossLimit ||
+      todayOptionLossCount >= maxAllowedOptionLosses
+    ) {
       if (!botConfig.dailyLossLocked) {
         botConfig.dailyLossLocked = true;
         botConfig.enabled = false;
         botLogs.unshift({
           id: Date.now().toString(),
           time: new Date().toLocaleTimeString(),
-          message: `Circuit Breaker: Daily max loss limit (₹${botConfig.dailyMaxLossLimit}) reached. Bot disabled for the day.`,
+          message:
+            todayOptionLossCount >= maxAllowedOptionLosses
+              ? `Circuit Breaker: Max daily option loss count (${maxAllowedOptionLosses} losses) reached. Bot halted for today.`
+              : `Circuit Breaker: Daily max loss limit (₹${botConfig.dailyMaxLossLimit}) reached. Bot disabled for the day.`,
           type: "ERROR",
         });
       }
@@ -476,7 +573,6 @@ setInterval(async () => {
       (currentHour < 15 || (currentHour === 15 && currentMinute <= 15));
 
     if (
-      activePositions.length === 0 &&
       token &&
       !botConfig.dailyLossLocked &&
       isTradingDay &&
@@ -501,8 +597,11 @@ setInterval(async () => {
         }
       } catch {}
 
+      // Strict Capital Separation:
+      // - In UPSTOX_LIVE mode: ONLY use actual cash in Upstox account (liveAvailableMargin). NEVER use dummy/paper cash!
+      // - In PAPER_TRADING mode: Use allocated virtual/dummy capital (maxCapitalPerTrade || 25000).
       const effectiveCapital =
-        botConfig.mode === "UPSTOX_LIVE" && liveAvailableMargin > 0
+        botConfig.mode === "UPSTOX_LIVE"
           ? (botConfig as any).maxCapitalPerTrade > 0
             ? Math.min(liveAvailableMargin, Number((botConfig as any).maxCapitalPerTrade))
             : liveAvailableMargin
@@ -532,10 +631,24 @@ setInterval(async () => {
         const url = `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(idx.key)}/1minute`;
 
         try {
-          const cRes = await fetch(url, {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Api-Version": "2.0" },
-          });
-          const cData = await cRes.json();
+          let cData: any = null;
+          const cachedIntraday = intradayCandleCache[idx.key];
+          if (cachedIntraday && Date.now() - cachedIntraday.timestamp < 8000) {
+            cData = { status: "success", data: { candles: cachedIntraday.raw } };
+          } else {
+            const cRes = await fetch(url, {
+              headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Api-Version": "2.0" },
+            });
+            cData = await cRes.json();
+            if (cData?.status === "success" && cData?.data?.candles?.length > 0) {
+              intradayCandleCache[idx.key] = {
+                timestamp: Date.now(),
+                raw: cData.data.candles,
+              };
+            } else if (cachedIntraday?.raw?.length > 0) {
+              cData = { status: "success", data: { candles: cachedIntraday.raw } };
+            }
+          }
 
           if (cData.status === "success" && cData.data?.candles) {
             let rawCandles = cData.data.candles
@@ -558,21 +671,34 @@ setInterval(async () => {
 
             const enriched = enrichCandlesWithIndicators(rawCandles);
 
-            // Get live quote for this specific index
-            let liveLtp = rawCandles[rawCandles.length - 1].close;
-            const qRes = await fetch(
-              `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(idx.key)}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Accept: "application/json",
-                  "Api-Version": "2.0",
-                },
-              },
-            );
-            const qData = await qRes.json();
-            if (qData?.data?.[idx.key]?.last_price) {
-              liveLtp = qData.data[idx.key].last_price;
+            // Get live quote for this specific index (use globalLiveQuotes first to avoid 429 rate limits)
+            let liveLtp =
+              globalLiveQuotes[idx.key]?.last_price ||
+              rawCandles[rawCandles.length - 1].close;
+            if (!globalLiveQuotes[idx.key]?.last_price) {
+              try {
+                const qRes = await fetch(
+                  `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(idx.key)}`,
+                  {
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      Accept: "application/json",
+                      "Api-Version": "2.0",
+                    },
+                  },
+                );
+                const qData = await qRes.json();
+                if (qData?.data?.[idx.key]?.last_price) {
+                  liveLtp = qData.data[idx.key].last_price;
+                }
+              } catch {}
+            }
+            // Merge liveLtp into the latest candle before running signal analysis so indicators use real-time tick!
+            if (liveLtp > 0 && enriched.length > 0) {
+              const lastC = enriched[enriched.length - 1];
+              lastC.close = liveLtp;
+              if (liveLtp > lastC.high) lastC.high = liveLtp;
+              if (liveLtp < lastC.low) lastC.low = liveLtp;
             }
 
             let signal = analyzeTradingSignals(
@@ -584,6 +710,8 @@ setInterval(async () => {
               botConfig.selectedStrategy as any,
             );
 
+            let verifiedRealOptionStrike = false;
+
             if (
               signal &&
               (signal.signalType === "BUY" || signal.signalType === "SELL")
@@ -591,16 +719,29 @@ setInterval(async () => {
               if (token) {
                 try {
                   const idxKey = idx.key;
-                  const contractRes = await fetch(
-                    `https://api.upstox.com/v2/option/contract?instrument_key=${encodeURIComponent(idxKey)}`,
-                    {
-                      headers: {
-                        Authorization: `Bearer ${token}`,
-                        Accept: "application/json",
+                  let contractData = optionContractCache[idxKey]?.data;
+                  if (
+                    !contractData ||
+                    Date.now() - (optionContractCache[idxKey]?.timestamp || 0) > 60000
+                  ) {
+                    const contractRes = await fetch(
+                      `https://api.upstox.com/v2/option/contract?instrument_key=${encodeURIComponent(idxKey)}`,
+                      {
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                          Accept: "application/json",
+                        },
                       },
-                    },
-                  );
-                  const contractData = await contractRes.json();
+                    );
+                    const cJson = await contractRes.json();
+                    if (cJson?.data?.length > 0) {
+                      contractData = cJson;
+                      optionContractCache[idxKey] = {
+                        timestamp: Date.now(),
+                        data: cJson,
+                      };
+                    }
+                  }
                   if (contractData?.data?.length > 0) {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -637,17 +778,31 @@ setInterval(async () => {
                       lotSizeCache[idx.symbol.toUpperCase()] = entry;
                     }
 
-                    const chainRes = await fetch(
-                      `https://api.upstox.com/v2/option/chain?instrument_key=${encodeURIComponent(idxKey)}&expiry_date=${expiryDate}`,
-                      {
-                        headers: {
-                          Authorization: `Bearer ${token}`,
-                          Accept: "application/json",
-                          "Api-Version": "2.0",
+                    const chainCacheKey = `${idxKey}_${expiryDate}`;
+                    let chainData = optionChainCache[chainCacheKey]?.data;
+                    if (
+                      !chainData ||
+                      Date.now() - (optionChainCache[chainCacheKey]?.timestamp || 0) > 10000
+                    ) {
+                      const chainRes = await fetch(
+                        `https://api.upstox.com/v2/option/chain?instrument_key=${encodeURIComponent(idxKey)}&expiry_date=${expiryDate}`,
+                        {
+                          headers: {
+                            Authorization: `Bearer ${token}`,
+                            Accept: "application/json",
+                            "Api-Version": "2.0",
+                          },
                         },
-                      },
-                    );
-                    const chainData = await chainRes.json();
+                      );
+                      const chJson = await chainRes.json();
+                      if (chJson?.data && Array.isArray(chJson.data)) {
+                        chainData = chJson;
+                        optionChainCache[chainCacheKey] = {
+                          timestamp: Date.now(),
+                          data: chJson,
+                        };
+                      }
+                    }
                     if (chainData?.data && Array.isArray(chainData.data)) {
                       const isBullish = signal.signalType === "BUY";
                       const optType: "CE" | "PE" = isBullish ? "CE" : "PE";
@@ -663,15 +818,54 @@ setInterval(async () => {
                       const chainPcr =
                         totalCallOi > 0 ? Number((totalPutOi / totalCallOi).toFixed(2)) : 1.0;
 
-                      // Sort strikes by proximity to underlying index spot (ATM + nearby ITM/OTM strikes)
-                      const candidateRows = [...chainData.data]
-                        .filter((r: any) => Number(r.strike_price) > 0)
+                      // Sort strikes by proximity to underlying index spot, PLUS include affordable strikes that fit the user's exact Upstox account balance
+                      const allValidRows = [...chainData.data].filter(
+                        (r: any) => Number(r.strike_price) > 0,
+                      );
+                      const nearAtmRows = [...allValidRows]
                         .sort(
                           (a: any, b: any) =>
                             Math.abs(Number(a.strike_price) - liveLtp) -
                             Math.abs(Number(b.strike_price) - liveLtp),
                         )
-                        .slice(0, 7);
+                        .slice(0, 12);
+
+                      // Also find any liquid strikes across the chain that strictly fit effectiveCapital INCLUDING Brokerage & Taxes
+                      const affordableRows =
+                        effectiveCapital > 0
+                          ? allValidRows
+                              .filter((r: any) => {
+                                const optObj = isBullish ? r.call_options : r.put_options;
+                                const ltp = Number(optObj?.market_data?.ltp || 0);
+                                const absDelta = Math.abs(
+                                  Number(optObj?.option_greeks?.delta ?? 0.35),
+                                );
+                                const charges = calculateTradeCharges(
+                                  ltp,
+                                  lotSz,
+                                  true,
+                                  ltp * 1.27,
+                                );
+                                return (
+                                  ltp >= 5 &&
+                                  charges.totalRequiredWithBrokerage <= effectiveCapital &&
+                                  absDelta >= 0.18
+                                );
+                              })
+                              .sort((a: any, b: any) => {
+                                const optA = isBullish ? a.call_options : a.put_options;
+                                const optB = isBullish ? b.call_options : b.put_options;
+                                return (
+                                  Number(optB?.market_data?.ltp || 0) -
+                                  Number(optA?.market_data?.ltp || 0)
+                                );
+                              })
+                              .slice(0, 6)
+                          : [];
+
+                      const candidateRows = Array.from(
+                        new Set([...nearAtmRows, ...affordableRows]),
+                      );
 
                       let bestCandidate: any = null;
                       let bestScore = -9999;
@@ -688,27 +882,62 @@ setInterval(async () => {
                         const iv = Number(optObj?.option_greeks?.iv || 15);
                         const oi = Number(optObj?.market_data?.oi || 0);
                         const volume = Number(optObj?.market_data?.volume || 0);
-                        const oneLotCost = Number((ltp * lotSz).toFixed(2));
+                        const closePrice = Number(optObj?.market_data?.close_price || 0);
+                        const bidPrice = Number(optObj?.market_data?.bid_price || ltp);
+                        const askPrice = Number(optObj?.market_data?.ask_price || ltp);
+                        const bidAskSpreadPct =
+                          ltp > 0 ? ((askPrice - bidPrice) / ltp) * 100 : 0;
+
+                        // Skip illiquid strikes or strikes with wide bid-ask spreads (> 1.5%) where entry immediately loses to spread!
+                        if (volume < 2000 && oi < 10000) continue;
+                        if (bidAskSpreadPct > 1.5) continue;
+                        const strikeCharges = calculateTradeCharges(
+                          ltp,
+                          lotSz,
+                          true,
+                          ltp * 1.27,
+                        );
+                        const oneLotCost = strikeCharges.tradeValue;
+                        const estimatedBrokerage = strikeCharges.roundTripCharges;
+                        const totalRequiredWithBrokerage =
+                          strikeCharges.totalRequiredWithBrokerage;
+                        const expectedNetProfit = Number(
+                          (ltp * 0.27 * lotSz - estimatedBrokerage).toFixed(2),
+                        );
+
                         const fitsCapital =
-                          effectiveCapital <= 0 || oneLotCost <= effectiveCapital;
+                          botConfig.mode === "UPSTOX_LIVE"
+                            ? effectiveCapital > 0 &&
+                              totalRequiredWithBrokerage <= effectiveCapital
+                            : effectiveCapital <= 0 ||
+                              totalRequiredWithBrokerage <= effectiveCapital;
 
-                        // Score strike on profitability (Delta 0.45-0.70 sweet spot, high liquidity, controlled IV) AND capital affordability
+                        // Score strike on Net Profitability after Brokerage + Delta sweet spot + strict account balance affordability (incl. brokerage)
                         let score = 0;
-                        if (fitsCapital) score += 100; // Prioritize strikes that user's account balance can actually afford!
-                        else score -= 50;
+                        if (fitsCapital) score += 250; // Strictly prioritize strikes where (Premium + Brokerage) fits real account cash!
+                        else score -= 150;
 
-                        if (absDelta >= 0.45 && absDelta <= 0.72) score += 45;
-                        else if (absDelta >= 0.32 && absDelta < 0.45) score += 25;
-                        else if (absDelta < 0.22) score -= 40; // Avoid deep OTM Theta traps
+                        if (expectedNetProfit >= (botConfig.minOptionProfitAmount || 300)) {
+                          score += 35; // High net profit after deducting full round-trip brokerage & taxes
+                        } else if (expectedNetProfit < 120) {
+                          score -= 75; // Avoid tiny strikes where brokerage eats most of the profit
+                        }
+
+                        if (absDelta >= 0.45 && absDelta <= 0.72) score += 55;
+                        else if (absDelta >= 0.30 && absDelta < 0.45) score += 40; // High-momentum affordable slightly OTM
+                        else if (absDelta >= 0.20 && absDelta < 0.30) score += 20; // Affordable momentum OTM for smaller accounts
+                        else if (absDelta < 0.18) score -= 60; // Avoid deep OTM Theta traps
 
                         if (iv > 8 && iv <= 35) score += 15;
                         else if (iv > 45) score -= 20;
 
                         if (volume > 10000 || oi > 50000) score += 15;
+                        // Bonus for option contract whose premium is actively rising above its previous close / intraday momentum
+                        if (closePrice > 0 && ltp > closePrice) score += 25;
 
                         const distRatio =
                           Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1);
-                        score -= distRatio * 800; // Prefer closer to ATM
+                        score -= distRatio * 600; // Prefer closer to ATM among affordable strikes
 
                         if (score > bestScore) {
                           bestScore = score;
@@ -721,6 +950,9 @@ setInterval(async () => {
                             volume,
                             instrumentKey: optObj?.instrument_key,
                             oneLotCost,
+                            estimatedBrokerage,
+                            totalRequiredWithBrokerage,
+                            expectedNetProfit,
                             fitsCapital,
                           };
                         }
@@ -738,12 +970,16 @@ setInterval(async () => {
                         else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
 
                         const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
-                        const affordableLots =
-                          effectiveCapital > 0 && bestCandidate.oneLotCost > 0
-                            ? Math.floor(effectiveCapital / bestCandidate.oneLotCost)
-                            : 1;
+                        const lotAffordability = calculateAffordableLotsWithBrokerage(
+                          bestCandidate.ltp,
+                          lotSz,
+                          effectiveCapital,
+                          true,
+                          5,
+                        );
+                        const affordableLots = lotAffordability.affordableLots;
 
-                        // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, and Capital fit
+                        // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, and Capital + Brokerage fit
                         signal = analyzeTradingSignals(
                           idx.symbol,
                           idx.symbol,
@@ -766,6 +1002,10 @@ setInterval(async () => {
                             pcr: chainPcr,
                             instrumentKey: bestCandidate.instrumentKey,
                             requiredCapital: bestCandidate.oneLotCost,
+                            estimatedBrokerage: bestCandidate.estimatedBrokerage,
+                            totalRequiredWithBrokerage:
+                              bestCandidate.totalRequiredWithBrokerage,
+                            expectedNetProfit: bestCandidate.expectedNetProfit,
                             affordableLots,
                             availableCapital: effectiveCapital,
                           },
@@ -773,6 +1013,7 @@ setInterval(async () => {
 
                         if (signal && bestCandidate.instrumentKey) {
                           signal.instrumentKey = bestCandidate.instrumentKey;
+                          verifiedRealOptionStrike = true;
                           if (lotSz > 0) {
                             lotSizeCache[bestCandidate.instrumentKey] = {
                               lotSize: lotSz,
@@ -806,7 +1047,11 @@ setInterval(async () => {
             }
 
             if (
+              activePositions.length === 0 &&
+              verifiedRealOptionStrike &&
               signal &&
+              signal.instrumentKey &&
+              !String(signal.instrumentKey).includes("INDEX") &&
               (signal.signalType === "BUY" || signal.signalType === "SELL") &&
               signal.confidenceScore >= botConfig.minConfidence
             ) {
@@ -817,81 +1062,132 @@ setInterval(async () => {
               const optInstrumentKey =
                 signal.instrumentKey || signal.underlyingInstrumentKey || "NSE_FO|" + optionSymbol;
               const lotSize = await getDynamicLotSize(optionSymbol, token, optInstrumentKey);
-              const oneLotCost = Number((optionPrice * lotSize).toFixed(2));
+              const oneLotCharges = calculateTradeCharges(
+                optionPrice,
+                lotSize,
+                true,
+                signal.target1 || optionPrice * 1.25,
+              );
+              const oneLotCost = oneLotCharges.tradeValue;
+              const oneLotBrokerage = oneLotCharges.roundTripCharges;
+              const oneLotTotalWithBrokerage =
+                oneLotCharges.totalRequiredWithBrokerage;
 
-              // Capital & Margin Guard: Ensure account has sufficient balance for at least 1 Lot before buying
-              if (
-                botConfig.mode === "UPSTOX_LIVE" &&
-                liveAvailableMargin > 0 &&
-                oneLotCost > liveAvailableMargin
-              ) {
-                const warnMsg = `[CAPITAL GUARD] Skipping ${optionSymbol}: 1 Lot (${lotSize} Qty @ ₹${optionPrice}) requires ₹${oneLotCost.toLocaleString("en-IN")}, which exceeds available Upstox balance ₹${liveAvailableMargin.toLocaleString("en-IN")}. Checking next index for an affordable trade...`;
-                if (!botLogs.some((l) => l.message === warnMsg)) {
-                  botLogs.unshift({
-                    id: Date.now().toString(),
-                    time: new Date().toLocaleTimeString(),
-                    message: warnMsg,
-                    type: "INFO",
-                  });
-                  if (botLogs.length > 200) botLogs.length = 200;
+              // Strict Capital, Margin & Brokerage Guard in UPSTOX_LIVE mode:
+              // NEVER use dummy cash in UPSTOX_LIVE mode! Only execute if real Upstox account cash >= (1 Lot Premium + Full Brokerage & Statutory Taxes).
+              if (botConfig.mode === "UPSTOX_LIVE") {
+                if (
+                  liveAvailableMargin <= 0 ||
+                  oneLotTotalWithBrokerage > liveAvailableMargin
+                ) {
+                  const warnMsg = `[LIVE CAPITAL & BROKERAGE GUARD] Cannot buy ${optionSymbol} in UPSTOX_LIVE mode: 1 Lot (${lotSize} Qty @ ₹${optionPrice}) requires ₹${oneLotTotalWithBrokerage.toLocaleString("en-IN")} (Premium ₹${oneLotCost.toLocaleString("en-IN")} + Brokerage & Taxes ₹${oneLotBrokerage.toFixed(2)}), but your Upstox Available Cash is ₹${liveAvailableMargin.toLocaleString("en-IN")}. Dummy cash is strictly disabled in Live mode.`;
+                  const existingIdx = botLogs.findIndex((l) =>
+                    l.message.includes(`Cannot buy ${optionSymbol} in UPSTOX_LIVE mode`),
+                  );
+                  if (existingIdx === -1) {
+                    botLogs.unshift({
+                      id: Date.now().toString(),
+                      time: new Date().toLocaleTimeString(),
+                      message: warnMsg,
+                      type: "ERROR",
+                    });
+                    if (botLogs.length > 200) botLogs.length = 200;
+                  } else {
+                    botLogs[existingIdx].message = warnMsg;
+                    botLogs[existingIdx].time = new Date().toLocaleTimeString();
+                  }
+                  continue; // Check next index for a lower-cost option lot (including brokerage) that fits real Upstox cash
                 }
-                continue; // Check next index (e.g. NIFTY / FINNIFTY / MIDCPNIFTY) that fits available balance!
               }
 
-              // Calculate optimal lot count based on available capital and maxCapitalPerTrade
+              // Calculate optimal lot count strictly within available capital AFTER including full brokerage & taxes
+              const lotCalc = calculateAffordableLotsWithBrokerage(
+                optionPrice,
+                lotSize,
+                effectiveCapital,
+                true,
+                5,
+              );
               let affordableLots =
-                effectiveCapital > 0 && oneLotCost > 0
-                  ? Math.max(1, Math.floor(effectiveCapital / oneLotCost))
-                  : 1;
-              // Cap auto-lot scaling to at most 5 lots per single entry unless user configured higher
-              affordableLots = Math.min(affordableLots, 5);
+                lotCalc.affordableLots > 0
+                  ? lotCalc.affordableLots
+                  : botConfig.mode === "PAPER_TRADING"
+                    ? 1
+                    : 0;
+              if (botConfig.mode === "UPSTOX_LIVE" && affordableLots < 1) {
+                continue;
+              }
+              affordableLots = Math.min(Math.max(1, affordableLots), 5);
               const targetQuantity = affordableLots * lotSize;
-              const totalTradeCost = Number((targetQuantity * optionPrice).toFixed(2));
-
-              botLogs.unshift({
-                id: Date.now().toString(),
-                time: new Date().toLocaleTimeString(),
-                message: `Signal Confirmed (${signal.confidenceScore}%): Buying ${optionSymbol} [${affordableLots} Lot = ${targetQuantity} Qty @ ₹${optionPrice} | Capital Used: ₹${totalTradeCost.toLocaleString("en-IN")}].`,
-                type: "TRADE",
-              });
-              if (botLogs.length > 200) botLogs.length = 200;
-
-              // Send Telegram trade entry alert
-              sendTelegramNotification(
-                `🟢 <b>ALGO BOT ENTRY TRIGGERED</b>\n\n` +
-                `📊 <b>Option Contract:</b> <code>${optionSymbol}</code>\n` +
-                `🎯 <b>Direction:</b> ${isBullish ? 'CE (Bullish Call Buy)' : 'PE (Bearish Put Buy)'}\n` +
-                `📦 <b>Quantity:</b> ${targetQuantity} Qty (${affordableLots} Lot × ${lotSize})\n` +
-                `💰 <b>Option Premium:</b> ₹${optionPrice} (Total: ₹${totalTradeCost.toLocaleString("en-IN")})\n` +
-                `⚡ <b>Strategy:</b> ${botConfig.selectedStrategy}\n` +
-                `🛡️ <b>Mode:</b> ${botConfig.mode}\n` +
-                `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
-              ).catch(() => {});
+              const multiLotCharges = calculateTradeCharges(
+                optionPrice,
+                targetQuantity,
+                true,
+                signal.target1 || optionPrice * 1.25,
+              );
+              const totalTradeCost = multiLotCharges.tradeValue;
+              const totalTradeBrokerage = multiLotCharges.roundTripCharges;
+              const totalRequiredCashWithBrokerage =
+                multiLotCharges.totalRequiredWithBrokerage;
 
               if (botConfig.mode === "PAPER_TRADING") {
+                botLogs.unshift({
+                  id: Date.now().toString(),
+                  time: new Date().toLocaleTimeString(),
+                  message: `[PAPER MODE] Signal Confirmed (${signal.confidenceScore}%): Buying ${optionSymbol} [${affordableLots} Lot = ${targetQuantity} Qty @ ₹${optionPrice} | Premium: ₹${totalTradeCost.toLocaleString("en-IN")} + Est. Brokerage: ₹${totalTradeBrokerage.toFixed(2)} = Total: ₹${totalRequiredCashWithBrokerage.toLocaleString("en-IN")}].`,
+                  type: "TRADE",
+                });
+                if (botLogs.length > 200) botLogs.length = 200;
+
                 paperOrders.unshift({
                   id: "ORD" + Date.now(),
+                  orderId: "PAP_" + Date.now().toString().slice(-6),
                   symbol: optionSymbol,
+                  instrumentKey: optInstrumentKey,
+                  transactionType: "BUY",
                   type: "BUY",
+                  orderType: "MARKET",
+                  productType: "INTRADAY",
                   quantity: targetQuantity,
                   price: optionPrice,
+                  executedPrice: optionPrice,
                   status: "COMPLETE",
+                  timestamp: new Date().toLocaleTimeString("en-IN"),
                   time: new Date().toISOString(),
+                  mode: "PAPER_TRADING",
                 });
                 paperPositions.push({
                   id: "POS" + Date.now(),
                   symbol: optionSymbol,
                   instrumentKey: optInstrumentKey,
+                  productType: "INTRADAY",
                   quantity: targetQuantity,
                   buyPrice: optionPrice,
                   currentLTP: optionPrice,
                   pnl: 0,
+                  pnlPercent: 0,
+                  stopLoss: signal.stopLoss,
+                  target: signal.target1,
                   type: "BUY",
+                  mode: "PAPER_TRADING",
+                  openedAt: new Date().toLocaleTimeString("en-IN"),
                   isOption: true,
                 });
+                savePostgresDb().catch(() => {});
+
+                sendTelegramNotification(
+                  `🟢 <b>PAPER BOT ENTRY TRIGGERED</b>\n\n` +
+                  `📊 <b>Option Contract:</b> <code>${optionSymbol}</code>\n` +
+                  `🎯 <b>Direction:</b> ${isBullish ? 'CE (Bullish Call Buy)' : 'PE (Bearish Put Buy)'}\n` +
+                  `📦 <b>Quantity:</b> ${targetQuantity} Qty (${affordableLots} Lot × ${lotSize})\n` +
+                  `💰 <b>Option Premium:</b> ₹${optionPrice} (Virtual Capital: ₹${totalTradeCost.toLocaleString("en-IN")})\n` +
+                  `⚡ <b>Strategy:</b> ${botConfig.selectedStrategy}\n` +
+                  `🛡️ <b>Mode:</b> PAPER_TRADING\n` +
+                  `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+                ).catch(() => {});
               } else if (botConfig.mode === "UPSTOX_LIVE" && token) {
                 try {
-                  await fetch("https://api.upstox.com/v2/order/place", {
+                  const orderRes = await fetch("https://api.upstox.com/v2/order/place", {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
@@ -913,8 +1209,44 @@ setInterval(async () => {
                       is_amo: false,
                     }),
                   });
-                } catch (err) {
-                  console.error("Error placing auto buy order:", err);
+                  const orderJson = await orderRes.json().catch(() => null);
+                  if (orderJson?.status === "success") {
+                    botLogs.unshift({
+                      id: Date.now().toString(),
+                      time: new Date().toLocaleTimeString(),
+                      message: `[UPSTOX LIVE] Order Executed (${signal.confidenceScore}%): Bought ${optionSymbol} [${affordableLots} Lot = ${targetQuantity} Qty @ ₹${optionPrice} | Premium: ₹${totalTradeCost.toLocaleString("en-IN")} + Brokerage & Taxes: ₹${totalTradeBrokerage.toFixed(2)} = Total Cash Used: ₹${totalRequiredCashWithBrokerage.toLocaleString("en-IN")}].`,
+                      type: "TRADE",
+                    });
+                    if (botLogs.length > 200) botLogs.length = 200;
+
+                    sendTelegramNotification(
+                      `🟢 <b>UPSTOX LIVE ENTRY EXECUTED</b>\n\n` +
+                      `📊 <b>Option Contract:</b> <code>${optionSymbol}</code>\n` +
+                      `🎯 <b>Direction:</b> ${isBullish ? 'CE (Bullish Call Buy)' : 'PE (Bearish Put Buy)'}\n` +
+                      `📦 <b>Quantity:</b> ${targetQuantity} Qty (${affordableLots} Lot × ${lotSize})\n` +
+                      `💰 <b>Premium:</b> ₹${optionPrice} (₹${totalTradeCost.toLocaleString("en-IN")})\n` +
+                      `🧾 <b>Est. Brokerage & Taxes:</b> ₹${totalTradeBrokerage.toFixed(2)}\n` +
+                      `💳 <b>Total Cash Used:</b> ₹${totalRequiredCashWithBrokerage.toLocaleString("en-IN")}\n` +
+                      `⚡ <b>Strategy:</b> ${botConfig.selectedStrategy}\n` +
+                      `🛡️ <b>Mode:</b> UPSTOX_LIVE\n` +
+                      `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
+                    ).catch(() => {});
+                  } else {
+                    const errCode = orderJson?.errors?.[0]?.errorCode || orderJson?.errors?.[0]?.error_code || "";
+                    const errMsg = orderJson?.errors?.[0]?.message || "Upstox Live Order Rejected";
+                    const liveErrText = `[UPSTOX LIVE ORDER REJECTED] (${errCode || "API"}): ${errMsg} for ${optionSymbol}. Live mode never uses dummy cash.`;
+                    if (!botLogs.some((l) => l.message === liveErrText)) {
+                      botLogs.unshift({
+                        id: Date.now().toString(),
+                        time: new Date().toLocaleTimeString(),
+                        message: liveErrText,
+                        type: "ERROR",
+                      });
+                      if (botLogs.length > 200) botLogs.length = 200;
+                    }
+                  }
+                } catch (err: any) {
+                  console.error("Error placing live auto buy order:", err);
                 }
               }
               break; // Prevent taking multiple trades across different indices in the same tick
@@ -1450,7 +1782,23 @@ async function syncTokenFromRenderWebhookBridge() {
   return false;
 }
 
+let cachedOutboundServerIp = "";
+fetch("https://api.ipify.org")
+  .then((r) => r.text())
+  .then((ip) => {
+    if (ip && ip.trim().length <= 45) cachedOutboundServerIp = ip.trim();
+  })
+  .catch(() => {});
+
 app.get("/api/market/config", async (req: Request, res: Response) => {
+  if (!cachedOutboundServerIp) {
+    fetch("https://api.ipify.org")
+      .then((r) => r.text())
+      .then((ip) => {
+        if (ip && ip.trim().length <= 45) cachedOutboundServerIp = ip.trim();
+      })
+      .catch(() => {});
+  }
   if (upstoxConfig.accessToken && invalidTokens.has(upstoxConfig.accessToken)) {
     upstoxConfig.accessToken = "";
   }
@@ -1553,6 +1901,7 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     holdingsCount,
     mobile: upstoxConfig.mobile || "9847989434",
     pin: upstoxConfig.pin || "984798",
+    serverOutboundIp: cachedOutboundServerIp || "34.34.254.223",
     publicWebhookRelayUrl: PUBLIC_WEBHOOK_RELAY_URL,
     lastWebhookDiagnostic,
   });
@@ -2736,21 +3085,27 @@ app.get("/api/market/positions", async (req: Request, res: Response) => {
     const data = await response.json();
     if (data.status === "success" && data.data) {
       return res.json(
-        data.data.map((p: any) => ({
-          id: p.trading_symbol || p.instrument_token,
-          symbol: p.trading_symbol || p.instrument_token,
-          instrumentKey: p.instrument_token,
-          productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
-          quantity: p.quantity || p.net_quantity,
-          buyPrice: p.average_price || p.buy_amount / (p.buy_quantity || 1),
-          currentLTP: p.last_price || p.average_price,
-          pnl: p.pnl || p.m2m,
-          pnlPercent: p.average_price
-            ? ((p.last_price - p.average_price) / p.average_price) * 100
-            : 0,
-          mode: "UPSTOX_LIVE",
-          openedAt: new Date().toLocaleTimeString("en-IN"),
-        })),
+        data.data
+          .filter((p: any) => Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)) > 0)
+          .map((p: any) => ({
+            id: p.trading_symbol || p.instrument_token,
+            symbol: p.trading_symbol || p.instrument_token,
+            instrumentKey: p.instrument_token,
+            productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
+            quantity: Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)),
+            type: Number(p.quantity ?? p.net_quantity ?? 0) < 0 ? "SELL" : "BUY",
+            buyPrice: p.average_price || p.buy_amount / (p.buy_quantity || 1),
+            currentLTP: p.last_price || p.average_price,
+            pnl: p.pnl || p.m2m || 0,
+            pnlPercent: p.average_price
+              ? ((p.last_price - p.average_price) / p.average_price) * 100
+              : 0,
+            mode: "UPSTOX_LIVE",
+            isOption:
+              /\b(CE|PE)\b/i.test(p.trading_symbol || "") ||
+              String(p.instrument_token || "").includes("FO"),
+            openedAt: new Date().toLocaleTimeString("en-IN"),
+          })),
       );
     }
     return res.json([]);
@@ -2836,8 +3191,18 @@ app.get("/api/market/brokerage", async (req: Request, res: Response) => {
 
   if (token && token.trim() !== "") {
     try {
+      const rawProduct = String(product || "I").toUpperCase().trim();
+      const upstoxProduct =
+        rawProduct === "INTRADAY" || rawProduct === "MIS" || rawProduct === "I"
+          ? "I"
+          : rawProduct === "DELIVERY" || rawProduct === "CNC" || rawProduct === "NRML" || rawProduct === "D"
+            ? "D"
+            : "I";
+      const upstoxTxType = String(transactionType || "BUY").toUpperCase().trim() === "SELL" ? "SELL" : "BUY";
+      const canonicalInstToken = getInstrumentKey(String(instrumentToken));
+
       const response = await fetch(
-        `https://api.upstox.com/v2/charges/brokerage?instrument_token=${encodeURIComponent(instrumentToken as string)}&quantity=${quantity}&product=${product}&transaction_type=${transactionType}&price=${price}`,
+        `https://api.upstox.com/v2/charges/brokerage?instrument_token=${encodeURIComponent(canonicalInstToken)}&quantity=${quantity}&product=${upstoxProduct}&transaction_type=${upstoxTxType}&price=${price}`,
         {
           method: "GET",
           headers: {
@@ -2851,13 +3216,9 @@ app.get("/api/market/brokerage", async (req: Request, res: Response) => {
       if (response.ok) {
         const data = await response.json();
         return res.json(data);
-      } else {
-        const err = await response.text();
-        if (!err.includes("Invalid Instrument key"))
-          console.error("Upstox Brokerage API failed:", err);
       }
     } catch (err) {
-      console.error("Error fetching from upstox:", err);
+      // Fallback to local SEBI/Upstox charge calculation below
     }
   }
 
@@ -2914,12 +3275,113 @@ app.get("/api/market/brokerage", async (req: Request, res: Response) => {
   });
 });
 
-app.get("/api/market/quotes", async (req: Request, res: Response) => {
-  const token =
-    req.headers.authorization?.replace("Bearer ", "") ||
-    upstoxConfig.accessToken;
+let lastQuotesCache: { timestamp: number; data: any; quotes: any[] } = {
+  timestamp: 0,
+  data: {},
+  quotes: [],
+};
+let isFetchingCentralQuotes = false;
+const intradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
 
-  // Default index symbols + subscribed keys
+function formatUpstoxQuotesToStandardList(upstoxData: any) {
+  const list: any[] = [];
+  for (const [key, val] of Object.entries(upstoxData || {})) {
+    const v = val as any;
+    if (!v) continue;
+    const parts = key.split(/[:|]/);
+    let symbolDisplay = (
+      v.symbol && v.symbol !== "NA" ? v.symbol : parts.length > 1 ? parts[1] : key
+    ).toUpperCase();
+    const canonicalInstrumentKey = getInstrumentKey(
+      v.instrument_token || key || symbolDisplay,
+    );
+    // Standardize index display names so NIFTY 50, BANKNIFTY, FINNIFTY, SENSEX, BANKEX match watchlist & charts seamlessly
+    if (canonicalInstrumentKey === "NSE_INDEX|Nifty 50") symbolDisplay = "NIFTY 50";
+    else if (canonicalInstrumentKey === "NSE_INDEX|Nifty Bank") symbolDisplay = "BANKNIFTY";
+    else if (canonicalInstrumentKey === "NSE_INDEX|Nifty Fin Service") symbolDisplay = "FINNIFTY";
+    else if (canonicalInstrumentKey === "BSE_INDEX|SENSEX") symbolDisplay = "SENSEX";
+    else if (canonicalInstrumentKey === "BSE_INDEX|BANKEX") symbolDisplay = "BANKEX";
+    else if (canonicalInstrumentKey === "NSE_INDEX|NIFTY MID SELECT") symbolDisplay = "MIDCPNIFTY";
+
+    const segment = key.includes("INDEX")
+      ? "INDEX"
+      : key.includes("FO")
+        ? "OPTIONS"
+        : "EQUITY";
+    const ltp = Number(v.last_price || 0);
+    const netChange =
+      v.net_change !== undefined && v.net_change !== null
+        ? Number(v.net_change)
+        : v.ohlc?.close && v.ohlc.close !== ltp
+          ? Number((ltp - Number(v.ohlc.close)).toFixed(2))
+          : 0;
+    const prevClose =
+      netChange !== 0
+        ? Number((ltp - netChange).toFixed(2))
+        : Number(v.ohlc?.close || v.close || ltp);
+    const changePercent =
+      prevClose > 0
+        ? Number(((netChange / prevClose) * 100).toFixed(2))
+        : 0;
+
+    if (ltp > 0) {
+      globalLiveQuotes[canonicalInstrumentKey] = {
+        last_price: ltp,
+        net_change: netChange,
+        changePercent,
+      };
+      globalLiveQuotes[key] = {
+        last_price: ltp,
+        net_change: netChange,
+        changePercent,
+      };
+      globalLiveQuotes["last_update"] = new Date().toISOString();
+    }
+    list.push({
+      symbol: symbolDisplay,
+      name: symbolDisplay,
+      exchange: key.startsWith("BSE") ? "BSE" : "NSE",
+      segment,
+      instrumentKey: canonicalInstrumentKey,
+      ltp,
+      change: Number(netChange.toFixed(2)),
+      changePercent,
+      volume: Number(v.volume || 0),
+      open: Number(v.ohlc?.open || v.open || ltp),
+      high: Number(v.ohlc?.high || v.high || ltp),
+      low: Number(v.ohlc?.low || v.low || ltp),
+      close: prevClose,
+    });
+  }
+  // Update paperPositions in-memory on every tick so P&L and P&L% are always live!
+  if (paperPositions.length > 0) {
+    paperPositions.forEach((pos: any) => {
+      const match = list.find(
+        (q) => q.instrumentKey === pos.instrumentKey || q.symbol === pos.symbol,
+      );
+      if (match && match.ltp > 0) {
+        if (!(pos.isOption && match.ltp > pos.buyPrice * 50)) {
+          pos.currentLTP = match.ltp;
+          pos.pnl = Number(((match.ltp - pos.buyPrice) * (pos.quantity || 1)).toFixed(2));
+          pos.pnlPercent =
+            pos.buyPrice > 0
+              ? Number((((match.ltp - pos.buyPrice) / pos.buyPrice) * 100).toFixed(2))
+              : 0;
+        }
+      }
+    });
+  }
+  return list;
+}
+
+async function refreshCentralUpstoxQuotes(tokenOverride?: string, customSymbols?: string) {
+  const token = tokenOverride || upstoxConfig.accessToken;
+  if (!token || invalidTokens.has(token)) return lastQuotesCache;
+
+  if (!customSymbols && isFetchingCentralQuotes && lastQuotesCache.quotes.length > 0) {
+    return lastQuotesCache;
+  }
+
   const keysArray = Array.from(subscribedKeys);
   const defaultKeys = [
     "NSE_INDEX|Nifty 50",
@@ -2945,52 +3407,14 @@ app.get("/api/market/quotes", async (req: Request, res: Response) => {
   defaultKeys.forEach((k) => {
     if (!keysArray.includes(k)) keysArray.push(k);
   });
-
-  let symbols = keysArray.join(",");
-  if (req.query.symbols as string) {
-    symbols = req.query.symbols as string;
-  }
-
-  const formatDataToQuotesList = (upstoxData: any) => {
-    const list = [];
-    for (const [key, val] of Object.entries(upstoxData || {})) {
-      const v = val as any;
-      const parts = key.split(/[:|]/);
-      const symbolDisplay = (parts.length > 1 ? parts[1] : key).toUpperCase();
-      const canonicalInstrumentKey = getInstrumentKey(v.instrument_token || key || symbolDisplay);
-      const segment = key.includes("INDEX")
-        ? "INDEX"
-        : key.includes("FO")
-          ? "OPTIONS"
-          : "EQUITY";
-      list.push({
-        symbol: symbolDisplay,
-        name: symbolDisplay,
-        exchange: key.startsWith("BSE") ? "BSE" : "NSE",
-        segment,
-        instrumentKey: canonicalInstrumentKey,
-        ltp: v.last_price || 0,
-        change: v.net_change || 0,
-        changePercent: v.last_price
-          ? Number(
-              ((v.net_change / (v.last_price - v.net_change)) * 100).toFixed(2),
-            )
-          : 0,
-        volume: v.volume || 0,
-        open: v.open || 0,
-        high: v.ohlc?.high || v.high || 0,
-        low: v.ohlc?.low || v.low || 0,
-        close: v.ohlc?.close || v.close || v.last_price - v.net_change,
-      });
+  paperPositions.forEach((p: any) => {
+    if (p.instrumentKey && !keysArray.includes(p.instrumentKey)) {
+      keysArray.push(p.instrumentKey);
     }
-    return list;
-  };
+  });
 
-  if (!token) {
-    return res
-      .status(401)
-      .json({ status: "error", error: "Upstox login required for live data" });
-  }
+  const symbols = customSymbols || keysArray.join(",");
+  if (!customSymbols) isFetchingCentralQuotes = true;
 
   try {
     const response = await fetch(
@@ -2999,20 +3423,53 @@ app.get("/api/market/quotes", async (req: Request, res: Response) => {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
+          "Api-Version": "2.0",
         },
       },
     );
-
-    if (!response.ok) {
-      return res
-        .status(response.status)
-        .json({ error: "Failed to fetch quotes" });
+    if (response.ok) {
+      const data = await response.json();
+      if (data?.status === "success" && data?.data) {
+        const formattedQuotes = formatUpstoxQuotesToStandardList(data.data);
+        if (formattedQuotes.length > 0 && !customSymbols) {
+          lastQuotesCache = {
+            timestamp: Date.now(),
+            data: data.data,
+            quotes: formattedQuotes,
+          };
+        }
+        return { timestamp: Date.now(), data: data.data, quotes: formattedQuotes };
+      }
     }
-    const data = await response.json();
-    return res.json({ ...data, quotes: formatDataToQuotesList(data?.data) });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    // Return cached quotes on network/rate-limit hiccup
+  } finally {
+    if (!customSymbols) isFetchingCentralQuotes = false;
   }
+  return lastQuotesCache;
+}
+
+app.get("/api/market/quotes", async (req: Request, res: Response) => {
+  const token =
+    req.headers.authorization?.replace("Bearer ", "") ||
+    upstoxConfig.accessToken;
+
+  if (!token) {
+    return res
+      .status(401)
+      .json({ status: "error", error: "Upstox login required for live data" });
+  }
+
+  const customSymbols = req.query.symbols as string | undefined;
+  if (!customSymbols && lastQuotesCache.quotes.length > 0 && Date.now() - lastQuotesCache.timestamp < 1000) {
+    return res.json({ status: "success", data: lastQuotesCache.data, quotes: lastQuotesCache.quotes });
+  }
+
+  const result = await refreshCentralUpstoxQuotes(token, customSymbols);
+  if (result.quotes.length > 0) {
+    return res.json({ status: "success", data: result.data, quotes: result.quotes });
+  }
+  return res.status(503).json({ error: "Waiting for Upstox live quote tick" });
 });
 
 // 5. Historical & Intraday Candles
@@ -3050,14 +3507,28 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
       url = `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(instrumentKey)}/1minute`;
     }
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        "Api-Version": "2.0",
-      },
-    });
-    const data = await response.json();
+    let data: any = { status: "error" };
+    const cachedIntraday = intradayCandleCache[instrumentKey];
+    if (normInterval !== "1d" && cachedIntraday && Date.now() - cachedIntraday.timestamp < 5000) {
+      data = { status: "success", data: { candles: cachedIntraday.raw } };
+    } else {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+          "Api-Version": "2.0",
+        },
+      });
+      data = await response.json();
+      if (normInterval !== "1d" && data?.status === "success" && data?.data?.candles?.length > 0) {
+        intradayCandleCache[instrumentKey] = {
+          timestamp: Date.now(),
+          raw: data.data.candles,
+        };
+      } else if (normInterval !== "1d" && cachedIntraday?.raw?.length > 0) {
+        data = { status: "success", data: { candles: cachedIntraday.raw } };
+      }
+    }
 
     // If intraday returned no candles (e.g., market is closed, weekend, or holiday), fetch recent 1-minute historical candles from Upstox
     if (!data?.data?.candles || data.data.candles.length === 0) {
@@ -3133,7 +3604,42 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
         candles = aggregateCandles(rawCandles, 60 * 60 * 1000);
       }
 
-      return res.json({ success: true, symbol, instrumentKey, interval, candles });
+      // Merge real-time quote LTP into the latest candle so index & stock charts update live on every tick!
+      let liveTickPrice = globalLiveQuotes[instrumentKey]?.last_price || 0;
+      if (!liveTickPrice && token) {
+        try {
+          const lqRes = await fetch(
+            `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(instrumentKey)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json",
+                "Api-Version": "2.0",
+              },
+            },
+          );
+          if (lqRes.ok) {
+            const lqJson = await lqRes.json();
+            const firstQuote: any = Object.values(lqJson?.data || {})[0];
+            if (firstQuote?.last_price) {
+              liveTickPrice = Number(firstQuote.last_price);
+              globalLiveQuotes[instrumentKey] = { last_price: liveTickPrice };
+            }
+          }
+        } catch {}
+      }
+
+      if (liveTickPrice > 0 && candles.length > 0) {
+        const lastC = candles[candles.length - 1];
+        const diffRatio = Math.abs(liveTickPrice - lastC.close) / (lastC.close || 1);
+        if (diffRatio <= 0.15) {
+          lastC.close = liveTickPrice;
+          if (liveTickPrice > lastC.high) lastC.high = liveTickPrice;
+          if (liveTickPrice < lastC.low) lastC.low = liveTickPrice;
+        }
+      }
+
+      return res.json({ success: true, symbol, instrumentKey, interval, candles, liveLtp: liveTickPrice });
     }
     return res.json({
       success: false,
@@ -3322,19 +3828,35 @@ app.get("/api/market/optionchain", async (req: Request, res: Response) => {
       const pcr =
         totalCallOI > 0 ? Number((totalPutOI / totalCallOI).toFixed(2)) : 1;
 
+      const underlyingSpot = Number(
+        chainData.data[0]?.underlying_spot_price ||
+          chainData.data[0]?.underlying_price ||
+          globalLiveQuotes[instrumentKey]?.last_price ||
+          0,
+      );
+
+      // Compute ATM strike closest to underlyingSpot for accurate Max Pain / ATM highlight
+      const closestAtmStrike =
+        strikes.length > 0 && underlyingSpot > 0
+          ? [...strikes].sort(
+              (a, b) =>
+                Math.abs(a.strikePrice - underlyingSpot) -
+                Math.abs(b.strikePrice - underlyingSpot),
+            )[0]?.strikePrice
+          : strikes.length > 0
+            ? strikes[Math.floor(strikes.length / 2)].strikePrice
+            : 0;
+
       const result = {
         underlyingSymbol: symbol,
-        underlyingLTP: chainData.data[0]?.underlying_price || 0,
+        underlyingLTP: underlyingSpot,
         lotSize: liveLotSize,
         timestamp: new Date().toISOString(),
         expiryDates: validExpiries.length > 0 ? validExpiries.slice(0, 6) : [expiryDate],
         selectedExpiry: expiryDate,
         strikes,
         pcr,
-        maxPain:
-          strikes.length > 0
-            ? strikes[Math.floor(strikes.length / 2)].strikePrice
-            : 0,
+        maxPain: closestAtmStrike,
         totalCallOI,
         totalPutOI,
       };
@@ -3355,40 +3877,77 @@ app.get("/api/market/optionchain", async (req: Request, res: Response) => {
 });
 
 app.post("/api/trading/order", async (req: Request, res: Response) => {
-  const { mode, symbol, initialType, quantity, price } = req.body;
+  const { mode, symbol, instrumentKey, productType, orderType, initialType, quantity, price, stopLoss, target } = req.body;
   if (mode === "PAPER_TRADING") {
+    const resolvedKey =
+      instrumentKey ||
+      (/\b(CE|PE)\b/i.test(symbol || "") ? `NSE_FO|${symbol}` : getInstrumentKey(symbol));
     const newOrder = {
       id: "ORD" + Date.now(),
+      orderId: "PAP_" + Date.now().toString().slice(-6),
       symbol,
-      type: initialType,
+      instrumentKey: resolvedKey,
+      transactionType: initialType || "BUY",
+      type: initialType || "BUY",
+      orderType: orderType || "MARKET",
+      productType: productType || "INTRADAY",
       quantity: Number(quantity) || 1,
       price: Number(price) || 0,
+      executedPrice: Number(price) || 0,
       status: "COMPLETE",
+      timestamp: new Date().toLocaleTimeString("en-IN"),
       time: new Date().toISOString(),
+      mode: "PAPER_TRADING",
     };
     paperOrders.unshift(newOrder);
 
-    // Add to positions
+    // Add or update paper positions
     const pos = paperPositions.find((p: any) => p.symbol === symbol);
     if (pos) {
-      pos.quantity +=
-        initialType === "BUY" ? newOrder.quantity : -newOrder.quantity;
-      if (pos.quantity === 0) {
-        paperPositions.splice(paperPositions.indexOf(pos), 1);
+      if (initialType === "SELL" && pos.type === "BUY") {
+        // Selling an existing BUY position -> realize PnL and record to history
+        const sellQty = Math.min(pos.quantity, newOrder.quantity);
+        const realized = (newOrder.price - pos.buyPrice) * sellQty;
+        const closedSnapshot = {
+          ...pos,
+          quantity: sellQty,
+          sellPrice: newOrder.price,
+          realizedPnL: Number(realized.toFixed(2)),
+          closeTime: new Date().toISOString(),
+          mode: "PAPER_TRADING",
+        };
+        paperTradeHistory.unshift(closedSnapshot);
+        if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
+        pos.quantity -= sellQty;
+        if (pos.quantity <= 0) {
+          paperPositions.splice(paperPositions.indexOf(pos), 1);
+        }
+      } else {
+        const totalCost = pos.buyPrice * pos.quantity + newOrder.price * newOrder.quantity;
+        pos.quantity += newOrder.quantity;
+        pos.buyPrice = Number((totalCost / (pos.quantity || 1)).toFixed(2));
+        pos.currentLTP = newOrder.price;
       }
     } else {
       paperPositions.push({
         id: "POS" + Date.now(),
         symbol,
-        quantity:
-          initialType === "BUY" ? newOrder.quantity : -newOrder.quantity,
+        instrumentKey: resolvedKey,
+        productType: productType || "INTRADAY",
+        quantity: newOrder.quantity,
         buyPrice: newOrder.price,
         currentLTP: newOrder.price,
         pnl: 0,
-        type: initialType,
-        isOption: symbol.includes(" CE") || symbol.includes(" PE"),
+        pnlPercent: 0,
+        stopLoss,
+        target,
+        type: initialType || "BUY",
+        mode: "PAPER_TRADING",
+        openedAt: new Date().toLocaleTimeString("en-IN"),
+        isOption: /\b(CE|PE)\b/i.test(symbol || "") || String(resolvedKey).includes("FO"),
       });
     }
+    savePostgresDb().catch(() => {});
     return res.json({ success: true, order: newOrder });
   }
   if (mode === "UPSTOX_LIVE") {
@@ -3547,6 +4106,31 @@ async function loadPostgresDb() {
     if (!upstoxConfig.pin) {
       upstoxConfig.pin = process.env.UPSTOX_PIN || "984798";
     }
+    botConfig.maxOptionLossCount = Math.min(
+      3,
+      Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
+    );
+    // Clean up any corrupted or stale paper positions that accidentally got an INDEX key, dummy ₹100 price, or old BSE_FO illiquid contract
+    if (Array.isArray(paperPositions)) {
+      paperPositions = paperPositions.filter(
+        (p) =>
+          p &&
+          p.instrumentKey &&
+          !String(p.instrumentKey).includes("INDEX") &&
+          !(p.buyPrice === 100 && p.currentLTP === 100) &&
+          p.id !== "POS1791178766034" &&
+          p.id !== "POS1791181277347",
+      );
+    }
+    if (Array.isArray(paperTradeHistory)) {
+      paperTradeHistory = paperTradeHistory.filter(
+        (t) => t && t.id !== "POS1791180147116" && Number(t.quantity || 0) <= 500,
+      );
+    }
+    if (paperTradeHistory.length === 0 && botConfig.dailyLossLocked) {
+      botConfig.dailyLossLocked = false;
+      botConfig.enabled = true;
+    }
   };
 
   // First load from local_db.json if available
@@ -3686,28 +4270,111 @@ app.post(
 
 app.post(
   "/api/trading/squareoff/:positionId",
-  (req: Request, res: Response) => {
-    const { mode } = req.body;
+  async (req: Request, res: Response) => {
+    const { mode, symbol, instrumentKey, quantity, productType, sellPrice } = req.body;
+    const posId = req.params.positionId;
+
     if (mode === "PAPER_TRADING") {
-      const posId = req.params.positionId;
       const idx = paperPositions.findIndex(
-        (p) => p.id === posId || p.symbol === posId,
+        (p) => p.id === posId || p.symbol === posId || (symbol && p.symbol === symbol),
       );
       if (idx >= 0) {
         const closedPos = paperPositions.splice(idx, 1)[0];
-        closedPos.sellPrice = closedPos.currentLTP;
-        closedPos.realizedPnL = closedPos.pnl;
+        const finalSellPrice = Number(sellPrice || closedPos.currentLTP || closedPos.buyPrice);
+        closedPos.sellPrice = finalSellPrice;
+        closedPos.realizedPnL = Number(
+          ((finalSellPrice - closedPos.buyPrice) * (closedPos.quantity || 1)).toFixed(2),
+        );
+        const sqCharges = calculateTradeCharges(
+          Number(closedPos.buyPrice || 0),
+          Math.max(1, Number(closedPos.quantity || 1)),
+          Boolean(closedPos.isOption),
+          finalSellPrice,
+        );
+        closedPos.brokerageCharges = sqCharges.roundTripCharges;
+        closedPos.netRealizedPnL = Number(
+          (closedPos.realizedPnL - sqCharges.roundTripCharges).toFixed(2),
+        );
         closedPos.closeTime = new Date().toISOString();
+        closedPos.mode = "PAPER_TRADING";
         paperTradeHistory.unshift(closedPos);
         if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
-        return res.json({ success: true });
+
+        paperOrders.unshift({
+          id: "ORD" + Date.now(),
+          orderId: "PAP_" + Date.now().toString().slice(-6),
+          symbol: closedPos.symbol,
+          instrumentKey: closedPos.instrumentKey,
+          transactionType: "SELL",
+          type: "SELL",
+          orderType: "MARKET",
+          productType: closedPos.productType || "INTRADAY",
+          quantity: closedPos.quantity,
+          price: finalSellPrice,
+          executedPrice: finalSellPrice,
+          status: "COMPLETE",
+          timestamp: new Date().toLocaleTimeString("en-IN"),
+          time: new Date().toISOString(),
+          mode: "PAPER_TRADING",
+        });
+        savePostgresDb().catch(() => {});
+        return res.json({ success: true, closedPosition: closedPos });
       }
+      return res.json({ success: true });
     }
-    res.json({
-      success: false,
-      error:
-        "Square off  ust bemexecuted directly via Upstox API with specific order parameters.",
-    });
+
+    // UPSTOX_LIVE Square-off via Upstox Order API
+    const token =
+      req.headers.authorization?.replace("Bearer ", "").trim() ||
+      upstoxConfig.accessToken;
+    if (!token) {
+      return res.status(401).json({ success: false, error: "Upstox Token missing" });
+    }
+
+    try {
+      const instrKey = instrumentKey || getInstrumentKey(symbol || posId);
+      const isOptionContract =
+        /\b(CE|PE)\b/i.test(symbol || posId || "") || String(instrKey).includes("FO");
+      const upstoxProduct =
+        productType === "INTRADAY" && !isOptionContract
+          ? "I"
+          : productType === "INTRADAY"
+            ? "I"
+            : "D";
+
+      const orderRes = await fetch("https://api.upstox.com/v2/order/place", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+          "Api-Version": "2.0",
+        },
+        body: JSON.stringify({
+          quantity: Math.abs(Number(quantity) || 1),
+          product: upstoxProduct,
+          validity: "DAY",
+          price: 0,
+          tag: "square_off_order",
+          instrument_token: instrKey,
+          order_type: "MARKET",
+          transaction_type: "SELL",
+          disclosed_quantity: 0,
+          trigger_price: 0,
+          is_amo: false,
+        }),
+      });
+      const data = await orderRes.json();
+      if (data.status === "success") {
+        return res.json({ success: true, order: data.data });
+      }
+      return res.json({
+        success: false,
+        error: data.errors?.[0]?.message || "Live square-off order failed",
+      });
+    } catch (err: any) {
+      return res.json({ success: false, error: err.message });
+    }
   },
 );
 
@@ -4028,67 +4695,17 @@ app.get("/api/stream/quotes", (req, res) => {
   res.write('data: {"type": "CONNECTED"}\n\n');
 
   const fetchAndPushQuotes = async () => {
-    // Send a heartbeat comment to keep the connection alive through proxies
     res.write(":\n\n");
-
     const token = upstoxConfig.accessToken;
-    if (!token) {
-      // Just send a keep-alive if no token so the connection doesn't drop
-      return;
-    }
+    if (!token) return;
     try {
-      const instruments = symbols
-        .split(",")
-        .map((s) => encodeURIComponent(s.trim()))
-        .join(",");
-      const response = await fetch(
-        `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${instruments}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Api-Version": "2.0",
-          },
-        },
-      );
-      const data = await response.json();
-      if (data.status === "success" && data.data) {
-        const quotesList = Object.keys(data.data).map((key) => {
-          const item = data.data[key];
-          const ltp = item.last_price || 0;
-          const close = item.ohlc?.close || ltp;
-          const change = Number((ltp - close).toFixed(2));
-          const changePercent =
-            close > 0 ? Number(((change / close) * 100).toFixed(2)) : 0;
-
-          let symbolDisplay = item.symbol;
-          if (!symbolDisplay || symbolDisplay === "NA") {
-            const parts = key.split(/[:|]/);
-            symbolDisplay = (parts.length > 1 ? parts[1] : key).toUpperCase();
-          } else {
-            symbolDisplay = symbolDisplay.toUpperCase();
-          }
-          const segment = key.includes("INDEX")
-            ? "INDEX"
-            : key.includes("FO")
-              ? "OPTIONS"
-              : "EQUITY";
-          return {
-            symbol: symbolDisplay,
-            segment,
-            instrumentKey: key,
-            ltp,
-            change,
-            changePercent,
-            volume: item.volume || 0,
-            open: item.ohlc?.open || 0,
-            high: item.ohlc?.high || 0,
-            low: item.ohlc?.low || 0,
-            close,
-          };
-        });
+      const result =
+        Date.now() - lastQuotesCache.timestamp < 1000 && lastQuotesCache.quotes.length > 0
+          ? lastQuotesCache
+          : await refreshCentralUpstoxQuotes(token);
+      if (result.quotes && result.quotes.length > 0) {
         res.write(
-          `data: ${JSON.stringify({ type: "QUOTES", data: quotesList })}\n\n`,
+          `data: ${JSON.stringify({ type: "QUOTES", data: result.quotes })}\n\n`,
         );
       }
     } catch (err) {}
@@ -4110,75 +4727,21 @@ const subscribedKeys = new Set<string>([
 ]);
 
 async function broadcastUpstoxQuotesToWs() {
-  if (wss.clients.size === 0) return;
   const token = upstoxConfig.accessToken;
-  if (!token || invalidTokens.has(token) || subscribedKeys.size === 0) return;
+  if (!token || invalidTokens.has(token)) return;
 
   try {
-    const instruments = Array.from(subscribedKeys)
-      .map((s) => encodeURIComponent(String(s).trim()))
-      .join(",");
-    const response = await fetch(
-      `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${instruments}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Api-Version": "2.0",
-        },
-      },
-    );
-    const data = await response.json();
-    if (data.status === "success" && data.data) {
-      const quotesList = Object.keys(data.data).map((key) => {
-        const item = data.data[key];
-        const ltp = item.last_price || 0;
-        const close = item.ohlc?.close || ltp;
-        const change = Number((ltp - close).toFixed(2));
-        const changePercent =
-          close > 0 ? Number(((change / close) * 100).toFixed(2)) : 0;
-        const parts = key.split(/[:|]/);
-        const symbolDisplay = (
-          item.symbol && item.symbol !== "NA"
-            ? item.symbol
-            : parts.length > 1
-              ? parts[1]
-              : key
-        ).toUpperCase();
-        if (ltp > 0) {
-          globalLiveQuotes[key] = { last_price: ltp };
-          globalLiveQuotes["last_update"] = new Date().toISOString();
+    const result =
+      Date.now() - lastQuotesCache.timestamp < 1000 && lastQuotesCache.quotes.length > 0
+        ? lastQuotesCache
+        : await refreshCentralUpstoxQuotes(token);
+    if (result.quotes && result.quotes.length > 0 && wss.clients.size > 0) {
+      const msgStr = JSON.stringify({ type: "QUOTES", data: result.quotes });
+      wss.clients.forEach((client) => {
+        if (client.readyState === 1) {
+          client.send(msgStr);
         }
-        const segment = key.includes("INDEX")
-          ? "INDEX"
-          : key.includes("FO")
-            ? "OPTIONS"
-            : "EQUITY";
-        return {
-          symbol: symbolDisplay,
-          segment,
-          instrumentKey: key,
-          ltp,
-          change,
-          changePercent,
-          volume: item.volume || 0,
-          open: item.ohlc?.open || 0,
-          high: item.ohlc?.high || 0,
-          low: item.ohlc?.low || 0,
-          close,
-        };
       });
-      if (quotesList.length > 0) {
-        const msgStr = JSON.stringify({ type: "QUOTES", data: quotesList });
-        wss.clients.forEach((client) => {
-          if (client.readyState === 1) {
-            client.send(msgStr);
-          }
-        });
-      }
-    } else if (data.status === "error" && isUpstoxAuthFailureError(response.status, data)) {
-      invalidTokens.add(token);
-      upstoxConfig.accessToken = "";
     }
   } catch (e) {}
 }

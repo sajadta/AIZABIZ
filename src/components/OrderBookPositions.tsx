@@ -19,6 +19,7 @@ import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
 import { CumulativePnLChart } from './CumulativePnLChart';
 import { PerformanceOverviewCard } from './PerformanceOverviewCard';
+import { calculateTradeCharges } from '../utils/indicators';
 
 interface OrderBookPositionsProps {
   positions: Position[];
@@ -382,6 +383,52 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   const totalHoldingsPnL = totalHoldingsValue - totalHoldingsInvested;
   const totalHoldingsPnLPercent = totalHoldingsInvested > 0 ? (totalHoldingsPnL / totalHoldingsInvested) * 100 : 0;
 
+  // Compute combined Summary Stats (Active Positions + Executed Trade History): Total Profit, Total Loss, Total Brokerage Charges, Net P&L
+  const accountSummary = React.useMemo(() => {
+    let totalGrossProfit = 0;
+    let totalGrossLoss = 0;
+    let totalBrokerageCharges = 0;
+
+    // 1. Open positions
+    positions.forEach((p) => {
+      const isOpt = Boolean(p.isOption || /\b(CE|PE)\b/i.test(p.symbol || '') || String(p.instrumentKey || '').includes('FO'));
+      const buyP = Number(p.buyPrice || 0);
+      const curP = Number(p.currentLTP || buyP);
+      const qty = Math.max(1, Number(p.quantity || 1));
+      const pnl = p.pnl !== undefined ? Number(p.pnl) : (curP - buyP) * qty;
+      if (pnl >= 0) totalGrossProfit += pnl;
+      else totalGrossLoss += Math.abs(pnl);
+
+      const chg = calculateTradeCharges(buyP, qty, isOpt, curP);
+      totalBrokerageCharges += chg.roundTripCharges;
+    });
+
+    // 2. Closed trade history
+    tradeHistory.forEach((t) => {
+      const isOpt = Boolean(t.isOption || /\b(CE|PE)\b/i.test(t.symbol || '') || String(t.instrumentKey || '').includes('FO'));
+      const buyP = Number(t.buyPrice || 0);
+      const sellP = Number(t.sellPrice || t.currentLTP || buyP);
+      const qty = Math.max(1, Number(t.quantity || 1));
+      const pnl = t.realizedPnL !== undefined ? Number(t.realizedPnL) : (sellP - buyP) * qty;
+      if (pnl >= 0) totalGrossProfit += pnl;
+      else totalGrossLoss += Math.abs(pnl);
+
+      const chg =
+        Number((t as any).brokerageCharges) > 0
+          ? Number((t as any).brokerageCharges)
+          : calculateTradeCharges(buyP, qty, isOpt, sellP).roundTripCharges;
+      totalBrokerageCharges += chg;
+    });
+
+    const netPnLAfterCharges = totalGrossProfit - totalGrossLoss - totalBrokerageCharges;
+    return {
+      totalGrossProfit,
+      totalGrossLoss,
+      totalBrokerageCharges,
+      netPnLAfterCharges,
+    };
+  }, [positions, tradeHistory]);
+
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
       {/* Header & Tabs */}
@@ -504,7 +551,49 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
         
         {/* POSITIONS TAB */}
         {activeTab === 'POSITIONS' && (
-          <div className="space-y-2.5">
+          <div className="space-y-3">
+            {/* Live Total Profit, Total Loss, Total Brokerage Charges & Net P&L Summary */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <div className="p-3 rounded-xl bg-emerald-950/25 border border-emerald-800/50">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/90 block">
+                  {language === 'ml' ? 'ആകെ ലാഭം (Total Profit)' : 'Total Profit'}
+                </span>
+                <span className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5 block">
+                  +₹{accountSummary.totalGrossProfit.toFixed(2)}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-rose-950/25 border border-rose-800/50">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300/90 block">
+                  {language === 'ml' ? 'ആകെ നഷ്ടം (Total Loss)' : 'Total Loss'}
+                </span>
+                <span className="text-base sm:text-lg font-black font-mono text-rose-400 mt-0.5 block">
+                  -₹{accountSummary.totalGrossLoss.toFixed(2)}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-950/25 border border-amber-800/50">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300/90 block">
+                  {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് ചാർജ്' : 'Total Brokerage Charges'}
+                </span>
+                <span className="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5 block">
+                  ₹{accountSummary.totalBrokerageCharges.toFixed(2)}
+                </span>
+              </div>
+              <div className={`p-3 rounded-xl border ${
+                accountSummary.netPnLAfterCharges >= 0
+                  ? 'bg-emerald-950/30 border-emerald-500/40'
+                  : 'bg-rose-950/30 border-rose-500/40'
+              }`}>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300 block">
+                  {language === 'ml' ? 'അറ്റ ലാഭം / നഷ്ടം (Net P&L)' : 'Net P&L (After Charges)'}
+                </span>
+                <span className={`text-base sm:text-lg font-black font-mono mt-0.5 block ${
+                  accountSummary.netPnLAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                }`}>
+                  {accountSummary.netPnLAfterCharges >= 0 ? '+' : '-'}₹{Math.abs(accountSummary.netPnLAfterCharges).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
             {/* Segment Category Switcher (Options vs Index/Equity) */}
             <div className="flex items-center justify-between pb-1 flex-wrap gap-2">
               <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px] font-bold">
@@ -854,7 +943,16 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
             ) : (
               tradeHistory.map((pos) => {
                 const gross = (pos.realizedPnL || 0);
-                const estCharges = 40; // Approx flat ₹40 for round trip
+                const isOpt = Boolean(pos.isOption || /\b(CE|PE)\b/i.test(pos.symbol || '') || String(pos.instrumentKey || '').includes('FO'));
+                const estCharges =
+                  Number((pos as any).brokerageCharges) > 0
+                    ? Number((pos as any).brokerageCharges)
+                    : calculateTradeCharges(
+                        Number(pos.buyPrice || 0),
+                        Math.max(1, Number(pos.quantity || 1)),
+                        isOpt,
+                        Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0)
+                      ).roundTripCharges;
                 const net = gross - estCharges;
                 
                 return (
@@ -894,7 +992,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                           </span>
                       </div>
                       <div className="flex flex-col gap-1">
-                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Net P&L (-₹40 Tax)</span>
+                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Net P&L (-₹{estCharges.toFixed(2)} Charges)</span>
                           <span className={`font-black text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
                           </span>

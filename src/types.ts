@@ -131,6 +131,9 @@ export interface TradingSignal {
     volume?: number;
     instrumentKey?: string;
     requiredCapital?: number;
+    estimatedBrokerage?: number;
+    totalRequiredWithBrokerage?: number;
+    expectedNetProfit?: number;
     affordableLots?: number;
     availableCapital?: number;
     underlyingSpot?: number;

@@ -104,7 +104,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
 
       {/* Option Chain Table */}
       <div className="flex-1 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto smooth-scroll webkit-scrollbar pb-20 sm:pb-4">
-        <table className="w-full text-left border-collapse text-[11px] font-mono-num min-w-[600px]">
+        <table className="w-full text-left border-collapse text-[11px] font-mono-num min-w-[660px]">
           <thead className="bg-[#090d18] text-slate-400 sticky top-0 z-10 border-b border-slate-800 shadow-sm">
             <tr>
               <th colSpan={4} className="text-center py-1.5 bg-emerald-950/30 text-emerald-400 font-extrabold border-r border-slate-800 tracking-wider">
@@ -118,15 +118,15 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               </th>
             </tr>
             <tr className="border-b border-slate-800 text-[10px] text-slate-400 bg-[#070a12]">
-              <th className="py-1.5 px-2 text-right">Vol (k)</th>
-              <th className="py-1.5 px-2 text-right">OI (k)</th>
-              <th className="py-1.5 px-2 text-right">IV</th>
-              <th className="py-1.5 px-2.5 text-right border-r border-slate-800 text-emerald-400 font-bold">Call LTP</th>
-              <th className="py-1.5 px-3 text-center bg-slate-900/90 text-slate-200 border-r border-slate-800 font-bold">Price</th>
-              <th className="py-1.5 px-2.5 text-left text-rose-400 font-bold">Put LTP</th>
-              <th className="py-1.5 px-2 text-left">IV</th>
-              <th className="py-1.5 px-2 text-left">OI (k)</th>
-              <th className="py-1.5 px-2 text-left">Vol (k)</th>
+              <th className="py-1.5 px-2 text-right whitespace-nowrap">Vol</th>
+              <th className="py-1.5 px-2 text-right whitespace-nowrap">OI</th>
+              <th className="py-1.5 px-2 text-right whitespace-nowrap">IV</th>
+              <th className="py-1.5 px-2.5 text-right border-r border-slate-800 text-emerald-400 font-bold whitespace-nowrap">Call LTP</th>
+              <th className="py-1.5 px-3 text-center bg-slate-900/90 text-slate-200 border-r border-slate-800 font-bold whitespace-nowrap">Price</th>
+              <th className="py-1.5 px-2.5 text-left text-rose-400 font-bold whitespace-nowrap">Put LTP</th>
+              <th className="py-1.5 px-2 text-left whitespace-nowrap">IV</th>
+              <th className="py-1.5 px-2 text-left whitespace-nowrap">OI</th>
+              <th className="py-1.5 px-2 text-left whitespace-nowrap">Vol</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/40">
@@ -137,6 +137,14 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
               const callOiPct = Math.min(100, Math.round(((s.callOI || 0) / maxCallOI) * 100));
               const putOiPct = Math.min(100, Math.round(((s.putOI || 0) / maxPutOI) * 100));
 
+              const formatCompactNumber = (val: number) => {
+                const n = Number(val || 0);
+                if (n >= 10000000) return `${(n / 10000000).toFixed(2)}Cr`;
+                if (n >= 100000) return `${(n / 100000).toFixed(1)}L`;
+                if (n >= 1000) return `${(n / 1000).toFixed(0)}k`;
+                return n.toString();
+              };
+
               return (
                 <tr
                   key={s.strikePrice + "-" + i}
@@ -145,21 +153,21 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   }`}
                 >
                   {/* CALLS */}
-                  <td className={`py-1.5 px-2 text-right text-slate-400 ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
-                    {((s.callVolume || 0) / 1000).toFixed(0)}
+                  <td className={`py-1.5 px-2 text-right text-slate-400 whitespace-nowrap overflow-hidden ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
+                    {formatCompactNumber(s.callVolume || 0)}
                   </td>
-                  <td className={`py-1.5 px-2 text-right text-slate-300 relative ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
+                  <td className={`py-1.5 px-2 text-right text-slate-300 relative overflow-hidden whitespace-nowrap min-w-[68px] max-w-[88px] ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
                     <div
                       className="absolute inset-y-1 right-1 bg-emerald-500/15 rounded-sm pointer-events-none"
-                      style={{ width: `${Math.max(4, callOiPct * 0.75)}%` }}
+                      style={{ width: `${Math.min(90, Math.max(4, callOiPct * 0.7))}%` }}
                     />
-                    <span className="relative z-10">{((s.callOI || 0) / 1000).toFixed(0)}</span>
+                    <span className="relative z-10 block truncate font-semibold">{formatCompactNumber(s.callOI || 0)}</span>
                   </td>
-                  <td className={`py-1.5 px-2 text-right text-slate-400 ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
+                  <td className={`py-1.5 px-2 text-right text-slate-400 whitespace-nowrap ${isITMCall ? 'bg-emerald-950/10' : ''}`}>
                     {Number(s.callIV || 0).toFixed(1)}%
                   </td>
-                  <td className={`py-1.5 px-2.5 text-right font-bold text-emerald-400 border-r border-slate-800 ${isITMCall ? 'bg-emerald-950/15' : ''}`}>
-                    <div className="flex items-center justify-end gap-2">
+                  <td className={`py-1.5 px-2.5 text-right font-bold text-emerald-400 border-r border-slate-800 whitespace-nowrap ${isITMCall ? 'bg-emerald-950/15' : ''}`}>
+                    <div className="flex items-center justify-end gap-1.5">
                        <button
                          type="button"
                          onClick={() => onSelectOptionTrade('BUY', `${data.underlyingSymbol} ${s.strikePrice} CE`, getLtp(s.callInstrumentKey, s.callLTP), s.callInstrumentKey, s.lotSize || data.lotSize)}
@@ -182,15 +190,15 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                   </td>
 
                   {/* STRIKE */}
-                  <td className={`py-1.5 px-3 text-center font-extrabold border-r border-slate-800 ${
+                  <td className={`py-1.5 px-3 text-center font-extrabold border-r border-slate-800 whitespace-nowrap ${
                     isATM ? 'bg-amber-500/20 text-amber-300 font-black' : 'bg-slate-900/90 text-white'
                   }`}>
                     {s.strikePrice}
                   </td>
 
                   {/* PUTS */}
-                  <td className={`py-1.5 px-2.5 text-left font-bold text-rose-400 ${isITMPut ? 'bg-rose-950/15' : ''}`}>
-                    <div className="flex items-center justify-start gap-2">
+                  <td className={`py-1.5 px-2.5 text-left font-bold text-rose-400 whitespace-nowrap ${isITMPut ? 'bg-rose-950/15' : ''}`}>
+                    <div className="flex items-center justify-start gap-1.5">
                        {onViewChart && (
                          <button
                            type="button"
@@ -211,18 +219,18 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
                        </button>
                     </div>
                   </td>
-                  <td className={`py-1.5 px-2 text-left text-slate-400 ${isITMPut ? 'bg-rose-950/10' : ''}`}>
+                  <td className={`py-1.5 px-2 text-left text-slate-400 whitespace-nowrap ${isITMPut ? 'bg-rose-950/10' : ''}`}>
                     {Number(s.putIV || 0).toFixed(1)}%
                   </td>
-                  <td className={`py-1.5 px-2 text-left text-slate-300 relative ${isITMPut ? 'bg-rose-950/10' : ''}`}>
+                  <td className={`py-1.5 px-2 text-left text-slate-300 relative overflow-hidden whitespace-nowrap min-w-[68px] max-w-[88px] ${isITMPut ? 'bg-rose-950/10' : ''}`}>
                     <div
                       className="absolute inset-y-1 left-1 bg-rose-500/15 rounded-sm pointer-events-none"
-                      style={{ width: `${Math.max(4, putOiPct * 0.75)}%` }}
+                      style={{ width: `${Math.min(90, Math.max(4, putOiPct * 0.7))}%` }}
                     />
-                    <span className="relative z-10">{((s.putOI || 0) / 1000).toFixed(0)}</span>
+                    <span className="relative z-10 block truncate font-semibold">{formatCompactNumber(s.putOI || 0)}</span>
                   </td>
-                  <td className={`py-1.5 px-2 text-left text-slate-400 ${isITMPut ? 'bg-rose-950/10' : ''}`}>
-                    {((s.putVolume || 0) / 1000).toFixed(0)}
+                  <td className={`py-1.5 px-2 text-left text-slate-400 whitespace-nowrap overflow-hidden ${isITMPut ? 'bg-rose-950/10' : ''}`}>
+                    {formatCompactNumber(s.putVolume || 0)}
                   </td>
                 </tr>
               );

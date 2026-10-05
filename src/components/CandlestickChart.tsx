@@ -61,9 +61,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   const displayCandles = useMemo(() => {
     if (candles.length === 0) return [];
-    const currentCandles = candles.filter(
-      (c) => c && c.close > 0 && c.high > 0 && c.low > 0 && c.open > 0
-    );
+    const currentCandles = candles
+      .filter((c) => c && c.close > 0 && c.high > 0 && c.low > 0 && c.open > 0)
+      .map((c) => ({ ...c }));
     if (currentCandles.length === 0) return [];
     const lastCandleIndex = currentCandles.length - 1;
 
@@ -72,14 +72,44 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       // Only merge live quote if it belongs to the same price scale (<15% difference)
       const diffRatio = Math.abs(quote.ltp - lastCandle.close) / lastCandle.close;
       if (diffRatio <= 0.15) {
-        lastCandle.close = quote.ltp;
-        if (quote.ltp > lastCandle.high) lastCandle.high = quote.ltp;
-        if (quote.ltp < lastCandle.low) lastCandle.low = quote.ltp;
-        currentCandles[lastCandleIndex] = lastCandle;
+        const intervalMinutesMap: Record<string, number> = {
+          '1m': 1,
+          '3m': 3,
+          '5m': 5,
+          '15m': 15,
+          '1h': 60,
+        };
+        const intervalMins = intervalMinutesMap[interval] || 0;
+        const intervalMs = intervalMins * 60 * 1000;
+        const IST_MARKET_OPEN_OFFSET_MS = (3 * 60 + 45) * 60 * 1000;
+        const nowMs = Date.now();
+        const currentBucketStart =
+          intervalMs > 0
+            ? Math.floor((nowMs - IST_MARKET_OPEN_OFFSET_MS) / intervalMs) * intervalMs +
+              IST_MARKET_OPEN_OFFSET_MS
+            : lastCandle.timestamp;
+
+        if (intervalMs > 0 && currentBucketStart > lastCandle.timestamp && currentBucketStart - lastCandle.timestamp <= intervalMs * 4) {
+          // A new minute/5m bar has started: append the new live bar immediately so the chart never waits for historical API lag!
+          currentCandles.push({
+            ...lastCandle,
+            timestamp: currentBucketStart,
+            open: lastCandle.close,
+            high: Math.max(lastCandle.close, quote.ltp),
+            low: Math.min(lastCandle.close, quote.ltp),
+            close: quote.ltp,
+            volume: 0,
+          });
+        } else {
+          lastCandle.close = quote.ltp;
+          if (quote.ltp > lastCandle.high) lastCandle.high = quote.ltp;
+          if (quote.ltp < lastCandle.low) lastCandle.low = quote.ltp;
+          currentCandles[lastCandleIndex] = lastCandle;
+        }
       }
     }
     return currentCandles;
-  }, [candles, quote]);
+  }, [candles, quote?.ltp, interval]);
 
   const intervals = ['1m', '3m', '5m', '15m', '1h', '1D'];
 
@@ -263,8 +293,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   }, [displayCandles, showEMA, showSupertrend, symbol, interval]);
 
   const currentLtp = quote?.ltp || (displayCandles[displayCandles.length - 1]?.close || 0);
+  const currentChangePts = quote?.change || 0;
   const currentChange = quote?.changePercent || 0;
-  const isPositive = currentChange >= 0;
+  const isPositive = currentChange >= 0 && currentChangePts >= 0;
 
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 bg-slate-900/80 text-slate-200 overflow-hidden">
@@ -279,7 +310,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </span>
               {currentLtp > 0 && (
                 <span className={`text-[10px] sm:text-xs px-1.5 py-0.5 rounded font-bold border ${isPositive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border-rose-500/30'}`}>
-                  {isPositive ? '+' : ''}{currentChange.toFixed(2)}%
+                  {isPositive ? '+' : ''}{currentChangePts.toFixed(2)} ({isPositive ? '+' : ''}{currentChange.toFixed(2)}%)
                 </span>
               )}
             </div>

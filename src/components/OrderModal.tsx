@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Check, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
 import { OrderTransactionType, OrderType, ProductType, Language, ExecutionMode } from '../types';
 import { translations } from '../translations';
+import { calculateTradeCharges, calculateAffordableLotsWithBrokerage } from '../utils/indicators';
 
 interface OrderModalProps {
   isOpen: boolean;
@@ -153,24 +154,36 @@ export const OrderModal: React.FC<OrderModalProps> = ({
 
   const lotStep = isOptionOrFo ? (lotSize || 1) : 1;
   const effectivePrice = orderType === 'MARKET' ? (defaultPrice || price || 100) : (price || defaultPrice || 100);
-  const oneLotCost = Number((effectivePrice * lotStep).toFixed(2));
-  const estimatedMargin = Number((effectivePrice * quantity * (productType === 'INTRADAY' && !isOptionOrFo ? 0.2 : 1)).toFixed(2));
+  const oneLotCharges = calculateTradeCharges(effectivePrice, lotStep, isOptionOrFo, target);
+  const oneLotCost = oneLotCharges.tradeValue;
+  const oneLotTotalWithBrokerage = oneLotCharges.totalRequiredWithBrokerage;
+
+  const currentOrderCharges = calculateTradeCharges(effectivePrice, quantity, isOptionOrFo, target);
+  const baseMargin = Number((effectivePrice * quantity * (productType === 'INTRADAY' && !isOptionOrFo ? 0.2 : 1)).toFixed(2));
+  const estimatedBrokerageAndTaxes = currentOrderCharges.roundTripCharges;
+  const estimatedMargin = Number((baseMargin + estimatedBrokerageAndTaxes).toFixed(2));
+
+  // Strict separation: UPSTOX_LIVE uses ONLY real Upstox availableMargin, never dummy cash!
   const effectiveAvailableBalance =
-    mode === 'UPSTOX_LIVE' && availableMargin > 0
+    mode === 'UPSTOX_LIVE'
       ? availableMargin
       : maxCapitalPerTrade || 25000;
-  const maxAffordableLots =
-    oneLotCost > 0 && effectiveAvailableBalance > 0
-      ? Math.floor(effectiveAvailableBalance / oneLotCost)
-      : 0;
+  const lotAffordability = calculateAffordableLotsWithBrokerage(
+    effectivePrice,
+    lotStep,
+    effectiveAvailableBalance,
+    isOptionOrFo,
+    50,
+  );
+  const maxAffordableLots = lotAffordability.affordableLots;
   const isInsufficientMargin =
     mode === 'UPSTOX_LIVE' &&
     transactionType === 'BUY' &&
-    availableMargin > 0 &&
     estimatedMargin > availableMargin;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInsufficientMargin) return;
     onPlaceOrder({
       symbol,
       instrumentKey,
@@ -428,11 +441,29 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             </div>
           </div>
 
-          {/* Margin & Account Balance Affordability Banner */}
+          {/* Margin, Brokerage & Account Balance Affordability Banner */}
           <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between text-[11px]">
               <span className="text-slate-400">
-                {language === 'ml' ? 'ആവശ്യമായ തുക (Est. Margin):' : 'Est. Required Capital:'}
+                {language === 'ml' ? 'ട്രേഡ് മൂല്യം (Premium × Qty):' : 'Trade Value (Premium × Qty):'}
+              </span>
+              <span className="font-bold text-slate-200">
+                ₹{baseMargin.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">
+                {language === 'ml'
+                  ? 'ബ്രോക്കറേജ് & ടാക്സ് (Buy+Sell GST/STT):'
+                  : 'Est. Brokerage & Taxes (Buy+Sell):'}
+              </span>
+              <span className="font-bold text-amber-300">
+                +₹{estimatedBrokerageAndTaxes.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80">
+              <span className="text-slate-300 font-bold">
+                {language === 'ml' ? 'ആകെ വേണ്ട തുക (Incl. Brokerage):' : 'Total Cash Required (Incl. Brokerage):'}
               </span>
               <span className={`font-extrabold ${isInsufficientMargin ? 'text-rose-400' : 'text-white'}`}>
                 ₹{estimatedMargin.toLocaleString('en-IN')}
@@ -468,8 +499,8 @@ export const OrderModal: React.FC<OrderModalProps> = ({
                 <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span>
                   {language === 'ml'
-                    ? `അക്കൗണ്ടിൽ മതിയായ ബാലൻസ് ഇല്ല! 1 ലോട്ടിന് ₹${oneLotCost.toLocaleString('en-IN')} വേണം.`
-                    : `Insufficient Upstox balance! 1 Lot requires ₹${oneLotCost.toLocaleString('en-IN')}.`}
+                    ? `അക്കൗണ്ടിൽ മതിയായ ബാലൻസ് ഇല്ല! 1 ലോട്ടിന് ബ്രോക്കറേജ് ഉൾപ്പെടെ ₹${oneLotTotalWithBrokerage.toLocaleString('en-IN')} വേണം (പ്രീമിയം ₹${oneLotCost.toLocaleString('en-IN')} + ബ്രോക്കറേജ് ₹${oneLotCharges.roundTripCharges.toFixed(0)}).`
+                    : `Insufficient Upstox balance! 1 Lot requires ₹${oneLotTotalWithBrokerage.toLocaleString('en-IN')} incl. brokerage (Premium ₹${oneLotCost.toLocaleString('en-IN')} + Brokerage ₹${oneLotCharges.roundTripCharges.toFixed(0)}).`}
                 </span>
               </div>
             )}
@@ -486,10 +517,13 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             </button>
             <button
               type="submit"
-              className={`flex-1 py-2.5 rounded-xl text-white text-xs font-extrabold shadow-lg transition active:scale-95 flex items-center justify-center gap-1.5 ${
-                transactionType === 'BUY'
-                  ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950'
-                  : 'bg-rose-600 hover:bg-rose-500 shadow-rose-950'
+              disabled={isInsufficientMargin}
+              className={`flex-1 py-2.5 rounded-xl text-white text-xs font-extrabold shadow-lg transition flex items-center justify-center gap-1.5 ${
+                isInsufficientMargin
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-60'
+                  : transactionType === 'BUY'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950 active:scale-95'
+                    : 'bg-rose-600 hover:bg-rose-500 shadow-rose-950 active:scale-95'
               }`}
             >
               <Zap className="w-4 h-4" />

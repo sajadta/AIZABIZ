@@ -196,8 +196,32 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           </div>
         </div>
 
-        {/* Cloud Always-On Engine Indicator & Emergency Pause */}
-        <div className="flex items-center gap-2">
+        {/* Cloud Always-On Engine Indicator, Mode Switcher & Emergency Pause */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex bg-slate-950 rounded-xl p-0.5 border border-slate-800 text-[10px] font-black">
+            <button
+              type="button"
+              onClick={() => onUpdateBotConfig({ mode: 'PAPER_TRADING' })}
+              className={`px-2.5 py-1 rounded-lg transition ${
+                botConfig.mode === 'PAPER_TRADING'
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {language === 'ml' ? 'പേപ്പർ (Virtual Cash)' : 'PAPER (Virtual Cash)'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onUpdateBotConfig({ mode: 'UPSTOX_LIVE' })}
+              className={`px-2.5 py-1 rounded-lg transition ${
+                botConfig.mode === 'UPSTOX_LIVE'
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {language === 'ml' ? 'ലൈവ് (Real Account Cash)' : 'LIVE (Real Cash Only)'}
+            </button>
+          </div>
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span>24x7 Cloud Execution Active</span>
@@ -477,12 +501,31 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
                       {sig.recommendedOptionStrike.requiredCapital !== undefined && (
                         <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono">
-                          <span className="text-slate-300">
-                            {language === 'ml' ? '1 ലോട്ട് ആവശ്യമായ തുക:' : '1 Lot Required Capital:'}{' '}
-                            <strong className="text-white">
-                              ₹{Number(sig.recommendedOptionStrike.requiredCapital).toLocaleString('en-IN')}
-                            </strong>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap text-slate-300">
+                            <span>
+                              {language === 'ml' ? '1 ലോട്ട് പ്രീമിയം:' : '1 Lot Premium:'}{' '}
+                              <strong className="text-white">
+                                ₹{Number(sig.recommendedOptionStrike.requiredCapital).toLocaleString('en-IN')}
+                              </strong>
+                            </span>
+                            {sig.recommendedOptionStrike.estimatedBrokerage !== undefined && (
+                              <span className="text-amber-300">
+                                + {language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്:' : 'Brokerage & Taxes:'}{' '}
+                                <strong>₹{Number(sig.recommendedOptionStrike.estimatedBrokerage).toFixed(0)}</strong>
+                              </span>
+                            )}
+                            {sig.recommendedOptionStrike.totalRequiredWithBrokerage !== undefined && (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">
+                                {language === 'ml' ? 'ആകെ വേണ്ടത്:' : 'Total Cash Needed:'}{' '}
+                                ₹{Number(sig.recommendedOptionStrike.totalRequiredWithBrokerage).toLocaleString('en-IN')}
+                              </span>
+                            )}
+                            {sig.recommendedOptionStrike.expectedNetProfit !== undefined && sig.recommendedOptionStrike.expectedNetProfit > 0 && (
+                              <span className="text-emerald-400 font-bold">
+                                ({language === 'ml' ? 'അറ്റ ലാഭം:' : 'Est. Net Profit:'} +₹{Number(sig.recommendedOptionStrike.expectedNetProfit).toFixed(0)})
+                              </span>
+                            )}
+                          </div>
                           {sig.recommendedOptionStrike.affordableLots !== undefined && (
                             <span className={`px-2 py-0.5 rounded font-bold ${
                               sig.recommendedOptionStrike.affordableLots >= 1
@@ -491,11 +534,11 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             }`}>
                               {sig.recommendedOptionStrike.affordableLots >= 1
                                 ? language === 'ml'
-                                  ? `✅ ബാലൻസിൽ വാങ്ങാവുന്നത്: ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot`
-                                  : `✅ Fits Balance: ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot Affordable`
+                                  ? `✅ ബ്രോക്കറേജ് ഉൾപ്പെടെ വാങ്ങാവുന്നത്: ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot`
+                                  : `✅ Fits Cash (Incl. Brokerage): ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot`
                                 : language === 'ml'
-                                  ? '⚠️ കുറഞ്ഞ പ്രീമിയം സ്ട്രൈക്ക് നോക്കുന്നു'
-                                  : '⚠️ Requires Higher Balance'}
+                                  ? `⚠️ അക്കൗണ്ടിൽ മതിയായ ലൈവ് ബാലൻസ് ഇല്ല (₹${Number(sig.recommendedOptionStrike.availableCapital || 0).toLocaleString('en-IN')})`
+                                  : `⚠️ Insufficient Live Cash (₹${Number(sig.recommendedOptionStrike.availableCapital || 0).toLocaleString('en-IN')})`}
                             </span>
                           )}
                         </div>
@@ -620,14 +663,14 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-black/40 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Total Put vs Call OI</span>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className="text-sm font-black font-mono text-emerald-400">
+                <div className="p-2.5 rounded-xl bg-black/40 border border-slate-800 min-w-0 overflow-hidden">
+                  <span className="text-[10px] text-slate-400 block font-semibold truncate">Total Put vs Call OI</span>
+                  <div className="flex items-baseline gap-1 mt-0.5 min-w-0 overflow-hidden">
+                    <span className="text-xs sm:text-sm font-black font-mono text-emerald-400 truncate block">
                       {totalPutOiLakh && totalCallOiLakh ? `${totalPutOiLakh}L / ${totalCallOiLakh}L` : '--'}
                     </span>
                   </div>
-                  <span className="text-[9px] text-slate-500 block">
+                  <span className="text-[9px] text-slate-500 block truncate">
                     {hasLiveOi ? 'Put OI vs Call OI (Lakhs)' : (language === 'ml' ? 'ഡാറ്റ ലഭ്യമല്ല' : 'No Live OI Data')}
                   </span>
                 </div>
@@ -789,12 +832,14 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 block mb-1">
-                    {language === 'ml' ? 'ഓപ്ഷൻ പരമാവധി നഷ്ടങ്ങൾ' : 'Max Option Losses'}
+                    {language === 'ml' ? 'ഓപ്ഷൻ ഒരു ദിവസത്തെ പരമാവധി നഷ്ടങ്ങൾ (Max 3)' : 'Max Daily Option Losses (Max 3)'}
                   </label>
                   <input
                     type="number"
-                    value={botConfig.maxOptionLossCount || 4}
-                    onChange={(e) => onUpdateBotConfig({ maxOptionLossCount: Number(e.target.value) })}
+                    min="1"
+                    max="3"
+                    value={Math.min(3, Math.max(1, Number(botConfig.maxOptionLossCount || 3)))}
+                    onChange={(e) => onUpdateBotConfig({ maxOptionLossCount: Math.min(3, Math.max(1, Number(e.target.value) || 3)) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono text-xs focus:border-emerald-500 outline-none"
                   />
                 </div>
@@ -1112,6 +1157,15 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           const totalNetProfit = tradeHistory.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
           const grossProfit = winningTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
           const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0));
+          const totalBrokerageCharges = tradeHistory.reduce((sum, t) => {
+            const chg = Number((t as any).brokerageCharges || 0);
+            if (chg > 0) return sum + chg;
+            const buyVal = Number(t.buyPrice || 0) * Math.max(1, Number(t.quantity || 1));
+            const sellVal = Number(t.sellPrice || t.currentLTP || t.buyPrice || 0) * Math.max(1, Number(t.quantity || 1));
+            const est = 40 + sellVal * 0.00125 + (buyVal + sellVal) * 0.0005 + 40 * 0.18;
+            return sum + est;
+          }, 0);
+          const netProfitAfterCharges = totalNetProfit - totalBrokerageCharges;
           const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0.00');
           const avgWin = winningTrades.length > 0 ? grossProfit / winningTrades.length : 0;
           const avgLoss = losingTrades.length > 0 ? grossLoss / losingTrades.length : 0;
@@ -1141,29 +1195,43 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                 </span>
               </div>
 
-              {/* Real Stats overview */}
+              {/* Real Stats overview: Total Profit, Total Loss, Total Brokerage Charges, Net P&L */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
-                <div className="p-3 rounded-xl bg-black/40 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Total Realized P&L</span>
-                  <span className={`text-lg font-black font-mono mt-0.5 block ${totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {totalNetProfit >= 0 ? '+' : ''}₹{totalNetProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/50">
+                  <span className="text-[10px] text-emerald-300 block font-semibold">
+                    {language === 'ml' ? 'ആകെ ലാഭം (Total Profit)' : 'Total Profit (Gross)'}
                   </span>
-                  <span className="text-[9px] text-slate-500">From {totalTrades} Executed Trades</span>
+                  <span className="text-lg font-black font-mono mt-0.5 block text-emerald-400">
+                    +₹{grossProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[9px] text-slate-400">Wins: {winningTrades.length} Trades</span>
+                </div>
+                <div className="p-3 rounded-xl bg-rose-950/30 border border-rose-800/50">
+                  <span className="text-[10px] text-rose-300 block font-semibold">
+                    {language === 'ml' ? 'ആകെ നഷ്ടം (Total Loss)' : 'Total Loss (Gross)'}
+                  </span>
+                  <span className="text-lg font-black font-mono mt-0.5 block text-rose-400">
+                    -₹{grossLoss.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[9px] text-slate-400">Losses: {losingTrades.length} Trades</span>
+                </div>
+                <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/50">
+                  <span className="text-[10px] text-amber-300 block font-semibold">
+                    {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് & ടാക്സ്' : 'Total Brokerage Charges'}
+                  </span>
+                  <span className="text-lg font-black font-mono text-amber-400 mt-0.5 block">
+                    ₹{totalBrokerageCharges.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[9px] text-slate-400">Upstox Brokerage + Taxes</span>
                 </div>
                 <div className="p-3 rounded-xl bg-black/40 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Profit Factor</span>
-                  <span className="text-lg font-black font-mono text-white mt-0.5 block">{profitFactor}</span>
-                  <span className="text-[9px] text-emerald-400">Gross Win / Gross Loss</span>
-                </div>
-                <div className="p-3 rounded-xl bg-black/40 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Total Trades</span>
-                  <span className="text-lg font-black font-mono text-amber-400 mt-0.5 block">{totalTrades}</span>
-                  <span className="text-[9px] text-slate-500">Wins: {winningTrades.length} | Losses: {losingTrades.length}</span>
-                </div>
-                <div className="p-3 rounded-xl bg-black/40 border border-slate-800">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Avg Win / Loss Ratio</span>
-                  <span className="text-lg font-black font-mono text-cyan-400 mt-0.5 block">{winLossRatio}</span>
-                  <span className="text-[9px] text-slate-500">Real Execution Ratio</span>
+                  <span className="text-[10px] text-cyan-300 block font-semibold">
+                    {language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L (After Charges)'}
+                  </span>
+                  <span className={`text-lg font-black font-mono mt-0.5 block ${netProfitAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {netProfitAfterCharges >= 0 ? '+' : '-'}₹{Math.abs(netProfitAfterCharges).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[9px] text-slate-500">PF: {profitFactor} | W/L: {winLossRatio}</span>
                 </div>
               </div>
             </div>

@@ -75,6 +75,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [validating, setValidating] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [liveHoldingsCount, setLiveHoldingsCount] = useState<number | null>(null);
+  const [serverStaticIp, setServerStaticIp] = useState<string>('34.34.254.223');
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   useEffect(() => {
@@ -700,31 +701,61 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
             {/* Live Account Summary Row when connected */}
             {config.isConnected && (
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-500/20 text-[11px] font-mono">
-                <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
-                  <span className="text-[9px] text-slate-400 block font-sans">
-                    {language === 'ml' ? 'ലഭ്യമായ ഫണ്ട്' : 'Available Margin'}
-                  </span>
-                  <span className="text-emerald-400 font-bold">
-                    ₹{Number(config.availableMargin || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                  </span>
+              <div className="space-y-2 pt-2 border-t border-emerald-500/20 text-[11px] font-mono">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ലഭ്യമായ ഫണ്ട്' : 'Available Margin'}
+                    </span>
+                    <span className="text-emerald-400 font-bold">
+                      ₹{Number(config.availableMargin || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ഹോൾഡിങ്‌സ്' : 'Holdings'}
+                    </span>
+                    <span className="text-cyan-400 font-bold">
+                      {liveHoldingsCount !== null ? `${liveHoldingsCount} Stocks` : 'Synced'}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ടോക്കൺ കാലാവധി' : 'Token Validity'}
+                    </span>
+                    <span className="text-emerald-300 font-bold flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      <span>03:30 AM</span>
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
-                  <span className="text-[9px] text-slate-400 block font-sans">
-                    {language === 'ml' ? 'ഹോൾഡിങ്‌സ്' : 'Holdings'}
-                  </span>
-                  <span className="text-cyan-400 font-bold">
-                    {liveHoldingsCount !== null ? `${liveHoldingsCount} Stocks` : 'Synced'}
-                  </span>
-                </div>
-                <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
-                  <span className="text-[9px] text-slate-400 block font-sans">
-                    {language === 'ml' ? 'ടോക്കൺ കാലാവധി' : 'Token Validity'}
-                  </span>
-                  <span className="text-emerald-300 font-bold flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    <span>03:30 AM</span>
-                  </span>
+
+                {/* Upstox SEBI Static IP Whitelist Helper */}
+                <div className="bg-slate-950/80 px-3 py-2 rounded-lg border border-indigo-500/30 flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <span className="text-[9px] text-indigo-300 block font-sans font-bold">
+                      {language === 'ml'
+                        ? 'Upstox Static IP (Order API Whitelist ചെയ്യാൻ):'
+                        : 'Server Static IP (Whitelist in Upstox My Apps for Live Orders):'}
+                    </span>
+                    <span className="text-xs font-extrabold text-white">{serverStaticIp}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(serverStaticIp);
+                      setStatusMsg({
+                        type: 'info',
+                        text:
+                          language === 'ml'
+                            ? `📋 സെർവർ IP (${serverStaticIp}) കോപ്പി ചെയ്തു! Upstox Developer Console -> My Apps -> Static IP-യിൽ ഇത് ചേർക്കുക.`
+                            : `📋 Copied Server IP (${serverStaticIp})! Add this in Upstox Developer Console -> My Apps -> Static IP.`,
+                      });
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 text-[10px] font-sans font-bold transition"
+                  >
+                    Copy IP
+                  </button>
                 </div>
               </div>
             )}

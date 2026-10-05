@@ -16,6 +16,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { Position, Language } from '../types';
+import { calculateTradeCharges } from '../utils/indicators';
 
 interface PerformanceOverviewCardProps {
   tradeHistory: Position[];
@@ -33,6 +34,8 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
     if (totalTrades === 0) {
       return {
         totalRealizedPnL: 0,
+        totalNetRealizedPnL: 0,
+        totalBrokerageCharges: 0,
         grossProfit: 0,
         grossLoss: 0,
         winningTrades: 0,
@@ -51,6 +54,7 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
     }
 
     let totalRealizedPnL = 0;
+    let totalBrokerageCharges = 0;
     let grossProfit = 0;
     let grossLoss = 0;
     let winningTrades = 0;
@@ -65,6 +69,20 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
     tradeHistory.forEach((trade) => {
       const pnl = trade.realizedPnL || 0;
       totalRealizedPnL += pnl;
+
+      const isOpt = Boolean(
+        trade.isOption ||
+          /\b(CE|PE)\b/i.test(trade.symbol || '') ||
+          String(trade.instrumentKey || '').includes('FO')
+      );
+      const buyP = Number(trade.buyPrice || 0);
+      const sellP = Number(trade.sellPrice || trade.currentLTP || buyP);
+      const qty = Math.max(1, Number(trade.quantity || 1));
+      const tradeCharges =
+        Number((trade as any).brokerageCharges) > 0
+          ? Number((trade as any).brokerageCharges)
+          : calculateTradeCharges(buyP, qty, isOpt, sellP).roundTripCharges;
+      totalBrokerageCharges += tradeCharges;
 
       if (pnl > 0) {
         winningTrades += 1;
@@ -112,6 +130,8 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
 
     return {
       totalRealizedPnL,
+      totalNetRealizedPnL: totalRealizedPnL - totalBrokerageCharges,
+      totalBrokerageCharges,
       grossProfit,
       grossLoss,
       winningTrades,
@@ -218,6 +238,63 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
 
       {isExpanded && (
         <>
+          {/* 4-Card Total Profit, Total Loss, Total Brokerage Charges & Net Realized P&L Summary Bar */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-800/50 flex flex-col justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/90">
+                {language === 'ml' ? 'ആകെ ലാഭം (Total Profit)' : 'Total Profit (Gross)'}
+              </span>
+              <span className="text-lg sm:text-xl font-black font-mono text-emerald-400 mt-1">
+                +₹{metrics.grossProfit.toFixed(2)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {metrics.winningTrades} {language === 'ml' ? 'ലാഭ ട്രേഡുകൾ' : 'Winning Trades'}
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-rose-950/25 border border-rose-800/50 flex flex-col justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300/90">
+                {language === 'ml' ? 'ആകെ നഷ്ടം (Total Loss)' : 'Total Loss (Gross)'}
+              </span>
+              <span className="text-lg sm:text-xl font-black font-mono text-rose-400 mt-1">
+                -₹{metrics.grossLoss.toFixed(2)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {metrics.losingTrades} {language === 'ml' ? 'നഷ്ട ട്രേഡുകൾ' : 'Losing Trades'}
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-950/25 border border-amber-800/50 flex flex-col justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300/90">
+                {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് & ടാക്സ് (Total Charges)' : 'Total Brokerage & Taxes'}
+              </span>
+              <span className="text-lg sm:text-xl font-black font-mono text-amber-400 mt-1">
+                ₹{metrics.totalBrokerageCharges.toFixed(2)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {language === 'ml' ? 'Upstox ബ്രോക്കറേജ് + നികുതികൾ' : 'Brokerage + STT + GST + Stamp'}
+              </span>
+            </div>
+
+            <div className={`p-3.5 rounded-xl border flex flex-col justify-between ${
+              metrics.totalNetRealizedPnL >= 0
+                ? 'bg-emerald-950/30 border-emerald-500/40'
+                : 'bg-rose-950/30 border-rose-500/40'
+            }`}>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">
+                {language === 'ml' ? 'അറ്റ ലാഭം / നഷ്ടം (Net P&L)' : 'Net P&L (After Brokerage)'}
+              </span>
+              <span className={`text-lg sm:text-xl font-black font-mono mt-1 ${
+                metrics.totalNetRealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'
+              }`}>
+                {metrics.totalNetRealizedPnL >= 0 ? '+' : '-'}₹{Math.abs(metrics.totalNetRealizedPnL).toFixed(2)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono mt-0.5">
+                {language === 'ml' ? 'എല്ലാ ചാർജുകളും കിഴിച്ച ശേഷം' : 'Realized PnL minus all charges'}
+              </span>
+            </div>
+          </div>
+
           {/* 3 Core Primary KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         

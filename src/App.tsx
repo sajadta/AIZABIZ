@@ -54,7 +54,12 @@ import { UpstoxApiModal } from './components/UpstoxApiModal';
 import { AlertsModal } from './components/AlertsModal';
 import { AndroidInstallModal } from './components/AndroidInstallModal';
 import { OnboardingSetupModal } from './components/OnboardingSetupModal';
-import { enrichCandlesWithIndicators, analyzeTradingSignals } from './utils/indicators';
+import {
+  enrichCandlesWithIndicators,
+  analyzeTradingSignals,
+  calculateTradeCharges,
+  calculateAffordableLotsWithBrokerage,
+} from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
 
 const INITIAL_WATCHLIST_SYMBOLS: StockQuote[] = [
@@ -239,6 +244,9 @@ export const App: React.FC = () => {
 
         if (botRes.status === 'fulfilled' && botRes.value) {
           setBotConfig(prev => ({ ...prev, ...botRes.value }));
+          if (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE') {
+            setMode(botRes.value.mode);
+          }
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
           const cfg = configRes.value;
@@ -251,7 +259,6 @@ export const App: React.FC = () => {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
             } catch (e) {}
-            setMode('UPSTOX_LIVE');
           }
           setApiConfig(prev => ({ ...prev, ...cfg }));
         }
@@ -305,10 +312,27 @@ export const App: React.FC = () => {
     };
 
     updateQuotes();
-    const timer = setInterval(updateQuotes, 3000);
+    const timer = setInterval(updateQuotes, 1200);
+
+    // Also subscribe to SSE (/api/stream/quotes) for sub-second real-time tick streaming
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/stream/quotes');
+      es.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'QUOTES' && Array.isArray(msg.data) && msg.data.length > 0 && isMounted) {
+            setQuotes(msg.data);
+            setIsWsConnected(true);
+          }
+        } catch {}
+      };
+    } catch {}
+
     return () => {
       isMounted = false;
       clearInterval(timer);
+      if (es) es.close();
     };
   }, [apiConfig.accessToken]);
 
@@ -349,7 +373,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchRealCandles();
-    const candleIntervalTimer = setInterval(fetchRealCandles, 8000);
+    const candleIntervalTimer = setInterval(fetchRealCandles, 3500);
     return () => clearInterval(candleIntervalTimer);
   }, [fetchRealCandles]);
 
@@ -419,13 +443,15 @@ export const App: React.FC = () => {
       const ltp = optType === 'CE' ? atm.callLTP : atm.putLTP;
       if (!ltp || ltp <= 0) return undefined;
       const lotSz = atm.lotSize || optionChainData.lotSize || 1;
-      const oneLotCost = Number((ltp * lotSz).toFixed(2));
+      const charges = calculateTradeCharges(ltp, lotSz, true, ltp * 1.27);
+      const oneLotCost = charges.tradeValue;
       const availCap =
-        mode === 'UPSTOX_LIVE' && apiConfig.availableMargin > 0
+        mode === 'UPSTOX_LIVE'
           ? botConfig.maxCapitalPerTrade > 0
             ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade)
             : apiConfig.availableMargin
           : botConfig.maxCapitalPerTrade || 25000;
+      const lotCalc = calculateAffordableLotsWithBrokerage(ltp, lotSz, availCap, true, 5);
       return {
         strikePrice: atm.strikePrice,
         optionType: optType,
@@ -439,7 +465,10 @@ export const App: React.FC = () => {
         pcr: optionChainData.pcr,
         instrumentKey: optType === 'CE' ? atm.callInstrumentKey : atm.putInstrumentKey,
         requiredCapital: oneLotCost,
-        affordableLots: availCap > 0 && oneLotCost > 0 ? Math.floor(availCap / oneLotCost) : 1,
+        estimatedBrokerage: charges.roundTripCharges,
+        totalRequiredWithBrokerage: charges.totalRequiredWithBrokerage,
+        expectedNetProfit: Number((ltp * 0.27 * lotSz - charges.roundTripCharges).toFixed(2)),
+        affordableLots: lotCalc.affordableLots,
         availableCapital: availCap,
       };
     })();
@@ -614,7 +643,7 @@ export const App: React.FC = () => {
     }
   }, [apiConfig.accessToken]);
 
-  // Fetch real Upstox live positions
+  // Fetch real Upstox live positions AND Paper Trading positions/orders from backend
   const fetchLivePositions = useCallback(async () => {
     let token = apiConfig.accessToken;
     if (!token) {
@@ -629,20 +658,84 @@ export const App: React.FC = () => {
     }
 
     try {
-      const res = await fetch('/api/market/positions', { headers });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setPositions(prev => {
-            const paperOnly = prev.filter(p => p.mode === 'PAPER_TRADING');
-            return [...data, ...paperOnly];
-          });
+      const [livePosRes, paperPosRes, paperOrdRes, paperHistRes] = await Promise.allSettled([
+        token ? fetch('/api/market/positions', { headers }) : Promise.resolve(null),
+        fetch('/api/trading/positions?mode=PAPER_TRADING'),
+        fetch('/api/trading/orders?mode=PAPER_TRADING'),
+        fetch('/api/trading/history?mode=PAPER_TRADING'),
+      ]);
+
+      let livePosList: Position[] = [];
+      if (livePosRes.status === 'fulfilled' && livePosRes.value && livePosRes.value.ok) {
+        const data = await livePosRes.value.json();
+        if (Array.isArray(data)) livePosList = data;
+      }
+
+      let paperPosList: Position[] = [];
+      if (paperPosRes.status === 'fulfilled' && paperPosRes.value && paperPosRes.value.ok) {
+        const pData = await paperPosRes.value.json();
+        if (Array.isArray(pData)) {
+          paperPosList = pData.map((p: any) => ({
+            ...p,
+            mode: 'PAPER_TRADING',
+            productType: p.productType || 'INTRADAY',
+            pnl: Number((p.pnl || 0).toFixed(2)),
+            pnlPercent: p.buyPrice > 0 ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2)) : 0,
+            openedAt: p.openedAt || new Date().toLocaleTimeString(),
+          }));
         }
+      }
+
+      if (mode === 'PAPER_TRADING') {
+        setPositions(paperPosList);
+      } else {
+        // In UPSTOX_LIVE mode, strictly show ONLY real Upstox positions (never mix dummy/paper positions!)
+        setPositions(livePosList);
+      }
+
+      if (mode === 'PAPER_TRADING') {
+        if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
+          const oData = await paperOrdRes.value.json();
+          if (Array.isArray(oData)) {
+            setOrders(oData.map((o: any) => ({
+              id: o.id,
+              orderId: o.orderId || o.id,
+              symbol: o.symbol,
+              instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
+              transactionType: o.transactionType || o.type || 'BUY',
+              orderType: o.orderType || 'MARKET',
+              productType: o.productType || 'INTRADAY',
+              quantity: o.quantity,
+              price: o.price,
+              executedPrice: o.executedPrice || o.price,
+              status: o.status || 'COMPLETE',
+              timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
+              mode: 'PAPER_TRADING',
+            })));
+          }
+        }
+        if (paperHistRes.status === 'fulfilled' && paperHistRes.value && paperHistRes.value.ok) {
+          const hData = await paperHistRes.value.json();
+          if (Array.isArray(hData)) {
+            setTradeHistory(hData);
+          }
+        }
+      } else if (token) {
+        // In UPSTOX_LIVE mode, fetch real Upstox order book
+        try {
+          const liveOrdRes = await fetch('/api/market/orders', { headers });
+          if (liveOrdRes.ok) {
+            const liveOrdData = await liveOrdRes.json();
+            if (Array.isArray(liveOrdData)) {
+              setOrders(liveOrdData);
+            }
+          }
+        } catch {}
       }
     } catch (e) {
       console.warn('Positions fetch notice:', e);
     }
-  }, [apiConfig.accessToken]);
+  }, [apiConfig.accessToken, mode]);
 
   useEffect(() => {
     if (activeTab === 'OPTIONS') {
@@ -681,47 +774,50 @@ export const App: React.FC = () => {
 
     const matchedHolding = holdings.find(h => h.symbol === orderData.symbol);
     const matchedQuote = quotes.find(q => q.symbol === orderData.symbol);
+    const isOpt = /\b(CE|PE)\b/i.test(orderData.symbol);
     const resolvedInstrumentKey =
       orderData.instrumentKey ||
       (matchedHolding as any)?.instrumentKey ||
       matchedQuote?.instrumentKey ||
-      `NSE_EQ|${orderData.symbol}`;
+      (isOpt ? `NSE_FO|${orderData.symbol}` : `NSE_EQ|${orderData.symbol}`);
 
-    if (mode === 'UPSTOX_LIVE') {
-      try {
-        const res = await fetch('/api/trading/order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'UPSTOX_LIVE',
-            symbol: orderData.symbol,
-            instrumentKey: resolvedInstrumentKey,
-            productType: orderData.productType,
-            orderType: orderData.orderType,
-            initialType: orderData.transactionType,
-            quantity: orderData.quantity,
-            price: orderData.orderType === 'MARKET' ? 0 : orderData.price,
-            triggerPrice: orderData.triggerPrice || 0,
-          }),
-        });
-        const data = await res.json();
-        if (!data.success) {
-          setBotLogs(prev => [
-            {
-              id: Date.now().toString(),
-              timestamp: new Date().toLocaleTimeString(),
-              message: `[UPSTOX ORDER ERROR] ${data.error || 'Order rejected by Upstox API'}`,
-              type: 'ERROR',
-            },
-            ...prev.slice(0, 199),
-          ]);
-          return;
-        }
-        fetchHoldings();
-        fetchLivePositions();
-      } catch (e: any) {
+    try {
+      const res = await fetch('/api/trading/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          symbol: orderData.symbol,
+          instrumentKey: resolvedInstrumentKey,
+          productType: orderData.productType,
+          orderType: orderData.orderType,
+          initialType: orderData.transactionType,
+          quantity: orderData.quantity,
+          price: mode === 'UPSTOX_LIVE' && orderData.orderType === 'MARKET' ? 0 : executedPrice,
+          triggerPrice: orderData.triggerPrice || 0,
+          stopLoss: orderData.stopLoss,
+          target: orderData.target,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setBotLogs(prev => [
+          {
+            id: Date.now().toString(),
+            timestamp: new Date().toLocaleTimeString(),
+            message: `[ORDER ERROR] ${data.error || 'Order rejected'}`,
+            type: 'ERROR',
+          },
+          ...prev.slice(0, 199),
+        ]);
         return;
       }
+      if (mode === 'UPSTOX_LIVE') {
+        fetchHoldings();
+      }
+      fetchLivePositions();
+    } catch (e: any) {
+      if (mode === 'UPSTOX_LIVE') return;
     }
 
     const orderIdTime = Date.now().toString().slice(-6);
@@ -729,7 +825,7 @@ export const App: React.FC = () => {
       id: `ord_${Date.now()}`,
       orderId: `UP_${orderIdTime}`,
       symbol: orderData.symbol,
-      instrumentKey: currentQuote?.instrumentKey || `NSE_EQ|${orderData.symbol}`,
+      instrumentKey: resolvedInstrumentKey,
       transactionType: orderData.transactionType,
       orderType: orderData.orderType,
       productType: orderData.productType,
@@ -743,11 +839,20 @@ export const App: React.FC = () => {
 
     setOrders(prev => [newOrder, ...prev]);
 
-    // Update positions
+    // Update positions locally for immediate UI feedback
+    if (orderData.transactionType === 'SELL') {
+      const existing = positions.find(p => p.symbol === orderData.symbol);
+      if (existing) {
+        handleSquareOffPosition(existing.id);
+        setIsOrderModalOpen(false);
+        return;
+      }
+    }
+
     const newPos: Position = {
       id: `pos_${Date.now()}`,
       symbol: orderData.symbol,
-      instrumentKey: newOrder.instrumentKey,
+      instrumentKey: resolvedInstrumentKey,
       productType: orderData.productType,
       quantity: orderData.quantity,
       buyPrice: executedPrice,
@@ -767,13 +872,48 @@ export const App: React.FC = () => {
     setIsOrderModalOpen(false);
   };
 
-  // Square off single position
-  const handleSquareOffPosition = (id: string) => {
+  // Square off single position (both Paper Trading and Upstox Live)
+  const handleSquareOffPosition = async (id: string) => {
     const pos = positions.find(p => p.id === id);
     if (!pos) return;
 
     const sellPrice = pos.currentLTP;
     const grossPnL = (sellPrice - pos.buyPrice) * pos.quantity;
+    const posMode = pos.mode || mode;
+
+    try {
+      let headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const savedTok = localStorage.getItem('upstox_daily_token');
+      if (savedTok && savedTok.length > 30) {
+        headers['Authorization'] = `Bearer ${savedTok}`;
+      }
+      const res = await fetch(`/api/trading/squareoff/${encodeURIComponent(pos.id)}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          mode: posMode,
+          symbol: pos.symbol,
+          instrumentKey: pos.instrumentKey,
+          quantity: pos.quantity,
+          productType: pos.productType,
+          sellPrice,
+        }),
+      });
+      const data = await res.json();
+      if (posMode === 'UPSTOX_LIVE' && !data.success) {
+        setBotLogs(prev => [
+          {
+            id: Date.now().toString(),
+            timestamp: new Date().toLocaleTimeString(),
+            message: `[SQUARE-OFF ERROR] ${data.error || 'Could not square off live position on Upstox'}`,
+            type: 'ERROR',
+          },
+          ...prev.slice(0, 199),
+        ]);
+        return;
+      }
+    } catch {}
+
     const closedPos: Position = {
       ...pos,
       sellPrice,
@@ -860,20 +1000,27 @@ export const App: React.FC = () => {
     }
 
     const baseLot = liveLot > 0 ? liveLot : 1;
-    const oneLotCost = Number((price * baseLot).toFixed(2));
+    const oneLotCharges = calculateTradeCharges(price, baseLot, isOptionTrade, sig.target1 || price * 1.25);
+    const oneLotCost = oneLotCharges.tradeValue;
+    const oneLotBrokerage = oneLotCharges.roundTripCharges;
+    const oneLotTotalWithBrokerage = oneLotCharges.totalRequiredWithBrokerage;
+
+    // Strict Capital & Brokerage Separation:
+    // - UPSTOX_LIVE: strictly uses real Upstox account cash (apiConfig.availableMargin), never dummy cash!
+    // - PAPER_TRADING: uses allocated virtual/dummy capital (botConfig.maxCapitalPerTrade || 25000).
     const effectiveCap =
-      mode === 'UPSTOX_LIVE' && apiConfig.availableMargin > 0
+      mode === 'UPSTOX_LIVE'
         ? botConfig.maxCapitalPerTrade > 0
           ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade)
           : apiConfig.availableMargin
         : botConfig.maxCapitalPerTrade || 25000;
 
-    if (mode === 'UPSTOX_LIVE' && apiConfig.availableMargin > 0 && oneLotCost > apiConfig.availableMargin) {
+    if (mode === 'UPSTOX_LIVE' && (apiConfig.availableMargin <= 0 || oneLotTotalWithBrokerage > apiConfig.availableMargin)) {
       setBotLogs(prev => [
         {
           id: Date.now().toString(),
           timestamp: new Date().toLocaleTimeString(),
-          message: `[CAPITAL GUARD] Cannot buy ${symbol}: 1 Lot (${baseLot} Qty @ ₹${price}) requires ₹${oneLotCost.toLocaleString('en-IN')}, which exceeds your Upstox available margin (₹${apiConfig.availableMargin.toLocaleString('en-IN')}).`,
+          message: `[LIVE CAPITAL & BROKERAGE GUARD] Cannot buy ${symbol} in UPSTOX_LIVE mode: 1 Lot (${baseLot} Qty @ ₹${price}) requires ₹${oneLotTotalWithBrokerage.toLocaleString('en-IN')} (Premium ₹${oneLotCost.toLocaleString('en-IN')} + Brokerage & Taxes ₹${oneLotBrokerage.toFixed(2)}), but your Upstox available cash is ₹${apiConfig.availableMargin.toLocaleString('en-IN')}. Dummy cash is never used in Live mode.`,
           type: 'ERROR',
         },
         ...prev.slice(0, 199),
@@ -881,10 +1028,8 @@ export const App: React.FC = () => {
       return;
     }
 
-    const affordableLots =
-      effectiveCap > 0 && oneLotCost > 0
-        ? Math.min(5, Math.max(1, Math.floor(effectiveCap / oneLotCost)))
-        : 1;
+    const lotCalc = calculateAffordableLotsWithBrokerage(price, baseLot, effectiveCap, isOptionTrade, 5);
+    const affordableLots = lotCalc.affordableLots > 0 ? lotCalc.affordableLots : 1;
     const qty = isOptionTrade ? affordableLots * baseLot : baseLot;
 
     // For Option buying (both CE and PE), transactionType is ALWAYS 'BUY'!
@@ -937,15 +1082,38 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (quotes.length === 0) return;
 
-    // A. Update open positions MTM P&L
+    // A. Update open positions MTM P&L (supports both Equity/Index and Option Strikes via optionChainData or quotes)
     setPositions(prev => {
       if (prev.length === 0) return prev;
       return prev.map(pos => {
-        const q = quotes.find(item => pos.symbol.startsWith(item.symbol) || item.symbol === pos.symbol);
-        if (!q) return pos;
-        const currentLTP = pos.symbol.includes('CE') || pos.symbol.includes('PE')
-          ? pos.currentLTP
-          : q.ltp;
+        let currentLTP = pos.currentLTP;
+        const isOpt = pos.symbol.includes('CE') || pos.symbol.includes('PE');
+
+        if (isOpt) {
+          // 1. Check if live quote exists directly for the option instrumentKey
+          const directOptQuote = quotes.find(
+            item => item.instrumentKey === pos.instrumentKey || item.symbol === pos.symbol
+          );
+          if (directOptQuote && directOptQuote.ltp > 0 && directOptQuote.ltp < pos.buyPrice * 50) {
+            currentLTP = directOptQuote.ltp;
+          } else if (optionChainData && optionChainData.strikes?.length > 0) {
+            // 2. Match strike from live Option Chain data
+            const strikeMatch = pos.symbol.match(/(\d+)\s*(CE|PE)/i);
+            if (strikeMatch) {
+              const strikeNum = Number(strikeMatch[1]);
+              const optType = strikeMatch[2].toUpperCase();
+              const row = optionChainData.strikes.find(s => s.strikePrice === strikeNum);
+              if (row) {
+                const chainLtp = optType === 'CE' ? row.callLTP : row.putLTP;
+                if (chainLtp > 0) currentLTP = chainLtp;
+              }
+            }
+          }
+        } else {
+          const q = quotes.find(item => pos.symbol.startsWith(item.symbol) || item.symbol === pos.symbol);
+          if (q && q.ltp > 0) currentLTP = q.ltp;
+        }
+
         const isBuy = pos.type === 'BUY' || !pos.type;
         const pnl = isBuy ? (currentLTP - pos.buyPrice) * pos.quantity : (pos.buyPrice - currentLTP) * pos.quantity;
         const pnlPercent = pos.buyPrice > 0 ? (pnl / (pos.buyPrice * pos.quantity)) * 100 : 0;
@@ -1103,13 +1271,15 @@ export const App: React.FC = () => {
               const ltp = optType === 'CE' ? atm.callLTP : atm.putLTP;
               const lotSz = atm.lotSize || optionChainData.lotSize || 1;
               if (ltp > 0) {
-                const oneLotCost = Number((ltp * lotSz).toFixed(2));
+                const charges = calculateTradeCharges(ltp, lotSz, true, ltp * 1.27);
+                const oneLotCost = charges.tradeValue;
                 const availCap =
-                  mode === 'UPSTOX_LIVE' && apiConfig.availableMargin > 0
+                  mode === 'UPSTOX_LIVE'
                     ? botConfig.maxCapitalPerTrade > 0
                       ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade)
                       : apiConfig.availableMargin
                     : botConfig.maxCapitalPerTrade || 25000;
+                const lotCalc = calculateAffordableLotsWithBrokerage(ltp, lotSz, availCap, true, 5);
                 optMetrics = {
                   strikePrice: atm.strikePrice,
                   optionType: optType,
@@ -1123,7 +1293,10 @@ export const App: React.FC = () => {
                   pcr: optionChainData.pcr,
                   instrumentKey: optType === 'CE' ? atm.callInstrumentKey : atm.putInstrumentKey,
                   requiredCapital: oneLotCost,
-                  affordableLots: availCap > 0 && oneLotCost > 0 ? Math.floor(availCap / oneLotCost) : 1,
+                  estimatedBrokerage: charges.roundTripCharges,
+                  totalRequiredWithBrokerage: charges.totalRequiredWithBrokerage,
+                  expectedNetProfit: Number((ltp * 0.27 * lotSz - charges.roundTripCharges).toFixed(2)),
+                  affordableLots: lotCalc.affordableLots,
                   availableCapital: availCap,
                 };
               }
@@ -1142,6 +1315,15 @@ export const App: React.FC = () => {
           );
 
           if (sig && (sig.confidenceScore || sig.confidence || 0) >= (botConfig.minConfidence || 75) && (sig.signalType === 'BUY' || sig.signalType === 'SELL')) {
+            // In UPSTOX_LIVE mode, never auto-execute if real Upstox cash is insufficient for (1 Lot Premium + Brokerage & Taxes)
+            const reqCapWithBrokerage =
+              sig.recommendedOptionStrike?.totalRequiredWithBrokerage ||
+              sig.recommendedOptionStrike?.requiredCapital ||
+              sig.price ||
+              0;
+            if (mode === 'UPSTOX_LIVE' && (apiConfig.availableMargin <= 0 || reqCapWithBrokerage > apiConfig.availableMargin)) {
+              continue;
+            }
             handleExecuteSignal(sig);
             setBotLogs(prev => [
               {
@@ -1176,7 +1358,18 @@ export const App: React.FC = () => {
       <Header
         isWsConnected={isWsConnected}
         mode={mode}
-        setMode={setMode}
+        setMode={(newMode) => {
+          setMode(newMode);
+          setBotConfig(prev => {
+            const updated = { ...prev, mode: newMode };
+            fetch('/api/bot/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updated),
+            }).catch(() => {});
+            return updated;
+          });
+        }}
         language={language}
         setLanguage={setLanguage}
         soundEnabled={soundEnabled}
@@ -1468,6 +1661,9 @@ export const App: React.FC = () => {
                 <AlgoBotPanel
                   botConfig={botConfig}
                   onUpdateBotConfig={(cfg) => {
+                    if (cfg.mode) {
+                      setMode(cfg.mode);
+                    }
                     setBotConfig(prev => {
                       const updated = { ...prev, ...cfg };
                       fetch('/api/bot/config', {

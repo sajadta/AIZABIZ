@@ -253,7 +253,158 @@ export interface RealOptionMetrics {
   instrumentKey?: string;
   affordableLots?: number;
   requiredCapital?: number;
+  estimatedBrokerage?: number;
+  totalRequiredWithBrokerage?: number;
+  expectedNetProfit?: number;
   availableCapital?: number;
+}
+
+export interface TradeChargesBreakdown {
+  tradeValue: number;
+  buyBrokerage: number;
+  sellBrokerage: number;
+  stt: number;
+  exchangeTxnCharge: number;
+  sebiCharge: number;
+  stampDuty: number;
+  gst: number;
+  buyCharges: number;
+  sellCharges: number;
+  roundTripCharges: number;
+  totalRequiredWithBrokerage: number;
+}
+
+/**
+ * Calculates exact Upstox Brokerage + Statutory Taxes (STT, NSE/BSE Exchange Txn, GST 18%, Stamp Duty, SEBI)
+ * for both BUY entry and SELL exit (Round-Trip) so account cash checks always include full brokerage!
+ */
+export function calculateTradeCharges(
+  entryPrice: number,
+  quantity: number,
+  isOption: boolean = true,
+  exitPriceOverride?: number,
+): TradeChargesBreakdown {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const buyPrice = Math.max(0, Number(entryPrice) || 0);
+  const sellPrice =
+    exitPriceOverride !== undefined && exitPriceOverride > 0
+      ? Number(exitPriceOverride)
+      : Number((buyPrice * 1.25).toFixed(2));
+
+  const buyValue = buyPrice * qty;
+  const sellValue = sellPrice * qty;
+
+  if (isOption) {
+    // Upstox F&O Options: ₹20 flat per executed order (₹20 Buy + ₹20 Sell = ₹40 base brokerage)
+    const buyBrokerage = 20;
+    const buyTxn = buyValue * 0.0005; // 0.05% exchange txn charge
+    const buySebi = buyValue * 0.000001;
+    const buyStamp = buyValue * 0.00003; // 0.003% stamp duty on BUY
+    const buyGst = (buyBrokerage + buyTxn + buySebi) * 0.18;
+    const buyCharges = buyBrokerage + buyTxn + buySebi + buyStamp + buyGst;
+
+    const sellBrokerage = 20;
+    const sellStt = sellValue * 0.001; // 0.1% STT on Option SELL
+    const sellTxn = sellValue * 0.0005;
+    const sellSebi = sellValue * 0.000001;
+    const sellGst = (sellBrokerage + sellTxn + sellSebi) * 0.18;
+    const sellCharges = sellBrokerage + sellStt + sellTxn + sellSebi + sellGst;
+
+    const roundTripCharges = Number((buyCharges + sellCharges).toFixed(2));
+    return {
+      tradeValue: Number(buyValue.toFixed(2)),
+      buyBrokerage,
+      sellBrokerage,
+      stt: Number(sellStt.toFixed(2)),
+      exchangeTxnCharge: Number((buyTxn + sellTxn).toFixed(2)),
+      sebiCharge: Number((buySebi + sellSebi).toFixed(2)),
+      stampDuty: Number(buyStamp.toFixed(2)),
+      gst: Number((buyGst + sellGst).toFixed(2)),
+      buyCharges: Number(buyCharges.toFixed(2)),
+      sellCharges: Number(sellCharges.toFixed(2)),
+      roundTripCharges,
+      totalRequiredWithBrokerage: Number((buyValue + roundTripCharges).toFixed(2)),
+    };
+  } else {
+    // Equity Intraday/Delivery: min(₹20, 0.05% of turnover)
+    const buyBrokerage = Math.min(20, buyValue * 0.0005);
+    const buyTxn = buyValue * 0.0000345;
+    const buySebi = buyValue * 0.000001;
+    const buyStamp = buyValue * 0.00003;
+    const buyGst = (buyBrokerage + buyTxn + buySebi) * 0.18;
+    const buyCharges = buyBrokerage + buyTxn + buySebi + buyStamp + buyGst;
+
+    const sellBrokerage = Math.min(20, sellValue * 0.0005);
+    const sellStt = sellValue * 0.00025;
+    const sellTxn = sellValue * 0.0000345;
+    const sellSebi = sellValue * 0.000001;
+    const sellGst = (sellBrokerage + sellTxn + sellSebi) * 0.18;
+    const sellCharges = sellBrokerage + sellStt + sellTxn + sellSebi + sellGst;
+
+    const roundTripCharges = Number((buyCharges + sellCharges).toFixed(2));
+    return {
+      tradeValue: Number(buyValue.toFixed(2)),
+      buyBrokerage: Number(buyBrokerage.toFixed(2)),
+      sellBrokerage: Number(sellBrokerage.toFixed(2)),
+      stt: Number(sellStt.toFixed(2)),
+      exchangeTxnCharge: Number((buyTxn + sellTxn).toFixed(2)),
+      sebiCharge: Number((buySebi + sellSebi).toFixed(2)),
+      stampDuty: Number(buyStamp.toFixed(2)),
+      gst: Number((buyGst + sellGst).toFixed(2)),
+      buyCharges: Number(buyCharges.toFixed(2)),
+      sellCharges: Number(sellCharges.toFixed(2)),
+      roundTripCharges,
+      totalRequiredWithBrokerage: Number((buyValue + roundTripCharges).toFixed(2)),
+    };
+  }
+}
+
+/**
+ * Calculates how many lots (1 to maxLots) can be bought within availableCapital
+ * AFTER including full Round-Trip Brokerage + Statutory Taxes.
+ */
+export function calculateAffordableLotsWithBrokerage(
+  ltp: number,
+  lotSize: number,
+  availableCapital: number,
+  isOption: boolean = true,
+  maxLots: number = 5,
+): {
+  affordableLots: number;
+  oneLotPremium: number;
+  oneLotBrokerage: number;
+  oneLotTotalRequired: number;
+} {
+  const lotSz = Math.max(1, Number(lotSize) || 1);
+  const price = Math.max(0, Number(ltp) || 0);
+  const oneLotCharges = calculateTradeCharges(price, lotSz, isOption);
+
+  if (availableCapital <= 0 || price <= 0) {
+    return {
+      affordableLots: 0,
+      oneLotPremium: oneLotCharges.tradeValue,
+      oneLotBrokerage: oneLotCharges.roundTripCharges,
+      oneLotTotalRequired: oneLotCharges.totalRequiredWithBrokerage,
+    };
+  }
+
+  let bestLots = 0;
+  for (let lots = 1; lots <= maxLots; lots++) {
+    const qty = lots * lotSz;
+    const charges = calculateTradeCharges(price, qty, isOption);
+    if (charges.totalRequiredWithBrokerage <= availableCapital) {
+      bestLots = lots;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    affordableLots: bestLots,
+    oneLotPremium: oneLotCharges.tradeValue,
+    oneLotBrokerage: oneLotCharges.roundTripCharges,
+    oneLotTotalRequired: oneLotCharges.totalRequiredWithBrokerage,
+  };
 }
 
 export function analyzeTradingSignals(
@@ -425,6 +576,34 @@ export function analyzeTradingSignals(
     bearishPoints -= 10;
   }
 
+  // 10.5 STRICT IMMEDIATE PRICE ACTION & MOMENTUM ALIGNMENT FILTER (Prevents Counter-Trend Losses!)
+  // Even if lagging indicators (SuperTrend / EMA50) point one way, NEVER buy a Call (CE) if the last 3-5 minutes are actively falling,
+  // and NEVER buy a Put (PE) if the last 3-5 minutes are actively bouncing/rising!
+  const prev3 = candles[Math.max(0, candles.length - 4)];
+  const prev5 = candles[Math.max(0, candles.length - 6)];
+  const move3m = currentLtp - prev3.close;
+  const move5m = currentLtp - prev5.close;
+  const lastCandleBullish = currentLtp >= last.open && last.close >= prev.close;
+  const lastCandleBearish = currentLtp <= last.open && last.close <= prev.close;
+
+  if (move3m > 0 && move5m > 0 && lastCandleBullish && currentLtp > ema9) {
+    // Strong immediate upward thrust: boost CE, strictly block PE!
+    bullishPoints += 22;
+    bearishPoints -= 45;
+  } else if (move3m < 0 && move5m < 0 && lastCandleBearish && currentLtp < ema9) {
+    // Strong immediate downward thrust: boost PE, strictly block CE!
+    bearishPoints += 22;
+    bullishPoints -= 45;
+  } else {
+    // Mixed or counter-trend chop: penalize whichever side is fighting immediate price action
+    if (move3m < 0 || currentLtp < last.open) {
+      bullishPoints -= 30; // Block buying CE while current candle/3m is red
+    }
+    if (move3m > 0 || currentLtp > last.open) {
+      bearishPoints -= 30; // Block buying PE while current candle/3m is green
+    }
+  }
+
   // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV) & OI Validation
   if (optionMetrics) {
     const absDelta = Math.abs(optionMetrics.delta ?? 0.5);
@@ -549,17 +728,27 @@ export function analyzeTradingSignals(
     optT2 = Number((optEntry + risk * 3.0).toFixed(2));
     optT3 = Number((optEntry + risk * 4.5).toFixed(2));
 
+    const lotSzForCalc = optionMetrics?.lotSize || 1;
+    const oneLotCharges = calculateTradeCharges(optEntry, lotSzForCalc, true, optT1);
+    const estBrokerage = optionMetrics?.estimatedBrokerage ?? oneLotCharges.roundTripCharges;
+    const totalReqWithBrok =
+      optionMetrics?.totalRequiredWithBrokerage ?? oneLotCharges.totalRequiredWithBrokerage;
+    const grossProfit1Lot = (optT1 - optEntry) * lotSzForCalc;
+    const netProfit1Lot =
+      optionMetrics?.expectedNetProfit ?? Number((grossProfit1Lot - estBrokerage).toFixed(2));
+
     if (optionMetrics) {
-      const capNoteEn = optionMetrics.requiredCapital
-        ? ` | 1 Lot (${optionMetrics.lotSize} Qty) Cost: ₹${optionMetrics.requiredCapital.toLocaleString("en-IN")}${optionMetrics.affordableLots ? ` (${optionMetrics.affordableLots} Lot fit within Balance)` : ""}`
-        : "";
-      const capNoteMl = optionMetrics.requiredCapital
-        ? ` | 1 ലോട്ട് (${optionMetrics.lotSize} Qty) തുക: ₹${optionMetrics.requiredCapital.toLocaleString("en-IN")}${optionMetrics.affordableLots ? ` (അക്കൗണ്ട് ബാലൻസിൽ വാങ്ങാവുന്നത്: ${optionMetrics.affordableLots} Lot)` : ""}`
-        : "";
+      const capNoteEn = ` | 1 Lot (${lotSzForCalc} Qty): Premium ₹${oneLotCharges.tradeValue.toLocaleString("en-IN")} + Brokerage & Taxes ₹${estBrokerage.toFixed(0)} = Total ₹${totalReqWithBrok.toLocaleString("en-IN")} (Est. Net Profit: +₹${netProfit1Lot.toFixed(0)})${optionMetrics.affordableLots ? ` [${optionMetrics.affordableLots} Lot Fit Balance]` : ""}`;
+      const capNoteMl = ` | 1 ലോട്ട് (${lotSzForCalc} Qty): പ്രീമിയം ₹${oneLotCharges.tradeValue.toLocaleString("en-IN")} + ബ്രോക്കറേജ് & ടാക്സ് ₹${estBrokerage.toFixed(0)} = ആകെ ₹${totalReqWithBrok.toLocaleString("en-IN")} (അറ്റ ലാഭം: +₹${netProfit1Lot.toFixed(0)})${optionMetrics.affordableLots ? ` [ബാലൻസിൽ വാങ്ങാവുന്നത്: ${optionMetrics.affordableLots} Lot]` : ""}`;
       rationale += ` Selected high-momentum ${optSymbol} @ ₹${optEntry} (Δ ${Number(optionMetrics.delta ?? 0.52).toFixed(2)}, IV ${Number(optionMetrics.iv ?? 14).toFixed(1)}%)${capNoteEn}.`;
       rationaleMalayalam += ` തിരഞ്ഞെടുത്ത ലാഭകരമായ ഓപ്ഷൻ: ${optSymbol} @ ₹${optEntry} (Δ ${Number(optionMetrics.delta ?? 0.52).toFixed(2)}, IV ${Number(optionMetrics.iv ?? 14).toFixed(1)}%)${capNoteMl}.`;
     }
   }
+
+  const fallbackLotSz = optionMetrics?.lotSize || 1;
+  const fallbackCharges = optSymbol
+    ? calculateTradeCharges(optEntry, fallbackLotSz, true, optT1)
+    : undefined;
 
   return {
     id: `sig_${symbol}_${Date.now()}`,
@@ -599,7 +788,15 @@ export function analyzeTradingSignals(
           oi: optionMetrics?.oi,
           volume: optionMetrics?.volume,
           instrumentKey: optionMetrics?.instrumentKey,
-          requiredCapital: optionMetrics?.requiredCapital,
+          requiredCapital: optionMetrics?.requiredCapital ?? fallbackCharges?.tradeValue,
+          estimatedBrokerage: optionMetrics?.estimatedBrokerage ?? fallbackCharges?.roundTripCharges,
+          totalRequiredWithBrokerage:
+            optionMetrics?.totalRequiredWithBrokerage ?? fallbackCharges?.totalRequiredWithBrokerage,
+          expectedNetProfit:
+            optionMetrics?.expectedNetProfit ??
+            (fallbackCharges
+              ? Number(((optT1 - optEntry) * fallbackLotSz - fallbackCharges.roundTripCharges).toFixed(2))
+              : undefined),
           affordableLots: optionMetrics?.affordableLots,
           availableCapital: optionMetrics?.availableCapital,
           underlyingSpot: currentLtp,

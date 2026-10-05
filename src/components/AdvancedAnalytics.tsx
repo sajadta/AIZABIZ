@@ -28,6 +28,14 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
 
     const totalProfit = history.filter(t => t.realizedPnL > 0).reduce((a, b) => a + b.realizedPnL, 0);
     const totalLoss = Math.abs(history.filter(t => t.realizedPnL < 0).reduce((a, b) => a + b.realizedPnL, 0));
+    const totalBrokerage = history.reduce((sum, t: any) => {
+        if (Number(t.brokerageCharges) > 0) return sum + Number(t.brokerageCharges);
+        const qty = Math.max(1, Number(t.quantity || 1));
+        const buyVal = Number(t.buyPrice || 0) * qty;
+        const sellVal = Number(t.sellPrice || t.buyPrice || 0) * qty;
+        return sum + (40 + sellVal * 0.00125 + (buyVal + sellVal) * 0.0005 + 40 * 0.18);
+    }, 0);
+    const netAfterCharges = cumulative - totalBrokerage;
     const winRate = history.length > 0 ? ((history.filter(t => t.realizedPnL > 0).length / history.length) * 100).toFixed(1) : 0;
 
     return (
@@ -37,26 +45,34 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
                 Performance Analytics & Equity Curve
             </h3>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <p className="text-xs text-slate-400">Total PnL</p>
-                    <p className={`text-lg font-bold ${cumulative >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        ₹{cumulative.toFixed(2)}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="bg-emerald-950/30 p-3 rounded-lg border border-emerald-800/50">
+                    <p className="text-xs text-emerald-300/90 font-semibold">Total Profit</p>
+                    <p className="text-lg font-bold font-mono text-emerald-400">
+                        +₹{totalProfit.toFixed(2)}
+                    </p>
+                </div>
+                <div className="bg-rose-950/30 p-3 rounded-lg border border-rose-800/50">
+                    <p className="text-xs text-rose-300/90 font-semibold">Total Loss</p>
+                    <p className="text-lg font-bold font-mono text-rose-400">
+                        -₹{totalLoss.toFixed(2)}
+                    </p>
+                </div>
+                <div className="bg-amber-950/30 p-3 rounded-lg border border-amber-800/50">
+                    <p className="text-xs text-amber-300/90 font-semibold">Total Brokerage</p>
+                    <p className="text-lg font-bold font-mono text-amber-400">
+                        ₹{totalBrokerage.toFixed(2)}
                     </p>
                 </div>
                 <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <p className="text-xs text-slate-400">Win Rate</p>
-                    <p className="text-lg font-bold text-blue-400">{winRate}%</p>
-                </div>
-                <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <p className="text-xs text-slate-400">Total Trades</p>
-                    <p className="text-lg font-bold text-slate-200">{history.length}</p>
-                </div>
-                <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                    <p className="text-xs text-slate-400">Profit Factor</p>
-                    <p className="text-lg font-bold text-indigo-400">
-                        {totalLoss === 0 ? (totalProfit > 0 ? 'MAX' : '0.0') : (totalProfit / totalLoss).toFixed(2)}
+                    <p className="text-xs text-cyan-300 font-semibold">Net P&L (After Tax)</p>
+                    <p className={`text-lg font-bold font-mono ${netAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {netAfterCharges >= 0 ? '+' : '-'}₹{Math.abs(netAfterCharges).toFixed(2)}
                     </p>
+                </div>
+                <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                    <p className="text-xs text-slate-400">Win Rate ({history.length} Trades)</p>
+                    <p className="text-lg font-bold font-mono text-blue-400">{winRate}%</p>
                 </div>
             </div>
 
