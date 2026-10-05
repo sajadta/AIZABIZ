@@ -61,15 +61,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   const displayCandles = useMemo(() => {
     if (candles.length === 0) return [];
-    const currentCandles = [...candles];
+    const currentCandles = candles.filter(
+      (c) => c && c.close > 0 && c.high > 0 && c.low > 0 && c.open > 0
+    );
+    if (currentCandles.length === 0) return [];
     const lastCandleIndex = currentCandles.length - 1;
-    
-    if (quote && quote.ltp) {
-       const lastCandle = { ...currentCandles[lastCandleIndex] };
-       lastCandle.close = quote.ltp;
-       if (quote.ltp > lastCandle.high) lastCandle.high = quote.ltp;
-       if (quote.ltp < lastCandle.low) lastCandle.low = quote.ltp;
-       currentCandles[lastCandleIndex] = lastCandle;
+
+    if (quote && quote.ltp && quote.ltp > 0) {
+      const lastCandle = { ...currentCandles[lastCandleIndex] };
+      // Only merge live quote if it belongs to the same price scale (<15% difference)
+      const diffRatio = Math.abs(quote.ltp - lastCandle.close) / lastCandle.close;
+      if (diffRatio <= 0.15) {
+        lastCandle.close = quote.ltp;
+        if (quote.ltp > lastCandle.high) lastCandle.high = quote.ltp;
+        if (quote.ltp < lastCandle.low) lastCandle.low = quote.ltp;
+        currentCandles[lastCandleIndex] = lastCandle;
+      }
     }
     return currentCandles;
   }, [candles, quote]);
@@ -127,23 +134,26 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
       priceFormat: { type: 'volume' },
-      priceScaleId: '', 
+      priceScaleId: 'volume_scale',
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
-    chart.priceScale('').applyOptions({
+    chart.priceScale('volume_scale').applyOptions({
       scaleMargins: {
-        top: 0.8,
+        top: 0.82,
         bottom: 0,
       },
+      visible: false,
     });
     seriesRef.current.volume = volumeSeries;
 
     // EMA Series
-    seriesRef.current.ema9 = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, crosshairMarkerVisible: false });
-    seriesRef.current.ema21 = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 2, crosshairMarkerVisible: false });
-    seriesRef.current.ema50 = chart.addSeries(LineSeries, { color: '#a855f7', lineWidth: 2, crosshairMarkerVisible: false });
+    seriesRef.current.ema9 = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
+    seriesRef.current.ema21 = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
+    seriesRef.current.ema50 = chart.addSeries(LineSeries, { color: '#a855f7', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
 
     // Supertrend Series
-    seriesRef.current.supertrend = chart.addSeries(LineSeries, { color: '#10b981', lineWidth: 2, crosshairMarkerVisible: false });
+    seriesRef.current.supertrend = chart.addSeries(LineSeries, { color: '#10b981', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
 
     const resizeObserver = new ResizeObserver(() => {
        handleResize();
@@ -158,19 +168,36 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     };
   }, []);
 
+  const lastFittedKeyRef = useRef<string>('');
+
   useEffect(() => {
-    if (!seriesRef.current.candlestick || displayCandles.length === 0) return;
+    if (!seriesRef.current.candlestick) return;
+
+    if (displayCandles.length === 0) {
+      seriesRef.current.candlestick.setData([]);
+      seriesRef.current.volume?.setData([]);
+      seriesRef.current.ema9?.setData([]);
+      seriesRef.current.ema21?.setData([]);
+      seriesRef.current.ema50?.setData([]);
+      seriesRef.current.supertrend?.setData([]);
+      seriesRef.current.candlestickMarkers?.setMarkers([]);
+      return;
+    }
+
+    // Convert UTC epoch to IST (+5 hours 30 minutes = 19800 seconds) for Lightweight Charts display so axis shows exact Indian Market Time (09:15 - 15:30 IST)
+    const IST_OFFSET_SECONDS = 19800;
 
     // Prepare data - ensure unique timestamps and integers
     const uniqueCandlesMap = new Map();
     displayCandles.forEach(c => {
-       uniqueCandlesMap.set(Math.floor(c.timestamp / 1000), c);
+       const istSec = Math.floor(c.timestamp / 1000) + IST_OFFSET_SECONDS;
+       uniqueCandlesMap.set(istSec, { ...c, _istSec: istSec });
     });
     
-    const uniqueCandles = Array.from(uniqueCandlesMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+    const uniqueCandles = Array.from(uniqueCandlesMap.values()).sort((a, b) => a._istSec - b._istSec);
 
     const candlestickData = uniqueCandles.map(c => ({
-      time: Math.floor(c.timestamp / 1000) as any,
+      time: c._istSec as any,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -178,7 +205,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }));
 
     const volumeData = uniqueCandles.map(c => ({
-      time: Math.floor(c.timestamp / 1000) as any,
+      time: c._istSec as any,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
     }));
@@ -194,11 +221,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const markers: any[] = [];
 
     uniqueCandles.forEach((c) => {
-      const time = Math.floor(c.timestamp / 1000) as any;
-      if (c.ema9) ema9Data.push({ time, value: c.ema9 });
-      if (c.ema21) ema21Data.push({ time, value: c.ema21 });
-      if (c.ema50) ema50Data.push({ time, value: c.ema50 });
-      if (c.supertrend) supertrendData.push({ time, value: c.supertrend });
+      const time = c._istSec as any;
+      if (c.ema9 && c.ema9 > 0) ema9Data.push({ time, value: c.ema9 });
+      if (c.ema21 && c.ema21 > 0) ema21Data.push({ time, value: c.ema21 });
+      if (c.ema50 && c.ema50 > 0) ema50Data.push({ time, value: c.ema50 });
+      if (c.supertrend && c.supertrend > 0) supertrendData.push({ time, value: c.supertrend });
 
       // Add Buy/Sell Markers
       if (c.signal === 'BUY') {
@@ -226,7 +253,14 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     seriesRef.current.candlestickMarkers?.setMarkers(markers);
 
-  }, [displayCandles, showEMA, showSupertrend]);
+    const currentFitKey = `${symbol}_${interval}`;
+    if (lastFittedKeyRef.current !== currentFitKey && chartRef.current) {
+      lastFittedKeyRef.current = currentFitKey;
+      chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+      chartRef.current.timeScale().fitContent();
+    }
+
+  }, [displayCandles, showEMA, showSupertrend, symbol, interval]);
 
   const currentLtp = quote?.ltp || (displayCandles[displayCandles.length - 1]?.close || 0);
   const currentChange = quote?.changePercent || 0;
@@ -235,16 +269,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 bg-slate-900/80 text-slate-200 overflow-hidden">
       {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800 bg-[#070a12] gap-1.5 sm:gap-3 shrink-0 w-full max-w-full min-w-0 overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800/90 bg-[#080c16] gap-1.5 sm:gap-3 shrink-0 w-full max-w-full min-w-0 overflow-hidden">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm sm:text-base font-black text-slate-100">{symbol}</h2>
-            <div className="flex items-center gap-1.5 font-mono">
+            <h2 className="text-sm sm:text-base font-black text-white tracking-tight">{symbol}</h2>
+            <div className="flex items-center gap-1.5 font-mono-num">
               <span className={`text-sm sm:text-base font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {currentLtp > 0 ? `₹${currentLtp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Live...'}
               </span>
               {currentLtp > 0 && (
-                <span className={`text-[10px] sm:text-xs px-1.5 py-0.2 rounded font-bold ${isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                <span className={`text-[10px] sm:text-xs px-1.5 py-0.5 rounded font-bold border ${isPositive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border-rose-500/30'}`}>
                   {isPositive ? '+' : ''}{currentChange.toFixed(2)}%
                 </span>
               )}
@@ -252,35 +286,33 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
 
           {/* Quick Buy/Sell for mobile right top */}
-          {!symbol.includes('NIFTY') && !symbol.includes('SENSEX') && quote?.segment !== 'INDEX' && (
-            <div className="flex sm:hidden items-center gap-1">
-              <button 
-                onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
-              >
-                BUY
-              </button>
-              <button 
-                onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
-                className="bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
-              >
-                SELL
-              </button>
-            </div>
-          )}
+          <div className="flex sm:hidden items-center gap-1.5">
+            <button 
+              onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
+              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-emerald-950"
+            >
+              BUY
+            </button>
+            <button 
+              onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
+              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-rose-950"
+            >
+              SELL
+            </button>
+          </div>
         </div>
 
         {/* Intervals & Indicators */}
         <div className="flex items-center justify-between sm:justify-end gap-2 overflow-x-auto no-scrollbar py-0.5">
-          <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800 shrink-0">
+          <div className="flex bg-slate-900/90 rounded-xl p-0.5 border border-slate-800 shrink-0">
             {intervals.map((int) => (
               <button
                 key={int}
                 onClick={() => onChangeInterval(int)}
-                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-md transition-colors ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all ${
                   interval === int
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
                 }`}
               >
                 {int}
@@ -291,21 +323,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           <div className="flex items-center gap-1 sm:gap-1.5 border-l border-slate-800 pl-2 shrink-0">
              <button
               onClick={() => setShowSupertrend(!showSupertrend)}
-              className={`p-1 sm:p-1.5 rounded-md transition-colors ${showSupertrend ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'}`}
+              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${showSupertrend ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
               title="Toggle Supertrend"
             >
               <TrendingUp size={15} />
             </button>
             <button
               onClick={() => setShowEMA(!showEMA)}
-              className={`p-1 sm:p-1.5 rounded-md transition-colors ${showEMA ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:bg-slate-800'}`}
-              title="Toggle EMA"
+              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${showEMA ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
+              title="Toggle EMA (9/21)"
             >
               <Layers size={15} />
             </button>
             <button
               onClick={() => setActiveSubChart(activeSubChart === 'RSI' ? 'MACD' : activeSubChart === 'MACD' ? 'NONE' : 'RSI')}
-              className={`p-1 sm:p-1.5 rounded-md transition-colors ${activeSubChart !== 'NONE' ? 'bg-purple-500/20 text-purple-400' : 'text-slate-500 hover:bg-slate-800'}`}
+              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${activeSubChart !== 'NONE' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
               title="Toggle Sub-chart (RSI/MACD)"
             >
               <Sliders size={15} />
@@ -313,22 +345,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
 
           {/* Desktop Buy/Sell */}
-          {!symbol.includes('NIFTY') && !symbol.includes('SENSEX') && quote?.segment !== 'INDEX' && (
-            <div className="hidden sm:flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
-              <button 
-                onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
-              >
-                BUY
-              </button>
-              <button 
-                onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
-                className="bg-rose-600 hover:bg-rose-500 text-white px-3.5 py-1 rounded-lg text-xs font-bold transition shadow-sm"
-              >
-                SELL
-              </button>
-            </div>
-          )}
+          <div className="hidden sm:flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
+            <button 
+              onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
+              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-3.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-emerald-950"
+            >
+              BUY
+            </button>
+            <button 
+              onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
+              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-3.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-rose-950"
+            >
+              SELL
+            </button>
+          </div>
         </div>
       </div>
 

@@ -65,11 +65,13 @@ export interface OptionStrike {
   putVolume: number;
   putDelta?: number;
   putInstrumentKey?: string;
+  lotSize?: number;
 }
 
 export interface OptionChainData {
   underlyingSymbol: string;
   underlyingLTP: number;
+  lotSize?: number;
   expiryDates: string[];
   selectedExpiry: string;
   strikes: OptionStrike[];
@@ -123,6 +125,15 @@ export interface TradingSignal {
     ltp: number;
     expiry: string;
     delta: number;
+    lotSize?: number;
+    iv?: number;
+    oi?: number;
+    volume?: number;
+    instrumentKey?: string;
+    requiredCapital?: number;
+    affordableLots?: number;
+    availableCapital?: number;
+    underlyingSpot?: number;
   };
   timestamp: string;
   status: 'ACTIVE' | 'EXECUTED' | 'TARGET_HIT' | 'SL_HIT' | 'EXPIRED';

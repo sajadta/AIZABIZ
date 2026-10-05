@@ -57,19 +57,19 @@ export const Header: React.FC<HeaderProps> = ({
   const t = translations[language];
 
   return (
-    <header className="w-full max-w-full min-w-0 bg-slate-900/95 backdrop-blur border-b border-slate-800 sticky top-0 z-40 px-1.5 sm:px-6 py-1 overflow-x-auto no-scrollbar shrink-0">
+    <header className="w-full max-w-full min-w-0 bg-[#080c16]/95 backdrop-blur-md border-b border-slate-800/90 sticky top-0 z-40 px-2 sm:px-6 py-1.5 overflow-x-auto no-scrollbar shrink-0 shadow-lg shadow-black/30">
       <div className="w-full max-w-[1720px] mx-auto flex items-center justify-between gap-1 sm:gap-4 min-w-0">
         
         {/* Brand & Market Status */}
         <div className="flex items-center gap-1 sm:gap-3 min-w-0 shrink">
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <div 
-              style={{ width: '32px', height: '32px', minWidth: '32px', minHeight: '32px', maxWidth: '36px', maxHeight: '36px' }}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#0b0f19] border border-slate-600/50 p-0.5 shadow-lg shadow-purple-500/20 flex items-center justify-center shrink-0"
+              style={{ width: '34px', height: '34px', minWidth: '34px', minHeight: '34px', maxWidth: '36px', maxHeight: '36px' }}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-emerald-500/30 via-slate-800 to-indigo-500/30 border border-emerald-500/40 p-0.5 shadow-md shadow-emerald-950/50 flex items-center justify-center shrink-0"
             >
-              <div className="w-full h-full bg-[#090d16] rounded-[8px] sm:rounded-[10px] flex items-center justify-center overflow-hidden">
+              <div className="w-full h-full bg-[#090d16] rounded-[9px] flex items-center justify-center overflow-hidden">
                 <img 
-                  src="/src/assets/images/aizabiz_logo_1787123141675.jpg" 
+                  src="/aizabiz-logo.jpg" 
                   alt="AIZABIZ Logo" 
                   width={36}
                   height={36}
@@ -79,11 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs sm:text-lg font-black tracking-tight text-slate-200 drop-shadow-sm">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs sm:text-lg font-black tracking-tight text-white drop-shadow-sm">
                   AIZA<span className="text-emerald-400">BIZ</span>
                 </span>
-                <span className="px-1 py-0.2 sm:px-1.5 sm:py-0.5 rounded text-[8px] sm:text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="px-1.5 py-0.5 rounded text-[8px] sm:text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                   PRO
                 </span>
               </div>

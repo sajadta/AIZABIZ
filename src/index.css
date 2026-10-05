@@ -19,11 +19,20 @@ html, body, #root {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #070a12;
+  color: #f8fafc;
+}
+
+/* Tabular financial numbers with zero horizontal jitter on live ticks */
+.font-mono-num,
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" on, "zero" on;
 }
 
 /* Ensure mobile safe areas (notches and navigation pills) */
@@ -42,12 +51,43 @@ html, body, #root {
 }
 
 /* Hide scrollbars for slick mobile touch-scrolling */
-.no-scrollbar::-webkit-scrollbar {
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
   display: none;
 }
-.no-scrollbar {
+.no-scrollbar,
+.scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Refined sleek dark scrollbar for data tables */
+.webkit-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.webkit-scrollbar::-webkit-scrollbar-track {
+  background: rgba(7, 10, 18, 0.6);
+}
+.webkit-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.6);
+  border-radius: 9999px;
+}
+.webkit-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.5);
+}
+
+@keyframes livePulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35), 0 0 14px -2px rgba(16, 185, 129, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.08), 0 0 20px 0px rgba(16, 185, 129, 0.4);
+  }
+}
+
+.live-pulse {
+  animation: livePulseGlow 2.4s infinite ease-in-out;
 }
 
 @keyframes flashUp {

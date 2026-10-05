@@ -236,6 +236,26 @@ export function enrichCandlesWithIndicators(
   }));
 }
 
+export interface RealOptionMetrics {
+  optionSymbol?: string;
+  strikePrice: number;
+  optionType: "CE" | "PE";
+  ltp: number;
+  expiry: string;
+  lotSize: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  iv?: number;
+  oi?: number;
+  volume?: number;
+  pcr?: number;
+  instrumentKey?: string;
+  affordableLots?: number;
+  requiredCapital?: number;
+  availableCapital?: number;
+}
+
 export function analyzeTradingSignals(
   symbol: string,
   name: string,
@@ -244,6 +264,7 @@ export function analyzeTradingSignals(
   currentLtp: number,
   strategy: StrategyKey = "PROFIT_MAX_100_PERCENT_MATRIX",
   realOptionPrice?: number,
+  optionMetrics?: RealOptionMetrics,
 ): TradingSignal | null {
   if (!candles || candles.length < 20) return null;
 
@@ -326,20 +347,17 @@ export function analyzeTradingSignals(
   else bearishPoints += 30;
 
   // 2. EMA Cross (Momentum) - 25 Points
-  // Only score if the crossover is clear and diverging
   if (readings.emaCross.signal === "BULLISH" && ema9 > ema21 * 1.0005)
     bullishPoints += 25;
   else if (readings.emaCross.signal === "BEARISH" && ema9 < ema21 * 0.9995)
     bearishPoints += 25;
 
   // 3. RSI (Strength) - 20 Points
-  // Avoid buying at absolute tops (RSI > 75) or selling at bottoms (RSI < 25)
   if (readings.rsi.value >= 52 && readings.rsi.value <= 72) bullishPoints += 20;
   else if (readings.rsi.value <= 48 && readings.rsi.value >= 28)
     bearishPoints += 20;
 
   // 4. MACD (Acceleration) - 15 Points
-  // Check if MACD histogram is growing, not just positive
   if (
     (readings.macd.cross === "BULLISH" || macdHist > 0) &&
     macdHist > prevMacdHist
@@ -356,23 +374,19 @@ export function analyzeTradingSignals(
   else bearishPoints += 10;
 
   // 6. Institutional Smart Money Concepts (SMC) & Liquidity Hunt Detection
-  // Check for Fair Value Gaps (FVG) and Order Blocks in recent 5 candles
   const recentCandles = candles.slice(-5);
   let smcBullishImbalance = false;
   let smcBearishImbalance = false;
   if (recentCandles.length >= 3) {
     const c1 = recentCandles[recentCandles.length - 3];
     const c3 = recentCandles[recentCandles.length - 1];
-    // Bullish FVG: Low of candle 3 is higher than High of candle 1 (Aggressive institutional buying gap)
     if (c3.low > c1.high) smcBullishImbalance = true;
-    // Bearish FVG: High of candle 3 is lower than Low of candle 1 (Aggressive institutional selling gap)
     if (c3.high < c1.low) smcBearishImbalance = true;
   }
   if (smcBullishImbalance) bullishPoints += 15;
   if (smcBearishImbalance) bearishPoints += 15;
 
-  // 7. Liquidity Sweep & Retail Trap Filter:
-  // If price created a new high but closed near the low with high upper wick (Shooting Star/Liquidity Sweep)
+  // 7. Liquidity Sweep & Retail Trap Filter
   const lastUpperWick = last.high - Math.max(last.open, last.close);
   const lastLowerWick = Math.min(last.open, last.close) - last.low;
   const candleRange = last.high - last.low || 1;
@@ -380,30 +394,26 @@ export function analyzeTradingSignals(
   const isBearTrapSweep = lastLowerWick / candleRange > 0.55;
 
   if (isBullTrapSweep) {
-    bullishPoints -= 25; // Heavily penalize false breakout traps
+    bullishPoints -= 25;
     bearishPoints += 10;
   }
   if (isBearTrapSweep) {
-    bearishPoints -= 25; // Heavily penalize false breakdown traps
+    bearishPoints -= 25;
     bullishPoints += 10;
   }
 
   // 8. Theta Decay Shield (Time-of-day Option Decay Protection)
-  // Options bleed heavily during mid-day consolidation (11:45 AM - 1:15 PM IST)
-  // Avoid entering low-momentum trades during theta-bleed hours unless confidence is ultra-high
   const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
   const hoursIst = nowIst.getHours();
   const minsIst = nowIst.getMinutes();
   const isThetaChopZone = (hoursIst === 11 && minsIst >= 45) || (hoursIst === 12) || (hoursIst === 13 && minsIst <= 15);
   if (isThetaChopZone && Math.abs(macdHist) < 0.5) {
-    bullishPoints -= 12; // Filter out chop
+    bullishPoints -= 12;
     bearishPoints -= 12;
   }
 
   // 9. Volatility & Trap Filter (Penalty)
-  // If RSI is extremely overbought, penalize bullish score
   if (readings.rsi.value > 80) bullishPoints -= 15;
-  // If RSI is extremely oversold, penalize bearish score
   if (readings.rsi.value < 20) bearishPoints -= 15;
 
   // 10. Candlestick Anatomy
@@ -413,6 +423,32 @@ export function analyzeTradingSignals(
   if (isDoji) {
     bullishPoints -= 10;
     bearishPoints -= 10;
+  }
+
+  // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV) & OI Validation
+  if (optionMetrics) {
+    const absDelta = Math.abs(optionMetrics.delta ?? 0.5);
+    // High-responsiveness ATM/ITM Delta (0.45 to 0.72) boosts option profitability
+    if (absDelta >= 0.45 && absDelta <= 0.75) {
+      if (optionMetrics.optionType === "CE") bullishPoints += 8;
+      else bearishPoints += 8;
+    } else if (absDelta < 0.25) {
+      // Penalize deep OTM lottery strikes that bleed to Theta
+      bullishPoints -= 15;
+      bearishPoints -= 15;
+    }
+
+    // IV Crush Filter: Penalize dangerously inflated Implied Volatility (> 45%)
+    if (optionMetrics.iv && optionMetrics.iv > 45) {
+      bullishPoints -= 10;
+      bearishPoints -= 10;
+    }
+
+    // Put-Call Ratio (PCR) Institutional Alignment
+    if (optionMetrics.pcr) {
+      if (optionMetrics.optionType === "CE" && optionMetrics.pcr >= 0.95) bullishPoints += 5;
+      if (optionMetrics.optionType === "PE" && optionMetrics.pcr <= 1.05) bearishPoints += 5;
+    }
   }
 
   const totalBullishConfidence = Math.min(99, Math.max(10, bullishPoints));
@@ -427,6 +463,29 @@ export function analyzeTradingSignals(
   let rationale = "";
   let rationaleMalayalam = "";
 
+  const symUpper = symbol.toUpperCase();
+  let indexPrefix = symUpper;
+  let strikeStep = 50;
+  if (symUpper.includes("BANKEX")) {
+    indexPrefix = "BANKEX";
+    strikeStep = 100;
+  } else if (symUpper.includes("SENSEX")) {
+    indexPrefix = "SENSEX";
+    strikeStep = 100;
+  } else if (symUpper.includes("MID SELECT") || symUpper.includes("MIDCP")) {
+    indexPrefix = "MIDCPNIFTY";
+    strikeStep = 25;
+  } else if (symUpper.includes("FIN")) {
+    indexPrefix = "FINNIFTY";
+    strikeStep = 50;
+  } else if (symUpper.includes("BANK")) {
+    indexPrefix = "BANKNIFTY";
+    strikeStep = 100;
+  } else if (symUpper.includes("NIFTY")) {
+    indexPrefix = "NIFTY";
+    strikeStep = 50;
+  }
+
   if (totalBullishConfidence >= 60) {
     signalType = "BUY";
     confidence = totalBullishConfidence;
@@ -435,8 +494,8 @@ export function analyzeTradingSignals(
     target1 = Number((currentLtp + risk * 1.5).toFixed(2));
     target2 = Number((currentLtp + risk * 2.5).toFixed(2));
     target3 = Number((currentLtp + risk * 4.0).toFixed(2));
-    rationale = `Strong Bullish Confluence: SuperTrend Green, EMA9 (${ema9}) > EMA21 (${ema21}), RSI ${rsi} showing strong upward momentum, MACD Histogram positive.`;
-    rationaleMalayalam = `ശക്തമായ ബുള്ളിഷ് സിഗ്നൽ: സൂപ്പർട്രെൻഡ് ബൈ മോഡിൽ, EMA ക്രോസ്സ് ഓവർ അനുകൂലം, RSI ${rsi} ശക്തമായ മുന്നേറ്റം കാണിക്കുന്നു, MACD പോസിറ്റീവ് സോണിൽ.`;
+    rationale = `[Layer-1 Index + Layer-2 Option Premium Confluence] ${symbol} Spot (₹${currentLtp}) is bullish: SuperTrend BUY, EMA9 (${ema9}) > EMA21 (${ema21}), RSI ${rsi}.`;
+    rationaleMalayalam = `[ഇൻഡക്സ് + ഓപ്ഷൻ പ്രീമിയം അനാലിസിസ്] ${symbol} സ്പോട്ട് (₹${currentLtp}) ശക്തമായ ബുള്ളിഷ് ട്രെൻഡിൽ: സൂപ്പർട്രെൻഡ് ബൈ മോഡിൽ, EMA9 > EMA21, RSI ${rsi}.`;
   } else if (totalBearishConfidence >= 60) {
     signalType = "SELL";
     confidence = totalBearishConfidence;
@@ -445,8 +504,8 @@ export function analyzeTradingSignals(
     target1 = Number((currentLtp - risk * 1.5).toFixed(2));
     target2 = Number((currentLtp - risk * 2.5).toFixed(2));
     target3 = Number((currentLtp - risk * 4.0).toFixed(2));
-    rationale = `Strong Bearish Confluence: SuperTrend Red, EMA9 (${ema9}) < EMA21 (${ema21}), RSI ${rsi} dropping below equilibrium, MACD Histogram negative.`;
-    rationaleMalayalam = `ശക്തമായ ബെയറിഷ് സിഗ്നൽ: സൂപ്പർട്രെൻഡ് സെൽ മോഡിൽ, EMA താഴ്ന്ന ട്രെൻഡിൽ, RSI ${rsi} താഴേക്ക്, വിൽക്കാനുള്ള അനുകൂല ഘടകം.`;
+    rationale = `[Layer-1 Index + Layer-2 Option Premium Confluence] ${symbol} Spot (₹${currentLtp}) is bearish: SuperTrend SELL, EMA9 (${ema9}) < EMA21 (${ema21}), RSI ${rsi} -> Buying PUT (PE) Option.`;
+    rationaleMalayalam = `[ഇൻഡക്സ് + ഓപ്ഷൻ പ്രീമിയം അനാലിസിസ്] ${symbol} സ്പോട്ട് (₹${currentLtp}) ബെയറിഷ് ട്രെൻഡിൽ: സൂപ്പർട്രെൻഡ് സെൽ, EMA താഴേക്ക് -> ലാഭകരമായ PUT (PE) ഓപ്ഷൻ വാങ്ങുന്നു.`;
   } else {
     signalType = "HOLD";
     confidence = 50;
@@ -459,23 +518,13 @@ export function analyzeTradingSignals(
   const rrRatio = `1:${(rewardDiff / (riskDiff || 1)).toFixed(1)}`;
 
   const isBullish = signalType === "BUY";
-  let optSymbol = "";
-  if (
-    symbol.includes("NIFTY") &&
-    !symbol.includes("BANK") &&
-    !symbol.includes("FIN")
-  ) {
-    const strike = Math.round(currentLtp / 50) * 50;
-    optSymbol = `NIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
-  } else if (symbol.includes("BANK")) {
-    const strike = Math.round(currentLtp / 100) * 100;
-    optSymbol = `BANKNIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
-  } else if (symbol.includes("FIN")) {
-    const strike = Math.round(currentLtp / 50) * 50;
-    optSymbol = `FINNIFTY ${strike} ${isBullish ? "CE" : "PE"}`;
-  } else if (symbol.includes("SENSEX")) {
-    const strike = Math.round(currentLtp / 100) * 100;
-    optSymbol = `SENSEX ${strike} ${isBullish ? "CE" : "PE"}`;
+  const optType: "CE" | "PE" = optionMetrics?.optionType || (isBullish ? "CE" : "PE");
+  const defaultStrike = Math.round(currentLtp / strikeStep) * strikeStep;
+  const chosenStrike = optionMetrics?.strikePrice || defaultStrike;
+
+  let optSymbol = optionMetrics?.optionSymbol || "";
+  if (!optSymbol && (symUpper.includes("NIFTY") || symUpper.includes("SENSEX") || symUpper.includes("BANKEX") || symUpper.includes("MIDCP"))) {
+    optSymbol = `${indexPrefix} ${chosenStrike} ${optType}`;
   }
 
   let optEntry = currentLtp;
@@ -486,28 +535,37 @@ export function analyzeTradingSignals(
 
   if (optSymbol) {
     let basePremium = 100;
-    if (symbol.includes("BANK")) basePremium = 300;
-    else if (symbol.includes("SENSEX")) basePremium = 350;
+    if (indexPrefix === "BANKNIFTY" || indexPrefix === "BANKEX") basePremium = 280;
+    else if (indexPrefix === "SENSEX") basePremium = 320;
+    else if (indexPrefix === "MIDCPNIFTY") basePremium = 65;
 
-    // USE REAL OPTION PRICE IF AVAILABLE, OTHERWISE USE BASE
-    optEntry = realOptionPrice ? realOptionPrice : basePremium;
+    optEntry = Number((optionMetrics?.ltp || realOptionPrice || basePremium).toFixed(2));
 
-    // Option Stop Loss: typically 20% of premium
-    optSL = Number((optEntry * 0.8).toFixed(2));
-    const risk = optEntry - optSL;
+    // Option Stop Loss: 15% of option premium for tight risk control, Targets 1.6x, 2.8x, 4.2x
+    optSL = Number((optEntry * 0.85).toFixed(2));
+    const risk = Math.max(1, optEntry - optSL);
 
-    // Targets based on Risk/Reward multipliers on the premium itself
-    optT1 = Number((optEntry + risk * 1.5).toFixed(2));
-    optT2 = Number((optEntry + risk * 2.5).toFixed(2));
-    optT3 = Number((optEntry + risk * 4.0).toFixed(2));
+    optT1 = Number((optEntry + risk * 1.8).toFixed(2));
+    optT2 = Number((optEntry + risk * 3.0).toFixed(2));
+    optT3 = Number((optEntry + risk * 4.5).toFixed(2));
+
+    if (optionMetrics) {
+      const capNoteEn = optionMetrics.requiredCapital
+        ? ` | 1 Lot (${optionMetrics.lotSize} Qty) Cost: ₹${optionMetrics.requiredCapital.toLocaleString("en-IN")}${optionMetrics.affordableLots ? ` (${optionMetrics.affordableLots} Lot fit within Balance)` : ""}`
+        : "";
+      const capNoteMl = optionMetrics.requiredCapital
+        ? ` | 1 ലോട്ട് (${optionMetrics.lotSize} Qty) തുക: ₹${optionMetrics.requiredCapital.toLocaleString("en-IN")}${optionMetrics.affordableLots ? ` (അക്കൗണ്ട് ബാലൻസിൽ വാങ്ങാവുന്നത്: ${optionMetrics.affordableLots} Lot)` : ""}`
+        : "";
+      rationale += ` Selected high-momentum ${optSymbol} @ ₹${optEntry} (Δ ${Number(optionMetrics.delta ?? 0.52).toFixed(2)}, IV ${Number(optionMetrics.iv ?? 14).toFixed(1)}%)${capNoteEn}.`;
+      rationaleMalayalam += ` തിരഞ്ഞെടുത്ത ലാഭകരമായ ഓപ്ഷൻ: ${optSymbol} @ ₹${optEntry} (Δ ${Number(optionMetrics.delta ?? 0.52).toFixed(2)}, IV ${Number(optionMetrics.iv ?? 14).toFixed(1)}%)${capNoteMl}.`;
+    }
   }
 
   return {
     id: `sig_${symbol}_${Date.now()}`,
     symbol: optSymbol || symbol,
-
     name,
-    instrumentKey,
+    instrumentKey: optionMetrics?.instrumentKey || instrumentKey,
     underlyingInstrumentKey: instrumentKey,
     signalType,
     strategyName:
@@ -519,6 +577,7 @@ export function analyzeTradingSignals(
             ? "VWAP Institutional Bounce"
             : "100% High-Accuracy Profit Matrix",
     confidenceScore: confidence,
+    confidence,
     price: optEntry,
     stopLoss: optSL,
     target1: optT1,
@@ -528,6 +587,24 @@ export function analyzeTradingSignals(
     rationale,
     rationaleMalayalam,
     indicators: readings,
+    recommendedOptionStrike: optSymbol
+      ? {
+          strikePrice: chosenStrike,
+          optionType: optType,
+          ltp: optEntry,
+          expiry: optionMetrics?.expiry || "Current Weekly",
+          delta: Number((optionMetrics?.delta ?? (isBullish ? 0.54 : -0.54)).toFixed(2)),
+          lotSize: optionMetrics?.lotSize,
+          iv: optionMetrics?.iv,
+          oi: optionMetrics?.oi,
+          volume: optionMetrics?.volume,
+          instrumentKey: optionMetrics?.instrumentKey,
+          requiredCapital: optionMetrics?.requiredCapital,
+          affordableLots: optionMetrics?.affordableLots,
+          availableCapital: optionMetrics?.availableCapital,
+          underlyingSpot: currentLtp,
+        }
+      : undefined,
     timestamp: new Date().toLocaleTimeString("en-IN", {
       hour: "2-digit",
       minute: "2-digit",

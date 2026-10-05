@@ -227,7 +227,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-800 bg-black/20/60 px-1 pt-2.5 gap-2 text-xs font-black overflow-x-auto scrollbar-none">
+      <div className="flex border-b border-slate-800 bg-black/30 px-1 pt-2.5 gap-2 text-xs font-black overflow-x-auto scrollbar-none">
         <button
           onClick={() => setActiveTab('SIGNALS')}
           className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
@@ -434,28 +434,72 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                     </div>
                   </div>
 
-                  {/* Option Strike Recommendation Pill */}
+                  {/* Option Strike Recommendation & Capital Affordability Pill */}
                   {sig.recommendedOptionStrike && (
-                    <div className="mt-2.5 p-2 rounded-lg bg-gradient-to-r from-indigo-950/40 to-slate-900 border border-indigo-500/30 flex items-center justify-between gap-2 flex-wrap">
-                      <div>
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 block">
-                          {language === 'ml' ? '⚡ ഓപ്ഷൻ സ്ട്രൈക്ക് ശുപാർശ (ATM)' : '⚡ Recommended ATM Option Strike'}
-                        </span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs font-black text-white font-mono">
-                            {sig.recommendedOptionStrike.strikePrice} {sig.recommendedOptionStrike.optionType}
+                    <div className="mt-2.5 p-2.5 rounded-xl bg-gradient-to-r from-indigo-950/50 via-slate-900 to-emerald-950/30 border border-indigo-500/30 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-indigo-300 flex items-center gap-1">
+                            <span>
+                              {language === 'ml'
+                                ? '⚡ ഡ്യുവൽ-ലെയർ അനാലിസിസ് (Index Spot + Option Premium & Greeks)'
+                                : '⚡ Dual-Layer Analysis (Index Spot + Option Premium & Greeks)'}
+                            </span>
                           </span>
-                          <span className="text-[11px] font-bold text-emerald-400 font-mono">
-                            LTP: ₹{sig.recommendedOptionStrike.ltp}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            Δ {sig.recommendedOptionStrike.delta}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="text-xs font-black text-white font-mono bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/40">
+                              BUY {sig.recommendedOptionStrike.strikePrice} {sig.recommendedOptionStrike.optionType}
+                            </span>
+                            <span className="text-[11px] font-bold text-emerald-400 font-mono">
+                              Premium: ₹{sig.recommendedOptionStrike.ltp}
+                            </span>
+                            <span className="text-[10px] text-cyan-300 font-mono">
+                              Δ {sig.recommendedOptionStrike.delta}
+                            </span>
+                            {sig.recommendedOptionStrike.iv !== undefined && (
+                              <span className="text-[10px] text-amber-300 font-mono">
+                                IV {Number(sig.recommendedOptionStrike.iv).toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {sig.recommendedOptionStrike.lotSize && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-bold">
+                              1 Lot = {sig.recommendedOptionStrike.lotSize} Qty
+                            </span>
+                          )}
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold font-mono">
+                            {sig.recommendedOptionStrike.expiry}
                           </span>
                         </div>
                       </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold">
-                        {sig.recommendedOptionStrike.expiry}
-                      </span>
+
+                      {sig.recommendedOptionStrike.requiredCapital !== undefined && (
+                        <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono">
+                          <span className="text-slate-300">
+                            {language === 'ml' ? '1 ലോട്ട് ആവശ്യമായ തുക:' : '1 Lot Required Capital:'}{' '}
+                            <strong className="text-white">
+                              ₹{Number(sig.recommendedOptionStrike.requiredCapital).toLocaleString('en-IN')}
+                            </strong>
+                          </span>
+                          {sig.recommendedOptionStrike.affordableLots !== undefined && (
+                            <span className={`px-2 py-0.5 rounded font-bold ${
+                              sig.recommendedOptionStrike.affordableLots >= 1
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {sig.recommendedOptionStrike.affordableLots >= 1
+                                ? language === 'ml'
+                                  ? `✅ ബാലൻസിൽ വാങ്ങാവുന്നത്: ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot`
+                                  : `✅ Fits Balance: ${Math.min(5, sig.recommendedOptionStrike.affordableLots)} Lot Affordable`
+                                : language === 'ml'
+                                  ? '⚠️ കുറഞ്ഞ പ്രീമിയം സ്ട്രൈക്ക് നോക്കുന്നു'
+                                  : '⚠️ Requires Higher Balance'}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -942,12 +986,56 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   <input
                     type="number"
                     min="1.0"
-                    max="10.0"
+                    max="100.0"
                     step="0.5"
                     value={botConfig.targetProfitPercent}
                     onChange={(e) => onUpdateBotConfig({ targetProfitPercent: Number(e.target.value) })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg p-1.5 text-white font-mono text-xs"
                   />
+                </div>
+
+                {/* Max Capital Per Trade (₹) */}
+                <div className="sm:col-span-2 pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-emerald-300 font-bold text-[11px]">
+                      {language === 'ml'
+                        ? 'ഒരു ട്രേഡിന് ഉപയോഗിക്കാവുന്ന പരമാവധി തുക (Max Capital Per Trade ₹):'
+                        : 'Max Capital Per Trade / Account Allocation (₹):'}
+                    </label>
+                    <span className="text-xs font-mono font-extrabold text-emerald-400">
+                      ₹{Number(botConfig.maxCapitalPerTrade || 25000).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5 mb-2">
+                    {[5000, 10000, 25000, 50000].map((capAmt) => (
+                      <button
+                        key={capAmt}
+                        type="button"
+                        onClick={() => onUpdateBotConfig({ maxCapitalPerTrade: capAmt })}
+                        className={`py-1 px-2 rounded-lg text-[11px] font-mono font-bold border transition ${
+                          (botConfig.maxCapitalPerTrade || 25000) === capAmt
+                            ? 'bg-emerald-600 text-white border-emerald-400'
+                            : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
+                        }`}
+                      >
+                        ₹{capAmt.toLocaleString('en-IN')}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    min="1000"
+                    max="1000000"
+                    step="500"
+                    value={botConfig.maxCapitalPerTrade || 25000}
+                    onChange={(e) => onUpdateBotConfig({ maxCapitalPerTrade: Math.max(1000, Number(e.target.value)) })}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-lg p-1.5 text-white font-mono text-xs font-bold outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {language === 'ml'
+                      ? 'Upstox അക്കൗണ്ടിലെ ലഭ്യമായ ബാലൻസും (Available Margin) ഈ തുകയും പരിശോധിച്ച് അതിൽ വാങ്ങാൻ കഴിയുന്ന ഏറ്റവും ലാഭകരമായ ATM/ITM ഓപ്ഷൻ സ്ട്രൈക്കും ലോട്ട് എണ്ണവും മാത്രമേ ബോട്ട് തിരഞ്ഞെടുക്കുകയുള്ളൂ.'
+                      : 'The bot automatically checks your live Upstox Available Margin and this capital cap to select only profitable ATM/ITM option strikes and lot sizes that fit your account balance.'}
+                  </p>
                 </div>
               </div>
 

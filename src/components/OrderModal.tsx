@@ -7,13 +7,21 @@ interface OrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   symbol: string;
+  instrumentKey?: string;
   defaultPrice: number;
   initialType: OrderTransactionType;
+  defaultQuantity?: number;
+  defaultLotSize?: number;
+  defaultProductType?: ProductType;
+  heldQuantity?: number;
   defaultStopLoss?: number;
   defaultTarget?: number;
+  availableMargin?: number;
+  maxCapitalPerTrade?: number;
   mode: ExecutionMode;
   onPlaceOrder: (orderData: {
     symbol: string;
+    instrumentKey?: string;
     transactionType: OrderTransactionType;
     orderType: OrderType;
     productType: ProductType;
@@ -30,72 +38,142 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   isOpen,
   onClose,
   symbol,
+  instrumentKey,
   defaultPrice,
   initialType,
+  defaultQuantity,
+  defaultLotSize,
+  defaultProductType,
+  heldQuantity,
   defaultStopLoss,
   defaultTarget,
+  availableMargin = 0,
+  maxCapitalPerTrade = 25000,
   mode,
   onPlaceOrder,
   language,
 }) => {
   const t = translations[language];
 
+  // Detect whether this instrument is an Option / F&O contract (uses Lots) or an Equity Stock (uses Shares Qty)
+  const symUpper = (symbol || '').toUpperCase();
+  const isOptionOrFo =
+    /\b(CE|PE|CALL|PUT|FUT)\b/.test(symUpper) ||
+    symUpper.includes('NIFTY') ||
+    symUpper.includes('BANKNIFTY') ||
+    symUpper.includes('FINNIFTY') ||
+    symUpper.includes('MIDCP') ||
+    symUpper.includes('SENSEX') ||
+    symUpper.includes('BANKEX') ||
+    (instrumentKey || '').includes('FO') ||
+    (instrumentKey || '').includes('INDEX');
+
   const [transactionType, setTransactionType] = useState<OrderTransactionType>(initialType || 'BUY');
   const [orderType, setOrderType] = useState<OrderType>('MARKET');
-  const [productType, setProductType] = useState<ProductType>('INTRADAY');
-  const [lotSize, setLotSize] = useState<number>(0);
-  const [quantity, setQuantity] = useState<number>(0);
-  const [isLoadingLot, setIsLoadingLot] = useState<boolean>(true);
+  const [productType, setProductType] = useState<ProductType>(defaultProductType || 'INTRADAY');
+  const [lotSize, setLotSize] = useState<number>(defaultLotSize && defaultLotSize > 1 ? defaultLotSize : 1);
+  const [lotSource, setLotSource] = useState<string>('');
+  const [quantity, setQuantity] = useState<number>(defaultQuantity || defaultLotSize || 1);
+  const [isLoadingLot, setIsLoadingLot] = useState<boolean>(false);
 
   useEffect(() => {
+    if (!isOpen) return;
+    if (!isOptionOrFo) {
+      // Equity / Delivery Stock: 1 Share unit (never Lots!)
+      setLotSize(1);
+      setLotSource('EQUITY_SHARES');
+      setQuantity(defaultQuantity && defaultQuantity > 0 ? defaultQuantity : 1);
+      setIsLoadingLot(false);
+      return;
+    }
+
+    if (defaultLotSize && defaultLotSize > 1) {
+      setLotSize(defaultLotSize);
+      setLotSource('UPSTOX_LIVE');
+      setQuantity(defaultQuantity && defaultQuantity > 0 ? defaultQuantity : defaultLotSize);
+    }
+
     const fetchInstrumentDetails = async () => {
       setIsLoadingLot(true);
       try {
-        const res = await fetch(`/api/instrument/details?symbol=${encodeURIComponent(symbol)}`);
+        let headers: Record<string, string> = {};
+        try {
+          const savedTok = localStorage.getItem('upstox_daily_token');
+          if (savedTok && savedTok.length > 30) {
+            headers['Authorization'] = `Bearer ${savedTok}`;
+          }
+        } catch {}
+
+        const qs = new URLSearchParams({ symbol });
+        if (instrumentKey) qs.set('instrumentKey', instrumentKey);
+        const res = await fetch(`/api/instrument/details?${qs.toString()}`, { headers });
         if (res.ok) {
-           const data = await res.json();
-           if (data.lotSize) {
-              setLotSize(data.lotSize);
-              setQuantity(data.lotSize);
-           }
+          const data = await res.json();
+          const fetchedLot = Number(data.lotSize) || defaultLotSize || 1;
+          setLotSize(fetchedLot);
+          setLotSource(data.source || 'UPSTOX_LIVE');
+          setQuantity(defaultQuantity && defaultQuantity > 0 ? defaultQuantity : fetchedLot);
         }
       } catch (e) {
-        // Fallback for extreme cases
-        setLotSize(1);
-        setQuantity(1);
+        const fallbackLot = defaultLotSize || 1;
+        setLotSize(fallbackLot);
+        setQuantity(defaultQuantity || fallbackLot);
       } finally {
         setIsLoadingLot(false);
       }
     };
     fetchInstrumentDetails();
-  }, [symbol]);
+  }, [symbol, instrumentKey, isOpen, isOptionOrFo, defaultQuantity, defaultLotSize]);
+
   const [price, setPrice] = useState<number>(defaultPrice || 100);
   const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
   const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
   const [target, setTarget] = useState<number>(Number(((defaultPrice || 0) * 1.025).toFixed(2)));
 
   useEffect(() => {
-     setPrice(defaultPrice || 100);
-     setTriggerPrice(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
-     
-     // More sensible default for options vs index
-     const slRatio = defaultPrice < 1000 ? 0.8 : 0.985;
-     const tgtRatio = defaultPrice < 1000 ? 1.5 : 1.025;
-     
-     setStopLoss(defaultStopLoss !== undefined ? defaultStopLoss : Number(((defaultPrice || 0) * slRatio).toFixed(2)));
-     setTarget(defaultTarget !== undefined ? defaultTarget : Number(((defaultPrice || 0) * tgtRatio).toFixed(2)));
-     setTransactionType(initialType || 'BUY');
-  }, [defaultPrice, initialType, defaultStopLoss, defaultTarget]);
+    setPrice(defaultPrice || 100);
+    setTriggerPrice(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
+
+    const slRatio = isOptionOrFo ? 0.85 : 0.95;
+    const tgtRatio = isOptionOrFo ? 1.35 : 1.10;
+
+    setStopLoss(defaultStopLoss !== undefined ? defaultStopLoss : Number(((defaultPrice || 0) * slRatio).toFixed(2)));
+    setTarget(defaultTarget !== undefined ? defaultTarget : Number(((defaultPrice || 0) * tgtRatio).toFixed(2)));
+    setTransactionType(initialType || 'BUY');
+    if (defaultProductType) {
+      setProductType(defaultProductType);
+    } else if (heldQuantity && heldQuantity > 0) {
+      setProductType('DELIVERY');
+    } else {
+      setProductType(isOptionOrFo ? 'INTRADAY' : 'DELIVERY');
+    }
+  }, [defaultPrice, initialType, defaultProductType, heldQuantity, defaultStopLoss, defaultTarget, isOptionOrFo]);
 
   if (!isOpen) return null;
 
-  const lotStep = lotSize;
-  const estimatedMargin = Number(((price || defaultPrice) * quantity * (productType === 'INTRADAY' ? 0.2 : 1)).toFixed(2));
+  const lotStep = isOptionOrFo ? (lotSize || 1) : 1;
+  const effectivePrice = orderType === 'MARKET' ? (defaultPrice || price || 100) : (price || defaultPrice || 100);
+  const oneLotCost = Number((effectivePrice * lotStep).toFixed(2));
+  const estimatedMargin = Number((effectivePrice * quantity * (productType === 'INTRADAY' && !isOptionOrFo ? 0.2 : 1)).toFixed(2));
+  const effectiveAvailableBalance =
+    mode === 'UPSTOX_LIVE' && availableMargin > 0
+      ? availableMargin
+      : maxCapitalPerTrade || 25000;
+  const maxAffordableLots =
+    oneLotCost > 0 && effectiveAvailableBalance > 0
+      ? Math.floor(effectiveAvailableBalance / oneLotCost)
+      : 0;
+  const isInsufficientMargin =
+    mode === 'UPSTOX_LIVE' &&
+    transactionType === 'BUY' &&
+    availableMargin > 0 &&
+    estimatedMargin > availableMargin;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onPlaceOrder({
       symbol,
+      instrumentKey,
       transactionType,
       orderType,
       productType,
@@ -159,7 +237,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t.quickBuy} (BUY)
+              {language === 'ml' ? 'വാങ്ങുക (BUY)' : 'BUY'}
             </button>
             <button
               type="button"
@@ -170,7 +248,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t.quickSell} (SELL)
+              {language === 'ml' ? 'വിൽക്കുക (SELL)' : 'SELL'}
             </button>
           </div>
 
@@ -186,7 +264,9 @@ export const OrderModal: React.FC<OrderModalProps> = ({
               }`}
             >
               <span className="block">{t.intraday}</span>
-              <span className="text-[10px] text-slate-500 font-normal">5x Leverage</span>
+              <span className="text-[10px] text-slate-500 font-normal">
+                {isOptionOrFo ? 'Intraday Option' : '5x Leverage'}
+              </span>
             </button>
             <button
               type="button"
@@ -198,15 +278,23 @@ export const OrderModal: React.FC<OrderModalProps> = ({
               }`}
             >
               <span className="block">{t.delivery}</span>
-              <span className="text-[10px] text-slate-500 font-normal">Full Cash</span>
+              <span className="text-[10px] text-slate-500 font-normal">
+                {isOptionOrFo ? 'Carry Forward (NRML)' : 'Demat Delivery (CNC)'}
+              </span>
             </button>
           </div>
 
-          {/* Quantity & Order Type */}
+          {/* Quantity (Shares for Equity vs Lots for Options) & Order Type */}
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div>
               <label className="text-slate-400 block mb-1 font-bold">
-                {t.quantity}
+                {isOptionOrFo
+                  ? language === 'ml'
+                    ? `ലോട്ടുകൾ / അളവ് (1 Lot = ${isLoadingLot ? '...' : lotStep} • ${lotSource.includes('UPSTOX') ? 'Upstox Live' : 'Live'})`
+                    : `Lots / Qty (1 Lot = ${isLoadingLot ? '...' : lotStep} • ${lotSource.includes('UPSTOX') ? 'Upstox Live' : 'Live'})`
+                  : language === 'ml'
+                  ? 'ഓഹരികളുടെ എണ്ണം (Shares Qty)'
+                  : 'Quantity (Shares)'}
               </label>
               <div className="flex items-center gap-1">
                 <input
@@ -214,22 +302,61 @@ export const OrderModal: React.FC<OrderModalProps> = ({
                   min={lotStep || 1}
                   step={lotStep || 1}
                   value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
+                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-white font-mono font-bold focus:border-emerald-500 focus:outline-none"
                 />
               </div>
-              <div className="flex gap-1 mt-1">
-                {[1, 2, 5].map((multiplier) => (
+              {isOptionOrFo ? (
+                <div className="flex gap-1 mt-1">
+                  {[1, 2, 5].map((multiplier) => (
+                    <button
+                      key={multiplier}
+                      type="button"
+                      onClick={() => setQuantity(lotStep * multiplier)}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                    >
+                      {multiplier} Lot ({lotStep * multiplier})
+                    </button>
+                  ))}
+                </div>
+              ) : heldQuantity && heldQuantity > 0 && transactionType === 'SELL' ? (
+                <div className="flex flex-wrap gap-1 mt-1">
                   <button
-                    key={multiplier}
                     type="button"
-                    onClick={() => setQuantity(lotStep * multiplier)}
-                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-white"
+                    onClick={() => setQuantity(Math.max(1, Math.floor(heldQuantity * 0.25)))}
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
                   >
-                    {multiplier}x
+                    25%
                   </button>
-                ))}
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(Math.max(1, Math.floor(heldQuantity * 0.5)))}
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                  >
+                    50%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(heldQuantity)}
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 hover:text-white border border-rose-700/50 font-bold"
+                  >
+                    Full ({heldQuantity} Shares)
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-1 mt-1">
+                  {[1, 10, 50, 100].map((shareCount) => (
+                    <button
+                      key={shareCount}
+                      type="button"
+                      onClick={() => setQuantity(shareCount)}
+                      className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                    >
+                      {shareCount} Sh
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
@@ -301,10 +428,51 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             </div>
           </div>
 
-          {/* Margin Estimation Banner */}
-          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs font-mono">
-            <span className="text-slate-400">Est. Margin:</span>
-            <span className="font-extrabold text-white">₹{estimatedMargin.toLocaleString('en-IN')}</span>
+          {/* Margin & Account Balance Affordability Banner */}
+          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">
+                {language === 'ml' ? 'ആവശ്യമായ തുക (Est. Margin):' : 'Est. Required Capital:'}
+              </span>
+              <span className={`font-extrabold ${isInsufficientMargin ? 'text-rose-400' : 'text-white'}`}>
+                ₹{estimatedMargin.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80 text-[11px]">
+              <span className="text-slate-400">
+                {mode === 'UPSTOX_LIVE'
+                  ? language === 'ml'
+                    ? 'Upstox ലഭ്യമായ ബാലൻസ്:'
+                    : 'Upstox Available Margin:'
+                  : language === 'ml'
+                    ? 'ട്രേഡ് ക്യാപിറ്റൽ പരിധി:'
+                    : 'Allocated Trade Capital:'}
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-emerald-400">
+                  ₹{Number(effectiveAvailableBalance || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                </span>
+                {isOptionOrFo && maxAffordableLots > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(maxAffordableLots * lotStep)}
+                    className="px-1.5 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition"
+                  >
+                    Max {maxAffordableLots} Lot
+                  </button>
+                )}
+              </div>
+            </div>
+            {isInsufficientMargin && (
+              <div className="p-2 rounded-lg bg-rose-950/50 border border-rose-500/40 text-rose-300 text-[10px] font-sans flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                <span>
+                  {language === 'ml'
+                    ? `അക്കൗണ്ടിൽ മതിയായ ബാലൻസ് ഇല്ല! 1 ലോട്ടിന് ₹${oneLotCost.toLocaleString('en-IN')} വേണം.`
+                    : `Insufficient Upstox balance! 1 Lot requires ₹${oneLotCost.toLocaleString('en-IN')}.`}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
