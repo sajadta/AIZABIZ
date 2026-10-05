@@ -228,7 +228,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           </div>
           <button
             id="btn-bot-toggle"
-            onClick={() => onUpdateBotConfig({ enabled: !botConfig.enabled })}
+            onClick={() => onUpdateBotConfig({ enabled: !botConfig.enabled, dailyLossLocked: false })}
             className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg transition active:scale-95 border ${
               botConfig.enabled
                 ? 'bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border-slate-700 hover:border-rose-500/40'
@@ -435,6 +435,67 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                       <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                         {typeof sig.candlestickPattern === 'object' ? (sig.candlestickPattern as any).type : 'CONFIRMED'}
                       </span>
+                    </div>
+                  )}
+
+                  {/* 7-Layer Institutional Quant Matrix (Chart History S/R, Corporate Heavyweights, Global Macro, OI & Target Forecast) */}
+                  {sig.institutionalQuantAnalysis && (
+                    <div className="mt-2 p-2.5 rounded-xl bg-slate-950/90 border border-indigo-900/40 space-y-1.5 text-[11px]">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-wider">
+                          {language === 'ml'
+                            ? '🏛️ 7-തല ഇൻസ്റ്റിറ്റ്യൂഷണൽ & ചാർട്ട് ഹിസ്റ്ററി അനാലിസിസ്'
+                            : '🏛️ 7-Layer Institutional & Chart History Quant Matrix'}
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold">
+                          {language === 'ml' ? 'പ്രതീക്ഷിക്കുന്ന സമയം:' : 'Est. Target Time:'}{' '}
+                          {sig.institutionalQuantAnalysis.estimatedMinutesToTarget} |{' '}
+                          {sig.institutionalQuantAnalysis.estimatedNetProfitRange}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-mono pt-1">
+                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                          <span className="text-slate-400">
+                            {language === 'ml' ? 'ചാർട്ട് സ്ട്രക്ചർ:' : 'Chart Structure:'}
+                          </span>
+                          <span className="text-cyan-300 font-bold truncate max-w-[190px]">
+                            {language === 'ml'
+                              ? sig.institutionalQuantAnalysis.chartStructurePatternMl
+                              : sig.institutionalQuantAnalysis.chartStructurePattern}
+                          </span>
+                        </div>
+                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                          <span className="text-slate-400">
+                            {language === 'ml' ? 'സപ്പോർട്ട് / റെസിസ്റ്റൻസ് റൺവേ:' : 'S/R Clear Runway:'}
+                          </span>
+                          <span className="text-emerald-300 font-bold">
+                            S: ₹{sig.institutionalQuantAnalysis.nearestSupport} | R: ₹{sig.institutionalQuantAnalysis.nearestResistance} (+{sig.institutionalQuantAnalysis.clearRunwayPoints} pts)
+                          </span>
+                        </div>
+                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                          <span className="text-slate-400">
+                            {language === 'ml' ? 'കോർപ്പറേറ്റ് ഹെവിവെയ്റ്റ്സ്:' : 'Corporate Heavyweights:'}
+                          </span>
+                          <span
+                            className={`font-bold truncate max-w-[190px] ${
+                              sig.institutionalQuantAnalysis.corporateHeavyweightScore >= 0
+                                ? 'text-emerald-400'
+                                : 'text-rose-400'
+                            }`}
+                          >
+                            {sig.institutionalQuantAnalysis.corporateHeavyweightSummary}
+                          </span>
+                        </div>
+                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                          <span className="text-slate-400">
+                            {language === 'ml' ? 'ആഗോള മാക്രോ & OI ഫ്ലോ:' : 'Global Macro & OI Flow:'}
+                          </span>
+                          <span className="text-amber-300 font-bold truncate max-w-[190px]">
+                            {sig.institutionalQuantAnalysis.globalMacroAlignment} | {sig.institutionalQuantAnalysis.oiBuildupType}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   )}
 

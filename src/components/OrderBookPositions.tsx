@@ -1009,7 +1009,17 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                     const headers = ['Symbol,Type,Quantity,Buy Price,Sell Price,Gross PnL,Net PnL,Close Time'];
                     const rows = tradeHistory.map(t => {
                       const gross = t.realizedPnL || 0;
-                      const net = gross - 40;
+                      const isOpt = Boolean(t.isOption || /\b(CE|PE)\b/i.test(t.symbol || '') || String(t.instrumentKey || '').includes('FO'));
+                      const chg =
+                        Number((t as any).brokerageCharges) > 0
+                          ? Number((t as any).brokerageCharges)
+                          : calculateTradeCharges(
+                              Number(t.buyPrice || 0),
+                              Math.max(1, Number(t.quantity || 1)),
+                              isOpt,
+                              Number(t.sellPrice || t.currentLTP || t.buyPrice || 0)
+                            ).roundTripCharges;
+                      const net = gross - chg;
                       return `"${t.symbol}","${(t as any).type || 'BUY'}",${t.quantity},${t.buyPrice || 0},${t.sellPrice || 0},${gross.toFixed(2)},${net.toFixed(2)},"${t.closeTime ? new Date(t.closeTime).toLocaleString('en-IN') : ''}"`;
                     });
                     const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
@@ -1030,10 +1040,10 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                 <div className="p-3.5 px-4 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 flex justify-between items-center shadow-lg gap-4">
                    <div className="flex items-center gap-2">
                       <Briefcase className="w-4 h-4 text-slate-400" />
-                      <span className="text-xs font-extrabold text-slate-300">Total Realized P&L:</span>
+                      <span className="text-xs font-extrabold text-slate-300">Total Net Realized P&L:</span>
                    </div>
-                   <span className={`text-base font-black px-3 py-1 rounded-lg bg-black/40 border border-slate-700/50 ${tradeHistory.reduce((a, b) => a + (b.realizedPnL || 0) - 40, 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {tradeHistory.reduce((a, b) => a + (b.realizedPnL || 0) - 40, 0) >= 0 ? '+' : ''}₹{tradeHistory.reduce((a, b) => a + (b.realizedPnL || 0) - 40, 0).toFixed(2)}
+                   <span className={`text-base font-black px-3 py-1 rounded-lg bg-black/40 border border-slate-700/50 ${accountSummary.netPnLAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {accountSummary.netPnLAfterCharges >= 0 ? '+' : ''}₹{accountSummary.netPnLAfterCharges.toFixed(2)}
                    </span>
                 </div>
               </div>

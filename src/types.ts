@@ -119,6 +119,20 @@ export interface TradingSignal {
     timeframe5m: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
     timeframe15m: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   };
+  institutionalQuantAnalysis?: {
+    chartStructurePattern: string;
+    chartStructurePatternMl: string;
+    nearestSupport: number;
+    nearestResistance: number;
+    clearRunwayPoints: number;
+    corporateHeavyweightScore: number; // -100 to +100
+    corporateHeavyweightSummary: string;
+    globalMacroAlignment: 'BULLISH' | 'BEARISH' | 'MIXED';
+    oiBuildupType: string;
+    estimatedMinutesToTarget: string;
+    estimatedMaxOptionPrice: number;
+    estimatedNetProfitRange: string;
+  };
   recommendedOptionStrike?: {
     strikePrice: number;
     optionType: 'CE' | 'PE';

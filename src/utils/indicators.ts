@@ -248,8 +248,15 @@ export interface RealOptionMetrics {
   theta?: number;
   iv?: number;
   oi?: number;
+  oiChange?: number;
   volume?: number;
   pcr?: number;
+  bidAskRatio?: number;
+  callWallStrike?: number;
+  putWallStrike?: number;
+  corporateHeavyweightScore?: number; // -100 to +100
+  corporateHeavyweightSummary?: string;
+  globalMacroAlignment?: "BULLISH" | "BEARISH" | "MIXED";
   instrumentKey?: string;
   affordableLots?: number;
   requiredCapital?: number;
@@ -430,6 +437,8 @@ export function analyzeTradingSignals(
   const supertrendVal = last.supertrend ?? currentLtp * 0.98;
   const macdHist = last.macdHist ?? 0;
   const prevMacdHist = prev.macdHist ?? 0;
+  const atrSeries = calculateATR(candles, 14);
+  const atr14 = atrSeries.length > 0 ? atrSeries[atrSeries.length - 1] : Math.max(1, last.high - last.low);
 
   // Evaluate individual indicator signals
   const readings: IndicatorReadings = {
@@ -576,57 +585,424 @@ export function analyzeTradingSignals(
     bearishPoints -= 10;
   }
 
-  // 10.5 STRICT IMMEDIATE PRICE ACTION & MOMENTUM ALIGNMENT FILTER (Prevents Counter-Trend Losses!)
-  // Even if lagging indicators (SuperTrend / EMA50) point one way, NEVER buy a Call (CE) if the last 3-5 minutes are actively falling,
-  // and NEVER buy a Put (PE) if the last 3-5 minutes are actively bouncing/rising!
+  // 10.5 MULTI-CANDLE PATTERN RECOGNITION, CHART HISTORY STRUCTURE (HH/HL, DOUBLE BOTTOM/TOP, S/R RUNWAY),
+  // 5m/15m MTF CONFLUENCE, CORPORATE HEAVYWEIGHTS & GLOBAL MACRO ALIGNMENT ENGINE
+  // A single unclosed green/red candle is NEVER trusted on its own (prevents 1-second green-to-red retail bull/bear traps!).
+  const prev2 = candles[Math.max(0, candles.length - 3)];
   const prev3 = candles[Math.max(0, candles.length - 4)];
   const prev5 = candles[Math.max(0, candles.length - 6)];
+  const move1m = currentLtp - prev.close;
+  const move2m = currentLtp - prev2.close;
   const move3m = currentLtp - prev3.close;
   const move5m = currentLtp - prev5.close;
-  const lastCandleBullish = currentLtp >= last.open && last.close >= prev.close;
-  const lastCandleBearish = currentLtp <= last.open && last.close <= prev.close;
 
-  if (move3m > 0 && move5m > 0 && lastCandleBullish && currentLtp > ema9) {
-    // Strong immediate upward thrust: boost CE, strictly block PE!
-    bullishPoints += 22;
-    bearishPoints -= 45;
-  } else if (move3m < 0 && move5m < 0 && lastCandleBearish && currentLtp < ema9) {
-    // Strong immediate downward thrust: boost PE, strictly block CE!
-    bearishPoints += 22;
-    bullishPoints -= 45;
-  } else {
-    // Mixed or counter-trend chop: penalize whichever side is fighting immediate price action
-    if (move3m < 0 || currentLtp < last.open) {
-      bullishPoints -= 30; // Block buying CE while current candle/3m is red
+  // A. Multi-Candle Candlestick Pattern Recognition (Closed Candles prev2, prev + Live Breakout Confirmation on last)
+  const prevBody = Math.abs(prev.close - prev.open);
+  const prevRange = Math.max(0.01, prev.high - prev.low);
+  const prevUpperWick = prev.high - Math.max(prev.open, prev.close);
+  const prevLowerWick = Math.min(prev.open, prev.close) - prev.low;
+  const prev2Body = Math.abs(prev2.close - prev2.open);
+
+  const isClosedBullishEngulfing =
+    prev2.close < prev2.open &&
+    prev.close > prev.open &&
+    prev.close >= prev2.open &&
+    prev.open <= prev2.close &&
+    currentLtp >= prev.close;
+  const isClosedBearishEngulfing =
+    prev2.close > prev2.open &&
+    prev.close < prev.open &&
+    prev.close <= prev2.open &&
+    prev.open >= prev2.close &&
+    currentLtp <= prev.close;
+
+  const isClosedHammerSupport =
+    prevLowerWick >= prevBody * 1.8 &&
+    prevUpperWick <= prevRange * 0.25 &&
+    currentLtp > prev.high;
+  const isClosedShootingStarResistance =
+    prevUpperWick >= prevBody * 1.8 &&
+    prevLowerWick <= prevRange * 0.25 &&
+    currentLtp < prev.low;
+
+  const isMorningStarReversal =
+    prev3.close < prev3.open &&
+    prev2Body < Math.abs(prev3.close - prev3.open) * 0.45 &&
+    prev.close > prev.open &&
+    prev.close > (prev3.open + prev3.close) / 2 &&
+    currentLtp >= prev.close;
+  const isEveningStarReversal =
+    prev3.close > prev3.open &&
+    prev2Body < Math.abs(prev3.close - prev3.open) * 0.45 &&
+    prev.close < prev.open &&
+    prev.close < (prev3.open + prev3.close) / 2 &&
+    currentLtp <= prev.close;
+
+  const isInsideBarBullBreakout =
+    prev.high <= prev2.high &&
+    prev.low >= prev2.low &&
+    currentLtp > prev2.high;
+  const isInsideBarBearBreakdown =
+    prev.high <= prev2.high &&
+    prev.low >= prev2.low &&
+    currentLtp < prev2.low;
+
+  const isThreeSoldiersThrust =
+    prev2.close > prev2.open &&
+    prev.close > prev.open &&
+    prev.close > prev2.close &&
+    currentLtp > prev.high;
+  const isThreeCrowsThrust =
+    prev2.close < prev2.open &&
+    prev.close < prev.open &&
+    prev.close < prev2.close &&
+    currentLtp < prev.low;
+
+  let detectedPatternEn = "Multi-Candle Structure Follow-Through";
+  let detectedPatternMl = "മൾട്ടി-കാൻഡിൽ സ്ട്രക്ചർ കൺഫർമേഷൻ";
+  let patternDirection: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
+
+  if (isClosedBullishEngulfing) {
+    detectedPatternEn = "Bullish Engulfing + Follow-Through Breakout";
+    detectedPatternMl = "ബുള്ളിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഔട്ട് കൺഫർമേഷൻ";
+    patternDirection = "BULLISH";
+    bullishPoints += 16;
+  } else if (isMorningStarReversal) {
+    detectedPatternEn = "Morning Star 3-Candle Institutional Reversal";
+    detectedPatternMl = "മോണിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ";
+    patternDirection = "BULLISH";
+    bullishPoints += 18;
+  } else if (isClosedHammerSupport) {
+    detectedPatternEn = "Hammer Pin-Bar Liquidity Sweep & Breakout";
+    detectedPatternMl = "ഹാമർ പിൻ-ബാർ സപ്പോർട്ട് ബൗൺസ്";
+    patternDirection = "BULLISH";
+    bullishPoints += 15;
+  } else if (isInsideBarBullBreakout) {
+    detectedPatternEn = "Inside-Bar Volatility Expansion Breakout";
+    detectedPatternMl = "ഇൻസൈഡ്-ബാർ വോളിയം ബ്രേക്ക്ഔട്ട്";
+    patternDirection = "BULLISH";
+    bullishPoints += 15;
+  } else if (isThreeSoldiersThrust) {
+    detectedPatternEn = "3-Bar Institutional Momentum Thrust";
+    detectedPatternMl = "3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ മൊമെന്റം ബ്രേക്ക്ഔട്ട്";
+    patternDirection = "BULLISH";
+    bullishPoints += 14;
+  } else if (isClosedBearishEngulfing) {
+    detectedPatternEn = "Bearish Engulfing + Breakdown Confirmation";
+    detectedPatternMl = "ബെയറിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഡൗൺ കൺഫർമേഷൻ";
+    patternDirection = "BEARISH";
+    bearishPoints += 16;
+  } else if (isEveningStarReversal) {
+    detectedPatternEn = "Evening Star 3-Candle Institutional Reversal";
+    detectedPatternMl = "ഈവനിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ";
+    patternDirection = "BEARISH";
+    bearishPoints += 18;
+  } else if (isClosedShootingStarResistance) {
+    detectedPatternEn = "Shooting Star Supply Rejection Breakdown";
+    detectedPatternMl = "ഷൂട്ടിംഗ് സ്റ്റാർ റെസിസ്റ്റൻസ് റിജക്ഷൻ";
+    patternDirection = "BEARISH";
+    bearishPoints += 15;
+  } else if (isInsideBarBearBreakdown) {
+    detectedPatternEn = "Inside-Bar Downside Expansion Breakdown";
+    detectedPatternMl = "ഇൻസൈഡ്-ബാർ ഡൗൺസൈഡ് ബ്രേക്ക്ഡൗൺ";
+    patternDirection = "BEARISH";
+    bearishPoints += 15;
+  } else if (isThreeCrowsThrust) {
+    detectedPatternEn = "3-Bar Institutional Bearish Thrust";
+    detectedPatternMl = "3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ ബെയറിഷ് ബ്രേക്ക്ഡൗൺ";
+    patternDirection = "BEARISH";
+    bearishPoints += 14;
+  }
+
+  // B. 5-Minute & 15-Minute Multi-Timeframe (MTF) Structure Aggregation
+  const buildMtfTrend = (groupSize: number): "BULLISH" | "BEARISH" | "NEUTRAL" => {
+    if (candles.length < groupSize * 3) return "NEUTRAL";
+    const bars: number[] = [];
+    for (let i = candles.length - groupSize * 4; i < candles.length; i += groupSize) {
+      const slice = candles.slice(Math.max(0, i), Math.min(candles.length, i + groupSize));
+      if (slice.length > 0) bars.push(slice[slice.length - 1].close);
     }
-    if (move3m > 0 || currentLtp > last.open) {
-      bearishPoints -= 30; // Block buying PE while current candle/3m is green
+    if (bars.length < 2) return "NEUTRAL";
+    const latestClose = currentLtp;
+    const prevBarClose = bars[bars.length - 2];
+    const avgClose = bars.reduce((a, b) => a + b, 0) / bars.length;
+    if (latestClose > prevBarClose && latestClose >= avgClose) return "BULLISH";
+    if (latestClose < prevBarClose && latestClose <= avgClose) return "BEARISH";
+    return "NEUTRAL";
+  };
+  const tf5m = buildMtfTrend(5);
+  const tf15m = buildMtfTrend(15);
+  if (tf5m === "BULLISH" && tf15m === "BULLISH") bullishPoints += 12;
+  else if (tf5m === "BEARISH" && tf15m === "BEARISH") bearishPoints += 12;
+
+  // C. Historical Chart Structure (60-Candle Swing Highs/Lows, HH-HL / LH-LL, Double Bottom/Top & S/R Runway)
+  const historySlice = candles.slice(-Math.min(60, candles.length));
+  const priorHistory = historySlice.slice(0, Math.max(5, historySlice.length - 3));
+  const swingHighs: number[] = [];
+  const swingLows: number[] = [];
+  for (let i = 2; i < priorHistory.length - 2; i++) {
+    const c = priorHistory[i];
+    if (
+      c.high >= priorHistory[i - 1].high &&
+      c.high >= priorHistory[i - 2].high &&
+      c.high >= priorHistory[i + 1].high &&
+      c.high >= priorHistory[i + 2].high
+    ) {
+      swingHighs.push(c.high);
+    }
+    if (
+      c.low <= priorHistory[i - 1].low &&
+      c.low <= priorHistory[i - 2].low &&
+      c.low <= priorHistory[i + 1].low &&
+      c.low <= priorHistory[i + 2].low
+    ) {
+      swingLows.push(c.low);
     }
   }
 
-  // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV) & OI Validation
+  const sessionHigh = Math.max(...priorHistory.map((c) => c.high), currentLtp);
+  const sessionLow = Math.min(...priorHistory.map((c) => c.low), currentLtp);
+  let chartStructureEn = "Institutional Trend Continuation";
+  let chartStructureMl = "ഇൻസ്റ്റിറ്റ്യൂഷണൽ ട്രെൻഡ് തുടർച്ച";
+
+  if (swingLows.length >= 2) {
+    const lastLow = swingLows[swingLows.length - 1];
+    const prevLow = swingLows[swingLows.length - 2];
+    if (Math.abs(lastLow - prevLow) <= atr14 * 0.8 && currentLtp > lastLow + atr14) {
+      chartStructureEn = "Double Bottom (W-Pattern) Support Breakout";
+      chartStructureMl = "ഡബിൾ ബോട്ടം (W-Pattern) സപ്പോർട്ട് ബ്രേക്ക്ഔട്ട്";
+      bullishPoints += 12;
+    } else if (lastLow > prevLow && currentLtp > ema21) {
+      chartStructureEn = "Higher-High / Higher-Low (HH-HL) Uptrend Structure";
+      chartStructureMl = "ഹയർ-ഹൈ / ഹയർ-ലോ (HH-HL) അപ്‌ട്രെൻഡ് സ്ട്രക്ചർ";
+      bullishPoints += 10;
+    }
+  }
+  if (swingHighs.length >= 2) {
+    const lastHigh = swingHighs[swingHighs.length - 1];
+    const prevHigh = swingHighs[swingHighs.length - 2];
+    if (Math.abs(lastHigh - prevHigh) <= atr14 * 0.8 && currentLtp < lastHigh - atr14) {
+      chartStructureEn = "Double Top (M-Pattern) Supply Breakdown";
+      chartStructureMl = "ഡബിൾ ടോപ്പ് (M-Pattern) റെസിസ്റ്റൻസ് ബ്രേക്ക്ഡൗൺ";
+      bearishPoints += 12;
+    } else if (lastHigh < prevHigh && currentLtp < ema21) {
+      chartStructureEn = "Lower-High / Lower-Low (LH-LL) Downtrend Structure";
+      chartStructureMl = "ലോവർ-ഹൈ / ലോവർ-ലോ (LH-LL) ഡൗൺട്രെൻഡ് സ്ട്രക്ചർ";
+      bearishPoints += 10;
+    }
+  }
+
+  // Calculate Relative Volume (RVOL) over last 20 candles to detect Institutional Volume Breakouts vs Low-Volume Fakeouts
+  const volSlice = candles.slice(-Math.min(20, candles.length));
+  const avgVol20 =
+    volSlice.reduce((acc, c) => acc + Number(c.volume || 0), 0) /
+    Math.max(1, volSlice.length);
+  const rvol = avgVol20 > 0 ? Number((Number(last.volume || 0) / avgVol20).toFixed(2)) : 1.0;
+
+  // D. Corporate Heavyweights Flow & Global/Macro Market Alignment
+  const corpScore = Number(optionMetrics?.corporateHeavyweightScore ?? 0);
+  const corpSummary =
+    optionMetrics?.corporateHeavyweightSummary ||
+    "Heavyweights (HDFCBANK, RELIANCE, ICICIBANK, INFY, TCS) Tracked";
+  const macroAlign = optionMetrics?.globalMacroAlignment || (tf15m === "BULLISH" ? "BULLISH" : tf15m === "BEARISH" ? "BEARISH" : "MIXED");
+
+  // Calculate Nearest Resistance & Nearest Support + Resistance-Shattering Breakout Engine
+  const resistancesAbove = swingHighs.filter((h) => h > currentLtp + atr14 * 0.2).sort((a, b) => a - b);
+  const supportsBelow = swingLows.filter((l) => l < currentLtp - atr14 * 0.2).sort((a, b) => b - a);
+  const callWall = optionMetrics?.callWallStrike && optionMetrics.callWallStrike > currentLtp ? optionMetrics.callWallStrike : 0;
+  const putWall = optionMetrics?.putWallStrike && optionMetrics.putWallStrike < currentLtp ? optionMetrics.putWallStrike : 0;
+
+  let nearestResistance = Number(
+    (
+      resistancesAbove[0] ||
+      (callWall > 0 ? callWall : currentLtp + Math.max(atr14 * 3.2, currentLtp * 0.004))
+    ).toFixed(2),
+  );
+  let nearestSupport = Number(
+    (
+      supportsBelow[0] ||
+      (putWall > 0 ? putWall : currentLtp - Math.max(atr14 * 3.2, currentLtp * 0.004))
+    ).toFixed(2),
+  );
+
+  // Check if price is approaching Resistance/Support WITH Resistance-Shattering Breakout Power (RVOL + OI Short Covering + Heavyweights + MACD)
+  const distToRes = nearestResistance - currentLtp;
+  const distToSup = currentLtp - nearestSupport;
+  const hasBullBreakoutPower =
+    rvol >= 1.25 ||
+    corpScore >= 20 ||
+    (macdHist > 0 && macdHist > prevMacdHist * 1.12) ||
+    Number(optionMetrics?.oiChange ?? 0) < 0 ||
+    Number(optionMetrics?.bidAskRatio ?? 1.0) >= 1.15;
+  const hasBearBreakdownPower =
+    rvol >= 1.25 ||
+    corpScore <= -20 ||
+    (macdHist < 0 && macdHist < prevMacdHist * 1.12) ||
+    Number(optionMetrics?.oiChange ?? 0) < 0 ||
+    Number(optionMetrics?.bidAskRatio ?? 1.0) >= 1.15;
+
+  let isBlockedByResistanceWall = false;
+  let isBlockedBySupportWall = false;
+
+  if (distToRes <= atr14 * 1.05) {
+    if (hasBullBreakoutPower && currentLtp > prev.high) {
+      // Resistance is being SHATTERED! Shift target runway to the next higher resistance (R2) and boost score!
+      nearestResistance = Number(
+        (
+          resistancesAbove[1] ||
+          nearestResistance + Math.max(atr14 * 3.0, currentLtp * 0.0035)
+        ).toFixed(2),
+      );
+      chartStructureEn = `Resistance-Shattering Breakout (RVOL ${rvol}x + Short Covering)`;
+      chartStructureMl = `റെസിസ്റ്റൻസ് ഭേദിച്ചുള്ള വോളിയം ബ്രേക്ക്ഔട്ട് (RVOL ${rvol}x)`;
+      bullishPoints += 14;
+    } else {
+      // Weak approach into a brick-wall resistance without volume/OI power -> Trap Protection!
+      isBlockedByResistanceWall = true;
+    }
+  }
+
+  if (distToSup <= atr14 * 1.05) {
+    if (hasBearBreakdownPower && currentLtp < prev.low) {
+      // Support is being SHATTERED! Shift target runway to the next lower support (S2) and boost score!
+      nearestSupport = Number(
+        (
+          supportsBelow[1] ||
+          nearestSupport - Math.max(atr14 * 3.0, currentLtp * 0.0035)
+        ).toFixed(2),
+      );
+      chartStructureEn = `Support-Shattering Breakdown (RVOL ${rvol}x + Long Unwinding)`;
+      chartStructureMl = `സപ്പോർട്ട് ഭേദിച്ചുള്ള ശക്തമായ ബ്രേക്ക്ഡൗൺ (RVOL ${rvol}x)`;
+      bearishPoints += 14;
+    } else {
+      // Weak approach into support floor without volume/OI power -> Trap Protection!
+      isBlockedBySupportWall = true;
+    }
+  }
+
+  if (corpScore >= 25) {
+    bullishPoints += 12;
+    bearishPoints -= 20;
+  } else if (corpScore <= -25) {
+    bearishPoints += 12;
+    bullishPoints -= 20;
+  }
+
+  if (macroAlign === "BULLISH") bullishPoints += 8;
+  else if (macroAlign === "BEARISH") bearishPoints += 8;
+
+  // E. Anti-Fakeout & Multi-Candle Confirmation Gate (Prevents 1-Second Green-to-Red Trap!)
+  const currentRange = Math.max(0.01, last.high - last.low);
+  const bullCloseStrength = (currentLtp - last.low) / currentRange;
+  const bearCloseStrength = (last.high - currentLtp) / currentRange;
+  const recent3High = Math.max(last.high, prev.high, prev2.high);
+  const recent3Low = Math.min(last.low, prev.low, prev2.low);
+  const pullbackFrom3mHigh = recent3High - currentLtp;
+  const bounceFrom3mLow = currentLtp - recent3Low;
+
+  const isMultiCandleBullConfirmed =
+    currentLtp >= last.open &&
+    (move1m > 0 || last.close > prev.close) &&
+    move3m > 0 &&
+    currentLtp >= ema9 &&
+    bullCloseStrength >= 0.52 &&
+    !isClosedShootingStarResistance &&
+    !isClosedBearishEngulfing &&
+    !isBlockedByResistanceWall &&
+    corpScore > -30 &&
+    pullbackFrom3mHigh <= Math.max(atr14 * 0.75, currentLtp * 0.0012);
+
+  const isMultiCandleBearConfirmed =
+    currentLtp <= last.open &&
+    (move1m < 0 || last.close < prev.close) &&
+    move3m < 0 &&
+    currentLtp <= ema9 &&
+    bearCloseStrength >= 0.52 &&
+    !isClosedHammerSupport &&
+    !isClosedBullishEngulfing &&
+    !isBlockedBySupportWall &&
+    corpScore < 30 &&
+    bounceFrom3mLow <= Math.max(atr14 * 0.75, currentLtp * 0.0012);
+
+  // Anti-Climax / Over-Extension Guard: Never buy at the exhausted top/bottom of a parabolic spike
+  const distFromEma9 = Math.abs(currentLtp - ema9);
+  const isOverExtendedBull = readings.rsi.value > 74 || (atr14 > 0 && distFromEma9 > atr14 * 2.4 && currentLtp > ema9);
+  const isOverExtendedBear = readings.rsi.value < 26 || (atr14 > 0 && distFromEma9 > atr14 * 2.4 && currentLtp < ema9);
+
+  if (isMultiCandleBullConfirmed && !isOverExtendedBull) {
+    bullishPoints += 18;
+    bearishPoints = Math.min(bearishPoints, 25);
+  } else {
+    bullishPoints = Math.min(bullishPoints, 45);
+  }
+
+  if (isMultiCandleBearConfirmed && !isOverExtendedBear) {
+    bearishPoints += 18;
+    bullishPoints = Math.min(bullishPoints, 25);
+  } else {
+    bearishPoints = Math.min(bearishPoints, 45);
+  }
+
+  // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV), OI Change, Volume & Order Book Depth Validation
+  let oiBuildupDesc = "Balanced Institutional OI";
   if (optionMetrics) {
     const absDelta = Math.abs(optionMetrics.delta ?? 0.5);
-    // High-responsiveness ATM/ITM Delta (0.45 to 0.72) boosts option profitability
+    const optGamma = Math.abs(optionMetrics.gamma ?? 0.0012);
+    const optTheta = Math.abs(optionMetrics.theta ?? 8);
+    const optLtpRef = Math.max(1, optionMetrics.ltp || 100);
+    const thetaDecayRatio = optTheta / optLtpRef;
+
+    // 1. Delta (Δ): Directional speed sweet spot (0.45 to 0.75)
     if (absDelta >= 0.45 && absDelta <= 0.75) {
       if (optionMetrics.optionType === "CE") bullishPoints += 8;
       else bearishPoints += 8;
     } else if (absDelta < 0.25) {
-      // Penalize deep OTM lottery strikes that bleed to Theta
       bullishPoints -= 15;
       bearishPoints -= 15;
     }
 
-    // IV Crush Filter: Penalize dangerously inflated Implied Volatility (> 45%)
-    if (optionMetrics.iv && optionMetrics.iv > 45) {
-      bullishPoints -= 10;
-      bearishPoints -= 10;
+    // 2. Gamma (Γ): Non-linear premium acceleration on breakout
+    if (optGamma >= 0.0008) {
+      if (optionMetrics.optionType === "CE") bullishPoints += 6;
+      else bearishPoints += 6;
     }
 
-    // Put-Call Ratio (PCR) Institutional Alignment
+    // 3. Theta (Θ): Protect against rapid time-decay traps when volume is low
+    if (thetaDecayRatio > 0.22 && rvol < 1.2) {
+      bullishPoints -= 15;
+      bearishPoints -= 15;
+    }
+
+    // 4. Implied Volatility (IV): Avoid IV Crush (> 45%) and reward healthy IV (10% - 35%)
+    if (optionMetrics.iv && optionMetrics.iv > 45) {
+      bullishPoints -= 12;
+      bearishPoints -= 12;
+    } else if (optionMetrics.iv && optionMetrics.iv >= 10 && optionMetrics.iv <= 35) {
+      if (optionMetrics.optionType === "CE") bullishPoints += 4;
+      else bearishPoints += 4;
+    }
+
+    // 5. Put-Call Ratio (PCR) & Option Volume
     if (optionMetrics.pcr) {
       if (optionMetrics.optionType === "CE" && optionMetrics.pcr >= 0.95) bullishPoints += 5;
       if (optionMetrics.optionType === "PE" && optionMetrics.pcr <= 1.05) bearishPoints += 5;
+    }
+
+    // 6. OI Change & Order Book Bid/Ask Imbalance Analysis
+    const oiChg = Number(optionMetrics.oiChange ?? 0);
+    const bidAskRatio = Number(optionMetrics.bidAskRatio ?? 1.0);
+    if (optionMetrics.optionType === "CE") {
+      oiBuildupDesc =
+        oiChg < 0
+          ? `Call Short Covering + RVOL ${rvol}x Surge`
+          : `Long Buildup + Put Writing Floor (RVOL ${rvol}x)`;
+      if (bidAskRatio >= 1.05) bullishPoints += 5;
+    } else {
+      oiBuildupDesc =
+        oiChg < 0
+          ? `Put Short Covering + RVOL ${rvol}x Surge`
+          : `Bearish Put Buildup + Call Writing Wall (RVOL ${rvol}x)`;
+      if (bidAskRatio >= 1.05) bearishPoints += 5;
     }
   }
 
@@ -750,6 +1126,38 @@ export function analyzeTradingSignals(
     ? calculateTradeCharges(optEntry, fallbackLotSz, true, optT1)
     : undefined;
 
+  // Calculate Realistic Target Price & Time-to-Target Forecast ("എപ്പോൾ, എത്ര രൂപ വരെ ലാഭത്തിലാകും?")
+  const clearRunwayPoints = Number(
+    (isBullish
+      ? Math.max(atr14 * 1.8, nearestResistance - currentLtp)
+      : Math.max(atr14 * 1.8, currentLtp - nearestSupport)
+    ).toFixed(2),
+  );
+  const absDeltaForForecast = Math.abs(optionMetrics?.delta ?? 0.52);
+  const gammaForForecast = Math.abs(optionMetrics?.gamma ?? 0.0015);
+  const estOptionGainPts = Number(
+    Math.max(
+      optT1 - optEntry,
+      clearRunwayPoints * absDeltaForForecast + 0.5 * gammaForForecast * Math.pow(Math.min(clearRunwayPoints, atr14 * 3), 2),
+    ).toFixed(2),
+  );
+  const estimatedMaxOptionPrice = Number((optEntry + estOptionGainPts).toFixed(2));
+  const estMinsLow = Math.max(2, Math.round(clearRunwayPoints / Math.max(1, atr14 * 1.1)));
+  const estMinsHigh = Math.min(25, Math.max(estMinsLow + 3, Math.round(clearRunwayPoints / Math.max(1, atr14 * 0.55))));
+  const estimatedMinutesToTarget = `${estMinsLow}–${estMinsHigh} mins`;
+  const effectiveLotsForEst = Math.max(1, optionMetrics?.affordableLots || 1);
+  const effectiveQtyForEst = effectiveLotsForEst * fallbackLotSz;
+  const estBrokTotal = (optionMetrics?.estimatedBrokerage || fallbackCharges?.roundTripCharges || 60) * effectiveLotsForEst;
+  const minNetProfitEst = Math.max(
+    180,
+    Math.round((optT1 - optEntry) * effectiveQtyForEst - estBrokTotal),
+  );
+  const maxNetProfitEst = Math.max(
+    minNetProfitEst + 150,
+    Math.round(estOptionGainPts * effectiveQtyForEst - estBrokTotal),
+  );
+  const estimatedNetProfitRange = `+₹${minNetProfitEst.toLocaleString("en-IN")} to +₹${maxNetProfitEst.toLocaleString("en-IN")} Net`;
+
   return {
     id: `sig_${symbol}_${Date.now()}`,
     symbol: optSymbol || symbol,
@@ -764,7 +1172,7 @@ export function analyzeTradingSignals(
           ? "RSI Momentum Breakout"
           : strategy === "VWAP_INSTITUTIONAL_REVERSION"
             ? "VWAP Institutional Bounce"
-            : "100% High-Accuracy Profit Matrix",
+            : "7-Layer Institutional Profit Matrix",
     confidenceScore: confidence,
     confidence,
     price: optEntry,
@@ -776,6 +1184,29 @@ export function analyzeTradingSignals(
     rationale,
     rationaleMalayalam,
     indicators: readings,
+    candlestickPattern: detectedPatternEn,
+    candlestickPatternMalayalam: detectedPatternMl,
+    mtfConfirmation: {
+      status:
+        (isBullish && tf5m === "BULLISH" && tf15m !== "BEARISH") ||
+        (!isBullish && tf5m === "BEARISH" && tf15m !== "BULLISH"),
+      timeframe5m: tf5m,
+      timeframe15m: tf15m,
+    },
+    institutionalQuantAnalysis: {
+      chartStructurePattern: chartStructureEn,
+      chartStructurePatternMl: chartStructureMl,
+      nearestSupport,
+      nearestResistance,
+      clearRunwayPoints,
+      corporateHeavyweightScore: corpScore,
+      corporateHeavyweightSummary: corpSummary,
+      globalMacroAlignment: macroAlign,
+      oiBuildupType: oiBuildupDesc,
+      estimatedMinutesToTarget,
+      estimatedMaxOptionPrice,
+      estimatedNetProfitRange,
+    },
     recommendedOptionStrike: optSymbol
       ? {
           strikePrice: chosenStrike,

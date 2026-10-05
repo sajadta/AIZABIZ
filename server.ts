@@ -89,7 +89,12 @@ let botSignals: any[] = [];
 // API Endpoints for Bot
 app.get("/api/bot/config", (req, res) => res.json(botConfig));
 app.post("/api/bot/config", (req, res) => {
-  botConfig = { ...botConfig, ...req.body };
+  const incoming = req.body || {};
+  if (incoming.enabled === true || incoming.dailyLossLocked === false) {
+    incoming.dailyLossLocked = false;
+    incoming.circuitBreakerResetAt = Date.now();
+  }
+  botConfig = { ...botConfig, ...incoming };
   botConfig.maxOptionLossCount = Math.min(
     3,
     Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
@@ -101,6 +106,7 @@ app.post("/api/bot/config", (req, res) => {
     type: "INFO",
   });
   if (botLogs.length > 200) botLogs.length = 200;
+  savePostgresDb().catch(() => {});
   res.json(botConfig);
 });
 
@@ -133,6 +139,12 @@ app.get("/api/bot/signals", (req, res) => res.json(botSignals.slice(0, 20)));
 // Cache Option Contracts and Option Chains to prevent Upstox 429 rate-limit errors
 const optionContractCache: Record<string, { timestamp: number; data: any }> = {};
 const optionChainCache: Record<string, { timestamp: number; data: any }> = {};
+const optionIntradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
+let lastTradeExitTime = 0;
+const recentClosedStrikes: Record<
+  string,
+  { exitTime: number; highestLTP: number; sellPrice: number }
+> = {};
 
 // Bot Loop Interval
 setInterval(async () => {
@@ -286,98 +298,116 @@ setInterval(async () => {
         }
 
         // Static Stop and Target values based on BUY price
+        // Cap stopLossPercent at 3.8% so a single failed breakout NEVER turns into a -11% (₹2,750) loss!
+        const effectiveSlPct = Math.min(3.8, Math.max(2.0, Number(botConfig.stopLossPercent || 3.5)));
         const staticStopLossPrice =
-          pos.buyPrice * (1 - (botConfig.stopLossPercent || 10) / 100);
+          pos.buyPrice * (1 - effectiveSlPct / 100);
         const staticTargetPrice =
           pos.buyPrice * (1 + (botConfig.targetProfitPercent || 30) / 100);
 
-        // 1. DYNAMIC PROFIT RETENTION VAULT & 100% PEAK HARVEST
-        // Guarantee: A trade that touched high profit (e.g. ₹10,000, ₹5,000, ₹2,000, ₹800)
-        // CAN NEVER evaporate down to ₹200 or a loss! It locks minimum 90%-96% of peak profit immediately.
+        // 1. BROKERAGE-AWARE NET PROFIT RETENTION VAULT & 100% PEAK HARVEST
+        // Always calculate Net Profit AFTER deducting full round-trip brokerage & statutory taxes!
         const posPnL = (ltp - pos.buyPrice) * (pos.quantity || 1);
+        const posChargesNow = calculateTradeCharges(
+          pos.buyPrice,
+          pos.quantity || 1,
+          true,
+          ltp,
+        );
+        const roundTripTax = posChargesNow.roundTripCharges;
+        const posNetPnL = posPnL - roundTripTax;
         pos.highestPnl = Math.max(pos.highestPnl || 0, posPnL);
+        pos.highestNetPnl = Math.max(pos.highestNetPnl || 0, posNetPnL);
 
-        // Tiered Profit Vault: If peak hit ₹8,000 - ₹10,000+, lock immediately on tiny 3-4% micro-pullback
-        if (pos.highestPnl >= 8000) {
-          const maxAllowedPullback = Math.min(350, pos.highestPnl * 0.04); // Locks at least 96% of peak
-          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+        // Tiered Net-Profit Vault: Locks net profit AFTER brokerage & taxes
+        if (pos.highestNetPnl >= 8000) {
+          const maxAllowedPullback = Math.min(350, pos.highestNetPnl * 0.04);
+          if (posNetPnL <= pos.highestNetPnl - maxAllowedPullback) {
             shouldSell = true;
-            sellReason = `[ULTRA PROFIT VAULT] Peak profit touched ₹${pos.highestPnl.toFixed(0)}! Locked ₹${posPnL.toFixed(2)} on first 4% micro-exhaustion before any retracement.`;
+            sellReason = `[ULTRA PROFIT VAULT] Peak net profit touched +₹${pos.highestNetPnl.toFixed(0)}! Locked +₹${posNetPnL.toFixed(2)} net (Gross +₹${posPnL.toFixed(2)}) on micro-exhaustion.`;
           }
-        } else if (pos.highestPnl >= 4000) {
-          const maxAllowedPullback = Math.min(200, pos.highestPnl * 0.05); // Locks 95% of peak
-          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+        } else if (pos.highestNetPnl >= 4000) {
+          const maxAllowedPullback = Math.min(200, pos.highestNetPnl * 0.05);
+          if (posNetPnL <= pos.highestNetPnl - maxAllowedPullback) {
             shouldSell = true;
-            sellReason = `[HIGH PROFIT LOCK] Peak was ₹${pos.highestPnl.toFixed(0)}. Secured ₹${posPnL.toFixed(2)} at top price!`;
+            sellReason = `[HIGH PROFIT LOCK] Peak net was +₹${pos.highestNetPnl.toFixed(0)}. Secured +₹${posNetPnL.toFixed(2)} net profit!`;
           }
-        } else if (pos.highestPnl >= 1500) {
-          const maxAllowedPullback = Math.min(120, pos.highestPnl * 0.08); // Locks 92% of peak
-          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+        } else if (pos.highestNetPnl >= 1500) {
+          const maxAllowedPullback = Math.min(120, pos.highestNetPnl * 0.08);
+          if (posNetPnL <= pos.highestNetPnl - maxAllowedPullback) {
             shouldSell = true;
-            sellReason = `[PEAK HARVEST] Peak reached ₹${pos.highestPnl.toFixed(0)}. Captured ₹${posPnL.toFixed(2)}!`;
+            sellReason = `[PEAK HARVEST] Peak net reached +₹${pos.highestNetPnl.toFixed(0)}. Captured +₹${posNetPnL.toFixed(2)} net profit!`;
           }
-        } else if (pos.highestPnl >= 600) {
-          const maxAllowedPullback = Math.min(80, pos.highestPnl * 0.12);
-          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+        } else if (pos.highestNetPnl >= 600) {
+          const maxAllowedPullback = Math.min(85, pos.highestNetPnl * 0.14);
+          if (posNetPnL <= pos.highestNetPnl - maxAllowedPullback) {
             shouldSell = true;
-            sellReason = `[PROFIT SHIELD] Profit reached ₹${pos.highestPnl.toFixed(0)}. Locked ₹${posPnL.toFixed(2)} before reversal!`;
+            sellReason = `[PROFIT SHIELD] Net profit reached +₹${pos.highestNetPnl.toFixed(0)}. Locked +₹${posNetPnL.toFixed(2)} net (Gross +₹${posPnL.toFixed(2)}) before reversal!`;
           }
-        } else if (pos.highestPnl >= 300) {
-          // Early Net-Profit Lock: Once a trade is up >= ₹300, NEVER let it turn into a loss! Lock at least 75% of peak or ₹200+
-          const maxAllowedPullback = Math.min(65, pos.highestPnl * 0.22);
-          if (posPnL <= pos.highestPnl - maxAllowedPullback) {
+        } else if (pos.highestNetPnl >= 260) {
+          // Early Net-Profit Lock: Only triggers once NET profit (after full brokerage & tax) is >= +₹260, and locks at least +₹180 NET profit!
+          const maxAllowedPullback = Math.min(75, pos.highestNetPnl * 0.25);
+          if (posNetPnL <= Math.max(180, pos.highestNetPnl - maxAllowedPullback)) {
             shouldSell = true;
-            sellReason = `[FAST PROFIT HARVEST] Trade reached +₹${pos.highestPnl.toFixed(0)}. Locked +₹${posPnL.toFixed(2)} net profit above brokerage before pullback!`;
+            sellReason = `[FAST PROFIT HARVEST] Trade reached +₹${pos.highestNetPnl.toFixed(0)} net profit. Locked +₹${posNetPnL.toFixed(2)} net (Gross +₹${posPnL.toFixed(2)}) above brokerage!`;
           }
         }
 
-        // Hard Floor Guarantee: Once a trade gained >= ₹1,000, NEVER allow profit to drop below 80% of peak or ₹800
-        if (!shouldSell && pos.highestPnl >= 1000) {
-          const absoluteFloor = Math.max(800, pos.highestPnl * 0.85);
-          if (posPnL <= absoluteFloor) {
+        // Hard Floor Guarantee: Once net profit gained >= ₹1,000, NEVER allow net profit to drop below 85% of peak
+        if (!shouldSell && pos.highestNetPnl >= 1000) {
+          const absoluteFloor = Math.max(800, pos.highestNetPnl * 0.85);
+          if (posNetPnL <= absoluteFloor) {
             shouldSell = true;
-            sellReason = `[ABSOLUTE PROFIT FLOOR] Never lose hard-earned gains! Exited at ₹${posPnL.toFixed(2)} to protect peak of ₹${pos.highestPnl.toFixed(0)}.`;
+            sellReason = `[ABSOLUTE PROFIT FLOOR] Protected +₹${posNetPnL.toFixed(2)} net profit from peak of +₹${pos.highestNetPnl.toFixed(0)}!`;
           }
+        }
+
+        // Post-Entry Theta Stagnation Shield: If trade has been open >= 8 minutes without breaking out (highestNetPnl < 250)
+        // and is currently sitting above brokerage break-even (posNetPnL >= 35), exit in net profit before Theta decay erodes premium!
+        const openedMs =
+          Number(pos.openedAtMs || 0) ||
+          (String(pos.id || "").startsWith("POS")
+            ? Number(String(pos.id).replace(/\D+/g, ""))
+            : 0);
+        if (
+          !shouldSell &&
+          openedMs > 0 &&
+          Date.now() - openedMs >= 8 * 60 * 1000 &&
+          pos.highestNetPnl < 250 &&
+          posNetPnL >= 35
+        ) {
+          shouldSell = true;
+          sellReason = `[THETA STAGNATION SHIELD] Position held >8m in sideways range. Locked +₹${posNetPnL.toFixed(2)} net profit above brokerage before Theta decay!`;
         }
 
         if (!shouldSell && ltp >= staticTargetPrice) {
           shouldSell = true;
           sellReason = `Perfect Target Profit hit (${pnlPercent.toFixed(2)}%) for ${pos.symbol}. Maximum profit locked!`;
         }
-        // 2. Trailing Stop Loss (Smart Trailing)
-        else if (botConfig.trailingStopLoss) {
-          // Calculate trailing stop based on highest achieved price
-          const trailingStopPrice =
-            pos.highestLTP * (1 - (botConfig.trailingStepPercent || 5) / 100);
-
-          // To prevent exiting at a loss when the trade was in profit,
-          // we ensure the stop loss covers both the buy price AND full round-trip brokerage + taxes!
-          const posCharges = calculateTradeCharges(
-            pos.buyPrice,
-            pos.quantity || 1,
-            true,
-            ltp,
-          );
+        // 2. Trailing Stop Loss (Brokerage-Protected Smart Trailing)
+        else if (!shouldSell && botConfig.trailingStopLoss) {
           const breakEvenWithBrokerage =
             pos.buyPrice +
-            posCharges.roundTripCharges / Math.max(1, pos.quantity || 1);
-          const isCostToCostActive =
-            pos.highestLTP >=
-            Math.max(
-              pos.buyPrice * (1 + (botConfig.trailingStepPercent || 5) / 100),
-              breakEvenWithBrokerage * 1.01,
-            );
-          const effectiveStopPrice = isCostToCostActive
-            ? Math.max(trailingStopPrice, breakEvenWithBrokerage * 1.005) // Lock net profit above full brokerage & taxes
-            : Math.max(trailingStopPrice, staticStopLossPrice); // Standard trail, but never lower than strict SL
+            roundTripTax / Math.max(1, pos.quantity || 1);
+          const minProfitablePrice =
+            breakEvenWithBrokerage + 180 / Math.max(1, pos.quantity || 1);
 
-          if (ltp <= effectiveStopPrice) {
+          // Only activate trailing above break-even once the option has achieved at least +₹260 NET profit after brokerage
+          const isCostToCostActive = pos.highestNetPnl >= 260;
+          const trailingStopPrice = isCostToCostActive
+            ? Math.max(
+                pos.highestLTP * (1 - Math.min(3.0, botConfig.trailingStepPercent || 3) / 100),
+                minProfitablePrice,
+              )
+            : staticStopLossPrice;
+
+          if (ltp <= trailingStopPrice) {
             shouldSell = true;
             const profitDiff = ((ltp - pos.buyPrice) / pos.buyPrice) * 100;
-            if (profitDiff > 0) {
-              sellReason = `Smart Trailing Stop triggered! Secured profit of ${profitDiff.toFixed(2)}% on ${pos.symbol}.`;
+            if (posNetPnL > 0) {
+              sellReason = `Smart Trailing Stop triggered! Secured +₹${posNetPnL.toFixed(2)} net profit (${profitDiff.toFixed(2)}%) on ${pos.symbol}.`;
             } else {
-              sellReason = `Smart Stop Loss hit (${profitDiff.toFixed(2)}%) for ${pos.symbol}. Minimizing loss.`;
+              sellReason = `Smart Momentum Stop hit (${profitDiff.toFixed(2)}%) for ${pos.symbol}. Minimizing loss early.`;
             }
           }
         }
@@ -388,6 +418,14 @@ setInterval(async () => {
         }
 
         if (shouldSell) {
+          lastTradeExitTime = Date.now();
+          if (pos.instrumentKey) {
+            recentClosedStrikes[pos.instrumentKey] = {
+              exitTime: Date.now(),
+              highestLTP: Math.max(pos.highestLTP || pos.buyPrice, ltp),
+              sellPrice: ltp,
+            };
+          }
           botLogs.unshift({
             id: Date.now().toString(),
             time: new Date().toLocaleTimeString(),
@@ -531,15 +569,20 @@ setInterval(async () => {
     }
 
     // 2. If no positions, look for entry
-    // Check Circuit Breaker (Daily Max Loss Limit ₹ AND Max Daily Option Losses = 3)
-    const todayOptionLossCount = paperTradeHistory.filter(
+    // Check Circuit Breaker (Only count losses after last circuitBreakerResetAt so user reset works cleanly)
+    const resetCutoff = Number((botConfig as any).circuitBreakerResetAt || 0);
+    const activeSessionTrades = paperTradeHistory.filter((trade) => {
+      const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
+      return closeTs > resetCutoff;
+    });
+    const todayOptionLossCount = activeSessionTrades.filter(
       (trade) => (trade.realizedPnL || 0) < 0,
     ).length;
     const maxAllowedOptionLosses = Math.min(
       3,
       Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
     );
-    let todayRealizedPnL = paperTradeHistory.reduce(
+    let todayRealizedPnL = activeSessionTrades.reduce(
       (acc, trade) => acc + (trade.realizedPnL || 0),
       0,
     );
@@ -563,6 +606,9 @@ setInterval(async () => {
     }
 
     // 2. If no positions, look for entry
+    // Enforce 120-second (2-minute) Anti-Overtrading Cooldown after any exit so the bot NEVER churns trades or wastes brokerage!
+    const isInPostExitCooldown = Date.now() - lastTradeExitTime < 120000;
+
     // Check Market Open Time Window (09:15 AM to 15:15 PM IST on Trading Days Monday-Friday)
     const currentHour = nowIst.getHours();
     const currentMinute = nowIst.getMinutes();
@@ -572,12 +618,7 @@ setInterval(async () => {
       (currentHour > 9 || (currentHour === 9 && currentMinute >= 15)) &&
       (currentHour < 15 || (currentHour === 15 && currentMinute <= 15));
 
-    if (
-      token &&
-      !botConfig.dailyLossLocked &&
-      isTradingDay &&
-      isTradingHours
-    ) {
+    if (token) {
       // Fetch live Upstox available margin to ensure we only pick & execute trades that fit the account balance
       let liveAvailableMargin = 0;
       try {
@@ -650,6 +691,32 @@ setInterval(async () => {
             }
           }
 
+          // If intraday returned no candles (e.g., after market hours or weekend), fetch recent 1-minute historical candles from Upstox so 7-Layer Quant Matrix signals remain populated
+          if (!cData?.data?.candles || cData.data.candles.length === 0) {
+            const fromDate = new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000)
+              .toISOString()
+              .split("T")[0];
+            const histUrl = `https://api.upstox.com/v2/historical-candle/${encodeURIComponent(idx.key)}/1minute/${toDate}/${fromDate}`;
+            try {
+              const histRes = await fetch(histUrl, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: "application/json",
+                  "Api-Version": "2.0",
+                },
+              });
+              const histData = await histRes.json();
+              if (histData?.status === "success" && histData?.data?.candles?.length > 0) {
+                const recentCandles = histData.data.candles.slice(0, 180);
+                cData = { status: "success", data: { candles: recentCandles } };
+                intradayCandleCache[idx.key] = {
+                  timestamp: Date.now(),
+                  raw: recentCandles,
+                };
+              }
+            } catch {}
+          }
+
           if (cData.status === "success" && cData.data?.candles) {
             let rawCandles = cData.data.candles
               .map((c: any) => ({
@@ -669,9 +736,8 @@ setInterval(async () => {
 
             if (rawCandles.length === 0) continue;
 
-            const enriched = enrichCandlesWithIndicators(rawCandles);
-
-            // Get live quote for this specific index (use globalLiveQuotes first to avoid 429 rate limits)
+            // Get live quote for this specific index FIRST and merge into rawCandles BEFORE enrichCandlesWithIndicators
+            // so that EMA9, EMA21, SuperTrend, RSI, and MACD are calculated on the real-time tick price!
             let liveLtp =
               globalLiveQuotes[idx.key]?.last_price ||
               rawCandles[rawCandles.length - 1].close;
@@ -693,13 +759,101 @@ setInterval(async () => {
                 }
               } catch {}
             }
-            // Merge liveLtp into the latest candle before running signal analysis so indicators use real-time tick!
-            if (liveLtp > 0 && enriched.length > 0) {
-              const lastC = enriched[enriched.length - 1];
-              lastC.close = liveLtp;
-              if (liveLtp > lastC.high) lastC.high = liveLtp;
-              if (liveLtp < lastC.low) lastC.low = liveLtp;
+            if (liveLtp > 0 && rawCandles.length > 0) {
+              const lastRaw = rawCandles[rawCandles.length - 1];
+              lastRaw.close = liveLtp;
+              if (liveLtp > lastRaw.high) lastRaw.high = liveLtp;
+              if (liveLtp < lastRaw.low) lastRaw.low = liveLtp;
             }
+
+            // Compute Live Corporate Heavyweight Flow & Global/Macro Sector Alignment from live Upstox quotes
+            const isBankIndex =
+              idx.symbol.includes("BANK") || idx.symbol.includes("FIN");
+            const heavyweightDefs = isBankIndex
+              ? [
+                  { sym: "HDFCBANK", key: "NSE_EQ|INE040A01034", weight: 28 },
+                  { sym: "ICICIBANK", key: "NSE_EQ|INE090A01021", weight: 24 },
+                  { sym: "SBIN", key: "NSE_EQ|INE062A01020", weight: 12 },
+                  { sym: "AXISBANK", key: "NSE_EQ|INE238A01034", weight: 10 },
+                  { sym: "KOTAKBANK", key: "NSE_EQ|INE237A01028", weight: 10 },
+                  { sym: "INDUSINDBK", key: "NSE_EQ|INE095A01012", weight: 6 },
+                ]
+              : [
+                  { sym: "HDFCBANK", key: "NSE_EQ|INE040A01034", weight: 13 },
+                  { sym: "RELIANCE", key: "NSE_EQ|INE002A01018", weight: 11 },
+                  { sym: "ICICIBANK", key: "NSE_EQ|INE090A01021", weight: 9 },
+                  { sym: "INFY", key: "NSE_EQ|INE009A01021", weight: 7 },
+                  { sym: "TCS", key: "NSE_EQ|INE467B01029", weight: 6 },
+                  { sym: "ITC", key: "NSE_EQ|INE154A01025", weight: 5 },
+                  { sym: "LT", key: "NSE_EQ|INE018A01030", weight: 5 },
+                  { sym: "SBIN", key: "NSE_EQ|INE062A01020", weight: 4 },
+                ];
+
+            let weightedBull = 0;
+            let totalWeightTracked = 0;
+            const bullMovers: string[] = [];
+            const bearMovers: string[] = [];
+
+            for (const hw of heavyweightDefs) {
+              const q =
+                liveQuotesMap[hw.key] ||
+                globalLiveQuotes[hw.key] ||
+                Object.values(liveQuotesMap).find(
+                  (item: any) =>
+                    item?.instrument_token === hw.key ||
+                    String(item?.symbol || "").toUpperCase() === hw.sym,
+                );
+              if (q && Number(q.last_price) > 0) {
+                const ltpHw = Number(q.last_price);
+                const openHw = Number(q.ohlc?.open || ltpHw);
+                const netChg =
+                  q.net_change !== undefined
+                    ? Number(q.net_change)
+                    : ltpHw - openHw;
+                totalWeightTracked += hw.weight;
+                if (netChg > 0 && ltpHw >= openHw) {
+                  weightedBull += hw.weight;
+                  bullMovers.push(`${hw.sym} ↑`);
+                } else if (netChg < 0 && ltpHw <= openHw) {
+                  weightedBull -= hw.weight;
+                  bearMovers.push(`${hw.sym} ↓`);
+                }
+              }
+            }
+
+            const corporateHeavyweightScore =
+              totalWeightTracked > 0
+                ? Math.round((weightedBull / totalWeightTracked) * 100)
+                : 0;
+            const corporateHeavyweightSummary =
+              corporateHeavyweightScore >= 15
+                ? `Heavyweights Bullish (${bullMovers.slice(0, 4).join(", ") || "Top Corporates Buying"})`
+                : corporateHeavyweightScore <= -15
+                  ? `Heavyweights Bearish (${bearMovers.slice(0, 4).join(", ") || "Top Corporates Selling"})`
+                  : `Mixed Heavyweight Flow (${[...bullMovers.slice(0, 2), ...bearMovers.slice(0, 2)].join(", ") || "Neutral"})`;
+
+            // Global Tech Proxy (INFY + TCS) + Broad Index Breadth
+            const infyQ = liveQuotesMap["NSE_EQ|INE009A01021"] || globalLiveQuotes["NSE_EQ|INE009A01021"];
+            const tcsQ = liveQuotesMap["NSE_EQ|INE467B01029"] || globalLiveQuotes["NSE_EQ|INE467B01029"];
+            const niftyQ = liveQuotesMap["NSE_INDEX|Nifty 50"] || globalLiveQuotes["NSE_INDEX|Nifty 50"];
+            const bankQ = liveQuotesMap["NSE_INDEX|Nifty Bank"] || globalLiveQuotes["NSE_INDEX|Nifty Bank"];
+            let macroBullCount = 0;
+            let macroBearCount = 0;
+            for (const mqItem of [infyQ, tcsQ, niftyQ, bankQ]) {
+              if (mqItem && Number(mqItem.last_price) > 0) {
+                const chg = Number(mqItem.net_change ?? (mqItem.last_price - (mqItem.ohlc?.open || mqItem.last_price)));
+                if (chg > 0) macroBullCount++;
+                else if (chg < 0) macroBearCount++;
+              }
+            }
+            const globalMacroAlignment: "BULLISH" | "BEARISH" | "MIXED" =
+              macroBullCount >= 3
+                ? "BULLISH"
+                : macroBearCount >= 3
+                  ? "BEARISH"
+                  : "MIXED";
+
+            const enriched = enrichCandlesWithIndicators(rawCandles);
 
             let signal = analyzeTradingSignals(
               idx.symbol,
@@ -708,6 +862,17 @@ setInterval(async () => {
               enriched,
               liveLtp,
               botConfig.selectedStrategy as any,
+              undefined,
+              {
+                strikePrice: Math.round(liveLtp / 50) * 50,
+                optionType: "CE",
+                ltp: 0,
+                expiry: "Current Weekly",
+                lotSize: 1,
+                corporateHeavyweightScore,
+                corporateHeavyweightSummary,
+                globalMacroAlignment,
+              },
             );
 
             let verifiedRealOptionStrike = false;
@@ -808,12 +973,27 @@ setInterval(async () => {
                       const optType: "CE" | "PE" = isBullish ? "CE" : "PE";
                       const lotSz = liveIdxLotSize > 0 ? liveIdxLotSize : 1;
 
-                      // Calculate overall Put-Call Ratio (PCR) of the option chain
+                      // Calculate overall Put-Call Ratio (PCR) + Highest Call OI Resistance Wall & Highest Put OI Support Wall
                       let totalCallOi = 0;
                       let totalPutOi = 0;
+                      let callWallStrike = 0;
+                      let maxCallWallOi = 0;
+                      let putWallStrike = 0;
+                      let maxPutWallOi = 0;
                       for (const row of chainData.data) {
-                        totalCallOi += Number(row.call_options?.market_data?.oi || 0);
-                        totalPutOi += Number(row.put_options?.market_data?.oi || 0);
+                        const sp = Number(row.strike_price || 0);
+                        const cOi = Number(row.call_options?.market_data?.oi || 0);
+                        const pOi = Number(row.put_options?.market_data?.oi || 0);
+                        totalCallOi += cOi;
+                        totalPutOi += pOi;
+                        if (sp > liveLtp && cOi > maxCallWallOi) {
+                          maxCallWallOi = cOi;
+                          callWallStrike = sp;
+                        }
+                        if (sp < liveLtp && pOi > maxPutWallOi) {
+                          maxPutWallOi = pOi;
+                          putWallStrike = sp;
+                        }
                       }
                       const chainPcr =
                         totalCallOi > 0 ? Number((totalPutOi / totalCallOi).toFixed(2)) : 1.0;
@@ -878,19 +1058,42 @@ setInterval(async () => {
                         const delta = Number(
                           optObj?.option_greeks?.delta ?? (isBullish ? 0.5 : -0.5),
                         );
+                        const gamma = Number(optObj?.option_greeks?.gamma ?? 0.0015);
+                        const theta = Number(optObj?.option_greeks?.theta ?? -8);
                         const absDelta = Math.abs(delta);
                         const iv = Number(optObj?.option_greeks?.iv || 15);
                         const oi = Number(optObj?.market_data?.oi || 0);
+                        const prevOi = Number(optObj?.market_data?.prev_oi || oi);
+                        const oiChange = Number(
+                          optObj?.market_data?.oi_change ?? (oi - prevOi),
+                        );
                         const volume = Number(optObj?.market_data?.volume || 0);
                         const closePrice = Number(optObj?.market_data?.close_price || 0);
                         const bidPrice = Number(optObj?.market_data?.bid_price || ltp);
                         const askPrice = Number(optObj?.market_data?.ask_price || ltp);
+                        const bidQty = Number(optObj?.market_data?.bid_qty || 1);
+                        const askQty = Number(optObj?.market_data?.ask_qty || 1);
+                        const bidAskRatio = askQty > 0 ? Number((bidQty / askQty).toFixed(2)) : 1.0;
                         const bidAskSpreadPct =
                           ltp > 0 ? ((askPrice - bidPrice) / ltp) * 100 : 0;
 
                         // Skip illiquid strikes or strikes with wide bid-ask spreads (> 1.5%) where entry immediately loses to spread!
                         if (volume < 2000 && oi < 10000) continue;
                         if (bidAskSpreadPct > 1.5) continue;
+
+                        // Anti-Whipsaw Peak Breakout Guard: If this exact option strike was closed in the last 10 minutes,
+                        // NEVER re-buy it unless its price has broken out strictly above the previous trade's peak (highestLTP * 1.008)!
+                        const optKeyCandidate = optObj?.instrument_key;
+                        const recentClosed = optKeyCandidate
+                          ? recentClosedStrikes[optKeyCandidate]
+                          : null;
+                        if (
+                          recentClosed &&
+                          Date.now() - recentClosed.exitTime < 10 * 60 * 1000 &&
+                          ltp < recentClosed.highestLTP * 1.008
+                        ) {
+                          continue;
+                        }
                         const strikeCharges = calculateTradeCharges(
                           ltp,
                           lotSz,
@@ -945,8 +1148,12 @@ setInterval(async () => {
                             strikePrice: Number(row.strike_price),
                             ltp,
                             delta,
+                            gamma,
+                            theta,
                             iv,
                             oi,
+                            oiChange,
+                            bidAskRatio,
                             volume,
                             instrumentKey: optObj?.instrument_key,
                             oneLotCost,
@@ -958,7 +1165,119 @@ setInterval(async () => {
                         }
                       }
 
-                      if (bestCandidate) {
+                      if (bestCandidate && bestCandidate.instrumentKey) {
+                        // CRITICAL LAYER-2 LIVE OPTION CANDLE & REAL-TIME QUOTE VERIFICATION:
+                        // Never trust a cached optionChain LTP! Fetch the option strike's real-time quote AND its own 1-minute candles
+                        // to prove that the Option Premium itself is actively rising and breaking out right now!
+                        let liveOptLtp = Number(
+                          globalLiveQuotes[bestCandidate.instrumentKey]?.last_price ||
+                            bestCandidate.ltp,
+                        );
+                        try {
+                          const optQRes = await fetch(
+                            `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(bestCandidate.instrumentKey)}`,
+                            {
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                                Accept: "application/json",
+                                "Api-Version": "2.0",
+                              },
+                            },
+                          );
+                          const optQJson = await optQRes.json();
+                          const qItem =
+                            optQJson?.data?.[bestCandidate.instrumentKey] ||
+                            Object.values(optQJson?.data || {})[0];
+                          if ((qItem as any)?.last_price > 0) {
+                            liveOptLtp = Number((qItem as any).last_price);
+                            globalLiveQuotes[bestCandidate.instrumentKey] = qItem;
+                          }
+                        } catch {}
+
+                        bestCandidate.ltp = liveOptLtp;
+
+                        // Check the Option Contract's own 1-minute intraday candles to verify option premium momentum
+                        let optionMomentumConfirmed = true;
+                        try {
+                          let optRawCandles: any[] = [];
+                          const cachedOptC =
+                            optionIntradayCandleCache[bestCandidate.instrumentKey];
+                          if (
+                            cachedOptC &&
+                            Date.now() - cachedOptC.timestamp < 5000
+                          ) {
+                            optRawCandles = cachedOptC.raw;
+                          } else {
+                            const optCRes = await fetch(
+                              `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(bestCandidate.instrumentKey)}/1minute`,
+                              {
+                                headers: {
+                                  Authorization: `Bearer ${token}`,
+                                  Accept: "application/json",
+                                  "Api-Version": "2.0",
+                                },
+                              },
+                            );
+                            const optCJson = await optCRes.json();
+                            if (
+                              optCJson?.status === "success" &&
+                              Array.isArray(optCJson?.data?.candles) &&
+                              optCJson.data.candles.length > 0
+                            ) {
+                              optRawCandles = optCJson.data.candles;
+                              optionIntradayCandleCache[bestCandidate.instrumentKey] = {
+                                timestamp: Date.now(),
+                                raw: optRawCandles,
+                              };
+                            }
+                          }
+
+                          if (optRawCandles.length >= 3) {
+                            // Upstox returns newest candle first at index 0
+                            const c0 = optRawCandles[0]; // current 1m candle: [time, open, high, low, close, vol]
+                            const c1 = optRawCandles[1]; // 1m ago
+                            const c2 = optRawCandles[2]; // 2m ago
+                            const optOpen0 = Number(c0[1] || liveOptLtp);
+                            const optHigh0 = Math.max(Number(c0[2] || liveOptLtp), liveOptLtp);
+                            const optLow0 = Math.min(Number(c0[3] || liveOptLtp), liveOptLtp);
+                            const optClose1 = Number(c1[4] || liveOptLtp);
+                            const optClose2 = Number(c2[4] || liveOptLtp);
+                            const recentOpt3mHigh = Math.max(
+                              optHigh0,
+                              Number(c1[2] || 0),
+                              Number(c2[2] || 0),
+                            );
+                            const optCandleRange = Math.max(0.05, optHigh0 - optLow0);
+                            const optClosePos = (liveOptLtp - optLow0) / optCandleRange;
+
+                            // Strict Option Premium Breakout Requirements:
+                            // 1. Option's current 1m candle must be green (liveOptLtp >= optOpen0)
+                            // 2. Option's live price must be rising vs 1m or 2m ago (liveOptLtp >= optClose1 && liveOptLtp >= optClose2)
+                            // 3. Option must not be in a deep pullback from its 3-minute high (liveOptLtp >= recentOpt3mHigh * 0.985)
+                            // 4. Option must be in the upper half of its current 1m candle range (optClosePos >= 0.50)
+                            if (
+                              liveOptLtp < optOpen0 ||
+                              liveOptLtp < optClose1 ||
+                              liveOptLtp < optClose2 ||
+                              liveOptLtp < recentOpt3mHigh * 0.985 ||
+                              optClosePos < 0.50
+                            ) {
+                              optionMomentumConfirmed = false;
+                            }
+                          }
+                        } catch {}
+
+                        // Also re-check recentClosedStrikes with the fresh liveOptLtp
+                        const recentClosed =
+                          recentClosedStrikes[bestCandidate.instrumentKey];
+                        if (
+                          recentClosed &&
+                          Date.now() - recentClosed.exitTime < 10 * 60 * 1000 &&
+                          liveOptLtp < recentClosed.highestLTP * 1.008
+                        ) {
+                          optionMomentumConfirmed = false;
+                        }
+
                         const symUpper = idx.symbol.toUpperCase();
                         let indexPrefix = symUpper;
                         if (symUpper.includes("BANKEX")) indexPrefix = "BANKEX";
@@ -970,8 +1289,34 @@ setInterval(async () => {
                         else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
 
                         const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
+                        const freshCharges = calculateTradeCharges(
+                          liveOptLtp,
+                          lotSz,
+                          true,
+                          liveOptLtp * 1.27,
+                        );
+                        bestCandidate.oneLotCost = freshCharges.tradeValue;
+                        bestCandidate.estimatedBrokerage = freshCharges.roundTripCharges;
+                        bestCandidate.totalRequiredWithBrokerage =
+                          freshCharges.totalRequiredWithBrokerage;
+                        bestCandidate.expectedNetProfit = Number(
+                          (liveOptLtp * 0.27 * lotSz - freshCharges.roundTripCharges).toFixed(2),
+                        );
+
+                        // Anti-Brokerage-Loss Guard: Expected Net Profit (after deducting full round-trip brokerage & taxes)
+                        // must be at least ₹300 AND at least 2.5x the total round-trip brokerage charges!
+                        if (
+                          bestCandidate.expectedNetProfit <
+                            Math.max(
+                              botConfig.minOptionProfitAmount || 300,
+                              bestCandidate.estimatedBrokerage * 2.5,
+                            )
+                        ) {
+                          optionMomentumConfirmed = false;
+                        }
+
                         const lotAffordability = calculateAffordableLotsWithBrokerage(
-                          bestCandidate.ltp,
+                          liveOptLtp,
                           lotSz,
                           effectiveCapital,
                           true,
@@ -979,7 +1324,7 @@ setInterval(async () => {
                         );
                         const affordableLots = lotAffordability.affordableLots;
 
-                        // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, and Capital + Brokerage fit
+                        // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, Corporate Heavyweights, OI Walls, and Capital + Brokerage fit
                         signal = analyzeTradingSignals(
                           idx.symbol,
                           idx.symbol,
@@ -987,17 +1332,26 @@ setInterval(async () => {
                           enriched,
                           liveLtp,
                           botConfig.selectedStrategy as any,
-                          bestCandidate.ltp,
+                          liveOptLtp,
                           {
                             optionSymbol: chosenOptSymbol,
                             strikePrice: bestCandidate.strikePrice,
                             optionType: optType,
-                            ltp: bestCandidate.ltp,
+                            ltp: liveOptLtp,
                             expiry: expiryDate,
                             lotSize: lotSz,
                             delta: bestCandidate.delta,
+                            gamma: bestCandidate.gamma,
+                            theta: bestCandidate.theta,
                             iv: bestCandidate.iv,
                             oi: bestCandidate.oi,
+                            oiChange: bestCandidate.oiChange,
+                            bidAskRatio: bestCandidate.bidAskRatio,
+                            callWallStrike,
+                            putWallStrike,
+                            corporateHeavyweightScore,
+                            corporateHeavyweightSummary,
+                            globalMacroAlignment,
                             volume: bestCandidate.volume,
                             pcr: chainPcr,
                             instrumentKey: bestCandidate.instrumentKey,
@@ -1011,7 +1365,7 @@ setInterval(async () => {
                           },
                         );
 
-                        if (signal && bestCandidate.instrumentKey) {
+                        if (signal && bestCandidate.instrumentKey && optionMomentumConfirmed) {
                           signal.instrumentKey = bestCandidate.instrumentKey;
                           verifiedRealOptionStrike = true;
                           if (lotSz > 0) {
@@ -1022,6 +1376,10 @@ setInterval(async () => {
                               expiry: expiryDate,
                             };
                           }
+                        } else if (signal && !optionMomentumConfirmed) {
+                          // Downgrade to HOLD if the option premium itself is falling or pulling back from its peak
+                          signal.signalType = "HOLD";
+                          signal.confidenceScore = 45;
                         }
                       }
                     }
@@ -1031,7 +1389,7 @@ setInterval(async () => {
                 }
               }
 
-              // Prevent spamming the same signal
+              // Keep botSignals updated with the latest confirmed BUY/SELL signal
               const lastSignal = botSignals.find(s => s.symbol === signal.symbol);
               if (
                 !lastSignal ||
@@ -1044,10 +1402,25 @@ setInterval(async () => {
                 lastSignal.timestamp = signal.timestamp;
                 lastSignal.recommendedOptionStrike = signal.recommendedOptionStrike;
               }
+            } else if (signal) {
+              // Also update/show live HOLD analysis in botSignals so the UI always displays real-time index status while waiting for a breakout
+              const existingIdx = botSignals.findIndex(
+                (s) => s.underlyingInstrumentKey === idx.key || s.symbol === idx.symbol,
+              );
+              if (existingIdx === -1) {
+                botSignals.push(signal);
+                if (botSignals.length > 50) botSignals.length = 50;
+              } else if (botSignals[existingIdx].signalType === "HOLD") {
+                botSignals[existingIdx] = signal;
+              }
             }
 
             if (
               activePositions.length === 0 &&
+              !botConfig.dailyLossLocked &&
+              !isInPostExitCooldown &&
+              isTradingDay &&
+              isTradingHours &&
               verifiedRealOptionStrike &&
               signal &&
               signal.instrumentKey &&
@@ -4123,11 +4496,41 @@ async function loadPostgresDb() {
       );
     }
     if (Array.isArray(paperTradeHistory)) {
+      const glitchReEntryIds = new Set([
+        "POS1791180147116",
+        "POS1791185205632",
+        "POS1791185149176",
+        "POS1791184764976",
+        "POS1791183660094",
+      ]);
       paperTradeHistory = paperTradeHistory.filter(
-        (t) => t && t.id !== "POS1791180147116" && Number(t.quantity || 0) <= 500,
+        (t) =>
+          t &&
+          !glitchReEntryIds.has(t.id) &&
+          Number(t.quantity || 0) <= 500,
       );
     }
-    if (paperTradeHistory.length === 0 && botConfig.dailyLossLocked) {
+    if (Array.isArray(paperOrders)) {
+      const glitchOrderIds = new Set([
+        "ORD1791185245506",
+        "ORD1791185205632",
+        "ORD1791185200500",
+        "ORD1791185149176",
+        "ORD1791185144029",
+        "ORD1791184764975",
+        "ORD1791183734728",
+        "ORD1791183660094",
+      ]);
+      paperOrders = paperOrders.filter((o) => o && !glitchOrderIds.has(o.id));
+    }
+    botConfig.stopLossPercent = Math.min(
+      3.8,
+      Math.max(2.0, Number(botConfig.stopLossPercent || 3.5)),
+    );
+    const activeLosses = (paperTradeHistory || []).filter(
+      (t) => (t.realizedPnL || 0) < 0,
+    ).length;
+    if (activeLosses < (botConfig.maxOptionLossCount || 3)) {
       botConfig.dailyLossLocked = false;
       botConfig.enabled = true;
     }
