@@ -105,11 +105,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       fetch('/api/market/config', { headers: reqHeaders })
         .then((r) => r.json())
         .then((data) => {
-          if (data.mobile && String(data.mobile).length === 10) {
+          if (data.mobile && String(data.mobile).length === 10 && String(data.mobile) !== '0000000000') {
             setSavedMobile(String(data.mobile));
             try {
               localStorage.setItem('upstox_saved_mobile', String(data.mobile));
             } catch {}
+          }
+          if (data.serverOutboundIp) {
+            setServerStaticIp(String(data.serverOutboundIp));
           }
           if (data.apiSecret && data.apiSecret !== '••••••••') {
             setApiSecret(String(data.apiSecret));
@@ -124,6 +127,13 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               availableMargin: data.availableMargin || 0,
               usedMargin: data.usedMargin || 0,
               todayTokenValid: true,
+            });
+          } else if (data.tokenExpired || !data.isConnected) {
+            onSaveConfig({
+              isConnected: false,
+              availableMargin: 0,
+              usedMargin: 0,
+              todayTokenValid: false,
             });
           }
         })
@@ -764,7 +774,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           {/* Status Alert Message */}
           {statusMsg && (
             <div
-              className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs font-semibold animate-in fade-in duration-200 ${
+              className={`p-3.5 rounded-xl border flex flex-col gap-2 text-xs font-semibold animate-in fade-in duration-200 ${
                 statusMsg.type === 'success'
                   ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
                   : statusMsg.type === 'error'
@@ -772,14 +782,32 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   : 'bg-blue-950/40 border-blue-500/40 text-blue-300'
               }`}
             >
-              {statusMsg.type === 'success' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              ) : statusMsg.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              ) : (
-                <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2.5">
+                {statusMsg.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                ) : statusMsg.type === 'error' ? (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                )}
+                <span className="leading-relaxed">{statusMsg.text}</span>
+              </div>
+              {statusMsg.type === 'error' && (
+                <div className="pt-1 flex items-center justify-end">
+                  <a
+                    href={`https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(
+                      (apiKey || DEFAULT_API_KEY).trim()
+                    )}&redirect_uri=${encodeURIComponent((redirectUri || DEFAULT_REDIRECT_URI).trim())}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold transition shadow"
+                  >
+                    {language === 'ml'
+                      ? '🔗 നേരിട്ട് Upstox ലോഗിൻ തുറക്കുക (100% ഉറപ്പായ വഴി)'
+                      : '🔗 Open Direct Upstox Login (Guaranteed)'}
+                  </a>
+                </div>
               )}
-              <span className="leading-relaxed">{statusMsg.text}</span>
             </div>
           )}
 

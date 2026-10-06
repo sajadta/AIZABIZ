@@ -2705,10 +2705,33 @@ function buildUpstoxBrowserHeaders(requestId: string, cookieJar: Record<string, 
   };
 }
 
+async function fetchUpstoxWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+): Promise<globalThis.Response> {
+  let lastErr: any;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
+      const res = await fetch(url, { ...options, signal: ctrl.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err: any) {
+      lastErr = err;
+      if (i < retries - 1) {
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // Step 1 & 2 Automatic: Send SMS OTP to user's saved mobile number without opening Upstox web
 app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
   const { mobile, apiKey, apiSecret, redirectUri, pin } = req.body;
-  const cleanMobile = String(mobile || upstoxConfig.mobile || "")
+  const cleanMobile = String(mobile || upstoxConfig.mobile || "9847989434")
     .replace(/\D+/g, "")
     .slice(-10);
   const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
@@ -2718,7 +2741,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
   const uri = String(redirectUri || upstoxConfig.redirectUri || "https://sajad-trading-view.onrender.com").trim();
   const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
 
-  if (cleanMobile.length === 10) {
+  if (cleanMobile.length === 10 && cleanMobile !== "0000000000") {
     upstoxConfig.mobile = cleanMobile;
   }
   if (key) upstoxConfig.apiKey = key;
@@ -2738,11 +2761,11 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
 
   const requestId = "WPRO-" + Math.random().toString(36).substring(2, 12);
   const cookieJar: Record<string, string> = {};
+  const dialogUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(key)}&redirect_uri=${encodeURIComponent(uri)}`;
 
   try {
     // 1. Call authorization/dialog to obtain encrypted userId, internal client_id, and session cookies
-    const dialogUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(key)}&redirect_uri=${encodeURIComponent(uri)}`;
-    const dialogRes = await fetch(dialogUrl, {
+    const dialogRes = await fetchUpstoxWithRetry(dialogUrl, {
       method: "GET",
       redirect: "manual",
       headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
@@ -2753,6 +2776,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
     if (!loc) {
       return res.status(400).json({
         success: false,
+        oauthDialogUrl: dialogUrl,
         error: "Upstox ലോഗിൻ സെഷൻ തുടങ്ങാൻ കഴിഞ്ഞില്ല. API Key & Redirect URI പരിശോധിക്കുക.",
       });
     }
@@ -2761,16 +2785,22 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
     const userId = parsedLoc.searchParams.get("user_id") || "";
     const internalClientId = parsedLoc.searchParams.get("client_id") || "";
 
-    // Follow redirect once to collect any login.upstox.com cookies
-    const loginPageRes = await fetch(loc, {
-      method: "GET",
-      redirect: "manual",
-      headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
-    });
-    mergeSetCookies(cookieJar, loginPageRes);
+    // Follow redirect once to collect any login.upstox.com cookies (non-fatal if login.upstox.com drops connection)
+    try {
+      const loginPageRes = await fetchUpstoxWithRetry(
+        loc,
+        {
+          method: "GET",
+          redirect: "manual",
+          headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
+        },
+        2,
+      );
+      mergeSetCookies(cookieJar, loginPageRes);
+    } catch {}
 
     // 2. Automatically request SMS OTP from Upstox (/login/open/v6/auth/1fa/otp/generate)
-    const otpGenRes = await fetch(
+    const otpGenRes = await fetchUpstoxWithRetry(
       "https://service.upstox.com/login/open/v6/auth/1fa/otp/generate",
       {
         method: "POST",
@@ -2783,6 +2813,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
           },
         }),
       },
+      3,
     );
     mergeSetCookies(cookieJar, otpGenRes);
     const otpGenData = await otpGenRes.json();
@@ -2817,14 +2848,17 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         "Upstox SMS OTP അയക്കാൻ കഴിഞ്ഞില്ല. മൊബൈൽ നമ്പർ ശരിയാണെന്ന് ഉറപ്പാക്കുക.";
       return res.status(400).json({
         success: false,
+        oauthDialogUrl: dialogUrl,
         error: `${errMsg} (${otpGenData.error?.code || ""})`,
         details: otpGenData,
       });
     }
   } catch (err: any) {
+    const causeMsg = err?.cause?.code || err?.cause?.message || "";
     return res.status(500).json({
       success: false,
-      error: "Failed to trigger Upstox SMS OTP: " + err.message,
+      oauthDialogUrl: dialogUrl,
+      error: `Upstox SMS സെർവർ കണക്ഷൻ തടസ്സപ്പെട്ടു (${err.message}${causeMsg ? `: ${causeMsg}` : ""}). താഴെയുള്ള ബട്ടൺ വഴി നേരിട്ടോ വീണ്ടും ശ്രമിച്ചോ കണക്റ്റ് ചെയ്യാം.`,
     });
   }
 });
