@@ -562,14 +562,33 @@ export function analyzeTradingSignals(
     bullishPoints += 10;
   }
 
-  // 8. Theta Decay Shield (Time-of-day Option Decay Protection)
+  // 8. Theta Decay Shield & Opening Whipsaw Protection (Time-of-day Option Protection)
   const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
   const hoursIst = nowIst.getHours();
   const minsIst = nowIst.getMinutes();
+  const isOpening3mWhipsaw = hoursIst === 9 && minsIst >= 15 && minsIst < 18;
   const isThetaChopZone = (hoursIst === 11 && minsIst >= 45) || (hoursIst === 12) || (hoursIst === 13 && minsIst <= 15);
   if (isThetaChopZone && Math.abs(macdHist) < 0.5) {
     bullishPoints -= 12;
     bearishPoints -= 12;
+  }
+
+  // Calculate Relative Volume (RVOL) over last 20 candles to detect Institutional Volume Breakouts vs Low-Volume Fakeouts
+  const volSlice = candles.slice(-Math.min(20, candles.length));
+  const avgVol20 =
+    volSlice.reduce((acc, c) => acc + Number(c.volume || 0), 0) /
+    Math.max(1, volSlice.length);
+  const rvol = avgVol20 > 0 ? Number((Number(last.volume || 0) / avgVol20).toFixed(2)) : 1.0;
+
+  // 8.5 ADX Trend Strength & Choppy/Sideways Market Veto (Prevents buying options in dead sideways markets where Theta eats premium!)
+  const adxVal = Number(readings.adx?.value ?? 20);
+  const isDeadSidewaysChop = adxVal < 16 && rvol < 1.35 && Math.abs(macdHist) < 0.8;
+  if (adxVal >= 24) {
+    if (readings.supertrend.signal === "BUY") bullishPoints += 6;
+    else bearishPoints += 6;
+  } else if (isDeadSidewaysChop) {
+    bullishPoints -= 20;
+    bearishPoints -= 20;
   }
 
   // 9. Volatility & Trap Filter (Penalty)
@@ -792,13 +811,6 @@ export function analyzeTradingSignals(
     }
   }
 
-  // Calculate Relative Volume (RVOL) over last 20 candles to detect Institutional Volume Breakouts vs Low-Volume Fakeouts
-  const volSlice = candles.slice(-Math.min(20, candles.length));
-  const avgVol20 =
-    volSlice.reduce((acc, c) => acc + Number(c.volume || 0), 0) /
-    Math.max(1, volSlice.length);
-  const rvol = avgVol20 > 0 ? Number((Number(last.volume || 0) / avgVol20).toFixed(2)) : 1.0;
-
   // D. Corporate Heavyweights Flow & Global/Macro Market Alignment
   const corpScore = Number(optionMetrics?.corporateHeavyweightScore ?? 0);
   const corpSummary =
@@ -891,43 +903,83 @@ export function analyzeTradingSignals(
   if (macroAlign === "BULLISH") bullishPoints += 8;
   else if (macroAlign === "BEARISH") bearishPoints += 8;
 
-  // E. Anti-Fakeout & Multi-Candle Confirmation Gate (Prevents 1-Second Green-to-Red Trap!)
+  // E. Anti-Fakeout, Session Macro Trend Veto & Multi-Candle Confirmation Gate
+  // 1. Intraday Session Trend & VWAP Regime Filter (Prevents buying PE on a strong Bullish Uptrend Day when Nifty/FinNifty/MidcpNifty is +0.4% above Open & VWAP!)
+  const sessionOpen = Number(candles[0]?.open || currentLtp);
+  const sessionChangePct =
+    sessionOpen > 0 ? ((currentLtp - sessionOpen) / sessionOpen) * 100 : 0;
+  const vwapVal = readings.vwap.value || currentLtp;
+  const isStrongBullishSessionDay =
+    (sessionChangePct >= 0.32 && currentLtp >= vwapVal && currentLtp >= ema50) ||
+    (sessionChangePct >= 0.50 && currentLtp >= vwapVal * 0.999);
+  const isStrongBearishSessionDay =
+    (sessionChangePct <= -0.32 && currentLtp <= vwapVal && currentLtp <= ema50) ||
+    (sessionChangePct <= -0.50 && currentLtp <= vwapVal * 1.001);
+
+  // 2. 15-Minute Structural Range High/Low Check (Prevents buying a weak "Lower High" bounce inside a 15-minute pullback!)
+  const recent15Slice = candles.slice(-Math.min(15, candles.length));
+  const prior12Slice = recent15Slice.slice(0, Math.max(1, recent15Slice.length - 3));
+  const recent12High = Math.max(...prior12Slice.map((c) => c.high), currentLtp);
+  const recent12Low = Math.min(...prior12Slice.map((c) => c.low), currentLtp);
+  const recent3High = Math.max(last.high, prev.high, prev2.high);
+  const recent3Low = Math.min(last.low, prev.low, prev2.low);
+
+  // A true bullish continuation must either be breaking near/above the 12-minute structural high OR bouncing cleanly with 5m/15m bullish alignment
+  const isMakingLowerHighTrap =
+    recent12High - currentLtp > atr14 * 1.35 && move5m <= 0;
+  const isMakingHigherLowTrap =
+    currentLtp - recent12Low > atr14 * 1.35 && move5m >= 0;
+
   const currentRange = Math.max(0.01, last.high - last.low);
   const bullCloseStrength = (currentLtp - last.low) / currentRange;
   const bearCloseStrength = (last.high - currentLtp) / currentRange;
-  const recent3High = Math.max(last.high, prev.high, prev2.high);
-  const recent3Low = Math.min(last.low, prev.low, prev2.low);
   const pullbackFrom3mHigh = recent3High - currentLtp;
   const bounceFrom3mLow = currentLtp - recent3Low;
 
   const isMultiCandleBullConfirmed =
-    currentLtp >= last.open &&
-    (move1m > 0 || last.close > prev.close) &&
+    currentLtp > last.open &&
+    move1m > 0 &&
     move3m > 0 &&
-    currentLtp >= ema9 &&
-    bullCloseStrength >= 0.52 &&
+    currentLtp > ema9 &&
+    ema9 >= ema21 * 0.9998 &&
+    bullCloseStrength >= 0.56 &&
     !isClosedShootingStarResistance &&
     !isClosedBearishEngulfing &&
     !isBlockedByResistanceWall &&
-    corpScore > -30 &&
-    pullbackFrom3mHigh <= Math.max(atr14 * 0.75, currentLtp * 0.0012);
+    !isStrongBearishSessionDay &&
+    !isMakingLowerHighTrap &&
+    !isDeadSidewaysChop &&
+    !isOpening3mWhipsaw &&
+    corpScore > -25 &&
+    pullbackFrom3mHigh <= Math.max(atr14 * 0.45, currentLtp * 0.0008);
 
   const isMultiCandleBearConfirmed =
-    currentLtp <= last.open &&
-    (move1m < 0 || last.close < prev.close) &&
+    currentLtp < last.open &&
+    move1m < 0 &&
     move3m < 0 &&
-    currentLtp <= ema9 &&
-    bearCloseStrength >= 0.52 &&
+    currentLtp < ema9 &&
+    ema9 <= ema21 * 1.0002 &&
+    bearCloseStrength >= 0.56 &&
     !isClosedHammerSupport &&
     !isClosedBullishEngulfing &&
     !isBlockedBySupportWall &&
-    corpScore < 30 &&
-    bounceFrom3mLow <= Math.max(atr14 * 0.75, currentLtp * 0.0012);
+    !isStrongBullishSessionDay &&
+    !isMakingHigherLowTrap &&
+    !isDeadSidewaysChop &&
+    !isOpening3mWhipsaw &&
+    corpScore < 25 &&
+    bounceFrom3mLow <= Math.max(atr14 * 0.45, currentLtp * 0.0008);
 
-  // Anti-Climax / Over-Extension Guard: Never buy at the exhausted top/bottom of a parabolic spike
+  // Anti-Climax / Over-Extension Guard: Never buy at the exhausted top/bottom of a 3-minute vertical spike (like BankNifty 09:57 AM!)
   const distFromEma9 = Math.abs(currentLtp - ema9);
-  const isOverExtendedBull = readings.rsi.value > 74 || (atr14 > 0 && distFromEma9 > atr14 * 2.4 && currentLtp > ema9);
-  const isOverExtendedBear = readings.rsi.value < 26 || (atr14 > 0 && distFromEma9 > atr14 * 2.4 && currentLtp < ema9);
+  const isOverExtendedBull =
+    readings.rsi.value > 72 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 1.85 && currentLtp > ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 2.8);
+  const isOverExtendedBear =
+    readings.rsi.value < 28 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 1.85 && currentLtp < ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 2.8);
 
   if (isMultiCandleBullConfirmed && !isOverExtendedBull) {
     bullishPoints += 18;

@@ -177,7 +177,7 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
     return language === 'ml' ? `${remainingSeconds}സെ` : `${remainingSeconds}s`;
   };
 
-  const isPositive = metrics.totalRealizedPnL >= 0;
+  const isPositive = metrics.totalNetRealizedPnL >= 0;
 
   return (
     <div className="bg-[#0b0f19]/95 rounded-2xl border border-slate-800 p-4 sm:p-5 shadow-xl space-y-4">
@@ -204,14 +204,14 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           </div>
         </div>
 
-        {/* Win Rate Tag & Collapse/Expand Toggle */}
+        {/* Net P&L Tag & Collapse/Expand Toggle */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="px-2 sm:px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-1.5">
             <span className="text-[9px] sm:text-[10px] uppercase font-bold text-slate-400">
-              {language === 'ml' ? 'P&L' : 'P&L'}:
+              {language === 'ml' ? 'NET P&L' : 'NET P&L'}:
             </span>
             <span className={`text-[11px] sm:text-xs font-black font-mono ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {isPositive ? '+' : ''}₹{metrics.totalRealizedPnL.toFixed(1)}
+              {isPositive ? '+' : ''}₹{metrics.totalNetRealizedPnL.toFixed(2)}
             </span>
           </div>
 
@@ -298,7 +298,7 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           {/* 3 Core Primary KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
         
-        {/* KPI 1: Total Realized PnL */}
+        {/* KPI 1: Total Net Realized PnL (After Brokerage & Taxes) */}
         <div className={`p-4 rounded-xl border relative overflow-hidden flex flex-col justify-between ${
           isPositive 
             ? 'bg-gradient-to-br from-emerald-950/20 via-slate-900 to-slate-900 border-emerald-900/40' 
@@ -307,18 +307,21 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           <div>
             <div className="flex items-center justify-between text-slate-400 mb-1.5">
               <span className="text-[11px] font-bold uppercase tracking-wider">
-                {language === 'ml' ? 'ആകെ റിയലൈസ്ഡ് P&L' : 'Total Realized P&L'}
+                {language === 'ml' ? 'യഥാർത്ഥ അറ്റ ലാഭം / നഷ്ടം (NET P&L)' : 'Actual Net Realized P&L'}
               </span>
               <div className={`p-1.5 rounded-lg ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
                 {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
               </div>
             </div>
 
-            <div className="flex items-baseline gap-1.5 my-1">
+            <div className="flex items-baseline gap-2 my-1 flex-wrap">
               <span className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${
                 isPositive ? 'text-emerald-400' : 'text-rose-400'
               }`}>
-                {isPositive ? '+' : ''}₹{metrics.totalRealizedPnL.toFixed(2)}
+                {isPositive ? '+' : ''}₹{metrics.totalNetRealizedPnL.toFixed(2)}
+              </span>
+              <span className="text-[11px] font-mono text-slate-400">
+                (Gross: {metrics.totalRealizedPnL >= 0 ? '+' : ''}₹{metrics.totalRealizedPnL.toFixed(2)})
               </span>
             </div>
           </div>

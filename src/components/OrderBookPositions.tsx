@@ -181,6 +181,57 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
             </div>
         </div>
 
+        {/* Live In-Trade Next-Moment Trajectory & Fake-Dip Radar */}
+        {pos.liveTrajectoryRadar && (
+          <div className={`p-2.5 rounded-lg border text-[11px] flex flex-col gap-1.5 ${
+            pos.liveTrajectoryRadar.nextMomentState === 'ACCELERATING_UP'
+              ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+              : pos.liveTrajectoryRadar.nextMomentState === 'FAKE_DIP_HOLD'
+                ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
+                : pos.liveTrajectoryRadar.nextMomentState === 'PEAK_EXHAUSTION'
+                  ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-200'
+                  : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
+          }`}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-extrabold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+                {pos.liveTrajectoryRadar.nextMomentLabelMl}
+              </span>
+              <span className="px-2 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] font-bold">
+                {pos.liveTrajectoryRadar.holdOrExitVerdictMl}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/10 text-[10px] font-mono text-slate-300">
+              <div>
+                <span className="text-slate-400 block">Auto-Moving Target:</span>
+                <strong className="text-emerald-300">
+                  ₹{(pos.liveTrajectoryRadar.dynamicTargetPrice || pos.liveTrajectoryRadar.forecastedMaxOptionPrice).toFixed(2)} ↑
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Auto-Moving Stop-Loss:</span>
+                <strong className="text-cyan-300">
+                  ₹{(pos.liveTrajectoryRadar.dynamicStopLossPrice || pos.stopLoss || 0).toFixed(2)} ↑
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-400 block">Protected Net Floor:</span>
+                <strong className={pos.liveTrajectoryRadar.protectedNetFloor >= 0 ? 'text-emerald-400' : 'text-amber-300'}>
+                  {pos.liveTrajectoryRadar.protectedNetFloor >= 0
+                    ? `Locked +₹${pos.liveTrajectoryRadar.protectedNetFloor} Net`
+                    : `Max Risk ₹${Math.abs(pos.liveTrajectoryRadar.protectedNetFloor)}`}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-400 block">1m & Index Check:</span>
+                <strong className="text-slate-200">
+                  1m: {pos.liveTrajectoryRadar.option1mTrendIntact ? 'HL Intact ✓' : 'Peak/Break ⚠️'} | Idx: {pos.liveTrajectoryRadar.underlyingAligned ? 'Aligned ✓' : 'Reversed ⚠️'}
+                </strong>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Detailed Official Brokerage & Taxes Breakdown */}
         {showTaxBreakdown && chargeDetails && (
           <div className="p-2.5 rounded-lg bg-black/60 border border-cyan-500/30 text-[10px] font-mono grid grid-cols-2 sm:grid-cols-3 gap-2 animate-fadeIn">

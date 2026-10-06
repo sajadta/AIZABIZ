@@ -198,6 +198,23 @@ export interface Position {
   trailingStopLoss?: number;
   highestLTP?: number;
   highestPnl?: number;
+  highestNetPnl?: number;
+  estimatedMaxOptionPrice?: number;
+  estimatedMinutesToTarget?: string;
+  liveTrajectoryRadar?: {
+    nextMomentState: 'ACCELERATING_UP' | 'FAKE_DIP_HOLD' | 'PEAK_EXHAUSTION' | 'REVERSING_EXIT';
+    nextMomentLabel: string;
+    nextMomentLabelMl: string;
+    holdOrExitVerdict: string;
+    holdOrExitVerdictMl: string;
+    dynamicStopLossPrice?: number;
+    dynamicTargetPrice?: number;
+    protectedNetFloor: number;
+    forecastedMaxOptionPrice: number;
+    option1mTrendIntact: boolean;
+    underlyingAligned: boolean;
+    updatedAt: string;
+  };
   mode: ExecutionMode;
   openedAt: string;
   isOption?: boolean;
