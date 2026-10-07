@@ -197,6 +197,59 @@ export function calculateBollingerBands(
   return { upper, lower, middle };
 }
 
+export function calculateADX(
+  candles: { high: number; low: number; close: number }[],
+  period: number = 14,
+): number[] {
+  if (!candles || candles.length === 0) return [];
+  if (candles.length <= period) {
+    return candles.map(() => 20);
+  }
+
+  const tr: number[] = [0];
+  const plusDM: number[] = [0];
+  const minusDM: number[] = [0];
+
+  for (let i = 1; i < candles.length; i++) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+    plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+    minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+
+    const hl = candles[i].high - candles[i].low;
+    const hc = Math.abs(candles[i].high - candles[i - 1].close);
+    const lc = Math.abs(candles[i].low - candles[i - 1].close);
+    tr.push(Math.max(hl, hc, lc));
+  }
+
+  const dxList: number[] = new Array(candles.length).fill(20);
+  let smoothTR = 0;
+  let smoothPlusDM = 0;
+  let smoothMinusDM = 0;
+
+  for (let i = 1; i <= period; i++) {
+    smoothTR += tr[i];
+    smoothPlusDM += plusDM[i];
+    smoothMinusDM += minusDM[i];
+  }
+
+  for (let i = period; i < candles.length; i++) {
+    if (i > period) {
+      smoothTR = smoothTR - smoothTR / period + tr[i];
+      smoothPlusDM = smoothPlusDM - smoothPlusDM / period + plusDM[i];
+      smoothMinusDM = smoothMinusDM - smoothMinusDM / period + minusDM[i];
+    }
+    const plusDI = smoothTR > 0 ? (smoothPlusDM / smoothTR) * 100 : 0;
+    const minusDI = smoothTR > 0 ? (smoothMinusDM / smoothTR) * 100 : 0;
+    const diSum = plusDI + minusDI;
+    const dx = diSum > 0 ? (Math.abs(plusDI - minusDI) / diSum) * 100 : 0;
+    dxList[i] = Number(dx.toFixed(2));
+  }
+
+  const adxSeries = calculateEMA(dxList, period);
+  return adxSeries.map((v) => Number(Math.max(5, Math.min(85, v || 20)).toFixed(2)));
+}
+
 export function enrichCandlesWithIndicators(
   rawCandles: {
     timestamp: number;
@@ -217,6 +270,7 @@ export function enrichCandlesWithIndicators(
   const rsi = calculateRSI(closes, 14);
   const macdObj = calculateMACD(closes);
   const supertrendObj = calculateSupertrend(rawCandles, 10, 3);
+  const adxSeries = calculateADX(rawCandles, 14);
   const bb = calculateBollingerBands(closes, 20, 2);
 
   return rawCandles.map((c, i) => ({
@@ -230,6 +284,7 @@ export function enrichCandlesWithIndicators(
     macd: macdObj.macd[i],
     macdSignal: macdObj.signal[i],
     macdHist: macdObj.hist[i],
+    adx: adxSeries[i],
     upperBand: bb.upper[i],
     lowerBand: bb.lower[i],
     middleBand: bb.middle[i],
@@ -437,6 +492,7 @@ export function analyzeTradingSignals(
   const supertrendVal = last.supertrend ?? currentLtp * 0.98;
   const macdHist = last.macdHist ?? 0;
   const prevMacdHist = prev.macdHist ?? 0;
+  const adxValue = Number(last.adx ?? 20);
   const atrSeries = calculateATR(candles, 14);
   const atr14 = atrSeries.length > 0 ? atrSeries[atrSeries.length - 1] : Math.max(1, last.high - last.low);
 
@@ -496,6 +552,15 @@ export function analyzeTradingSignals(
           candles.reduce((acc, c) => acc + c.volume, 1)
           ? "ABOVE"
           : "BELOW",
+    },
+    adx: {
+      value: adxValue,
+      condition:
+        adxValue >= 24
+          ? "STRONG_TREND"
+          : adxValue >= 16
+            ? "TRENDING"
+            : "SIDEWAYS_CHOP",
     },
   };
 
@@ -581,7 +646,7 @@ export function analyzeTradingSignals(
   const rvol = avgVol20 > 0 ? Number((Number(last.volume || 0) / avgVol20).toFixed(2)) : 1.0;
 
   // 8.5 ADX Trend Strength & Choppy/Sideways Market Veto (Prevents buying options in dead sideways markets where Theta eats premium!)
-  const adxVal = Number(readings.adx?.value ?? 20);
+  const adxVal = Number((readings as any).adx?.value ?? 20);
   const isDeadSidewaysChop = adxVal < 16 && rvol < 1.35 && Math.abs(macdHist) < 0.8;
   if (adxVal >= 24) {
     if (readings.supertrend.signal === "BUY") bullishPoints += 6;
@@ -937,12 +1002,12 @@ export function analyzeTradingSignals(
   const bounceFrom3mLow = currentLtp - recent3Low;
 
   const isMultiCandleBullConfirmed =
-    currentLtp > last.open &&
-    move1m > 0 &&
+    ((currentLtp > last.open && move1m > 0) ||
+      (prev.close > prev.open && currentLtp >= prev.close && move2m > 0)) &&
     move3m > 0 &&
     currentLtp > ema9 &&
-    ema9 >= ema21 * 0.9998 &&
-    bullCloseStrength >= 0.56 &&
+    ema9 >= ema21 * 0.9995 &&
+    bullCloseStrength >= 0.48 &&
     !isClosedShootingStarResistance &&
     !isClosedBearishEngulfing &&
     !isBlockedByResistanceWall &&
@@ -951,15 +1016,15 @@ export function analyzeTradingSignals(
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
     corpScore > -25 &&
-    pullbackFrom3mHigh <= Math.max(atr14 * 0.45, currentLtp * 0.0008);
+    pullbackFrom3mHigh <= Math.max(atr14 * 0.85, currentLtp * 0.0012);
 
   const isMultiCandleBearConfirmed =
-    currentLtp < last.open &&
-    move1m < 0 &&
+    ((currentLtp < last.open && move1m < 0) ||
+      (prev.close < prev.open && currentLtp <= prev.close && move2m < 0)) &&
     move3m < 0 &&
     currentLtp < ema9 &&
-    ema9 <= ema21 * 1.0002 &&
-    bearCloseStrength >= 0.56 &&
+    ema9 <= ema21 * 1.0005 &&
+    bearCloseStrength >= 0.48 &&
     !isClosedHammerSupport &&
     !isClosedBullishEngulfing &&
     !isBlockedBySupportWall &&
@@ -968,35 +1033,42 @@ export function analyzeTradingSignals(
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
     corpScore < 25 &&
-    bounceFrom3mLow <= Math.max(atr14 * 0.45, currentLtp * 0.0008);
+    bounceFrom3mLow <= Math.max(atr14 * 0.85, currentLtp * 0.0012);
 
-  // Anti-Climax / Over-Extension Guard: Never buy at the exhausted top/bottom of a 3-minute vertical spike (like BankNifty 09:57 AM!)
+  // Anti-Climax / Over-Extension Guard: Never buy at the exhausted top/bottom of a 3-minute vertical spike
   const distFromEma9 = Math.abs(currentLtp - ema9);
   const isOverExtendedBull =
-    readings.rsi.value > 72 ||
-    (atr14 > 0 && distFromEma9 > atr14 * 1.85 && currentLtp > ema9) ||
-    (atr14 > 0 && Math.abs(move3m) > atr14 * 2.8);
+    readings.rsi.value > 74 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 2.1 && currentLtp > ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 3.1);
   const isOverExtendedBear =
-    readings.rsi.value < 28 ||
-    (atr14 > 0 && distFromEma9 > atr14 * 1.85 && currentLtp < ema9) ||
-    (atr14 > 0 && Math.abs(move3m) > atr14 * 2.8);
+    readings.rsi.value < 26 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 2.1 && currentLtp < ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 3.1);
 
   if (isMultiCandleBullConfirmed && !isOverExtendedBull) {
     bullishPoints += 18;
     bearishPoints = Math.min(bearishPoints, 25);
   } else {
-    bullishPoints = Math.min(bullishPoints, 45);
+    bullishPoints = Math.min(bullishPoints, 68);
   }
 
   if (isMultiCandleBearConfirmed && !isOverExtendedBear) {
     bearishPoints += 18;
     bullishPoints = Math.min(bullishPoints, 25);
   } else {
-    bearishPoints = Math.min(bearishPoints, 45);
+    bearishPoints = Math.min(bearishPoints, 68);
   }
 
   // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV), OI Change, Volume & Order Book Depth Validation
   let oiBuildupDesc = "Balanced Institutional OI";
+  const effectiveOptDir: "CE" | "PE" =
+    optionMetrics && Number(optionMetrics.ltp) > 0 && optionMetrics.optionType
+      ? optionMetrics.optionType
+      : bullishPoints >= bearishPoints
+        ? "CE"
+        : "PE";
+
   if (optionMetrics) {
     const absDelta = Math.abs(optionMetrics.delta ?? 0.5);
     const optGamma = Math.abs(optionMetrics.gamma ?? 0.0012);
@@ -1006,7 +1078,7 @@ export function analyzeTradingSignals(
 
     // 1. Delta (Δ): Directional speed sweet spot (0.45 to 0.75)
     if (absDelta >= 0.45 && absDelta <= 0.75) {
-      if (optionMetrics.optionType === "CE") bullishPoints += 8;
+      if (effectiveOptDir === "CE") bullishPoints += 8;
       else bearishPoints += 8;
     } else if (absDelta < 0.25) {
       bullishPoints -= 15;
@@ -1015,7 +1087,7 @@ export function analyzeTradingSignals(
 
     // 2. Gamma (Γ): Non-linear premium acceleration on breakout
     if (optGamma >= 0.0008) {
-      if (optionMetrics.optionType === "CE") bullishPoints += 6;
+      if (effectiveOptDir === "CE") bullishPoints += 6;
       else bearishPoints += 6;
     }
 
@@ -1030,20 +1102,20 @@ export function analyzeTradingSignals(
       bullishPoints -= 12;
       bearishPoints -= 12;
     } else if (optionMetrics.iv && optionMetrics.iv >= 10 && optionMetrics.iv <= 35) {
-      if (optionMetrics.optionType === "CE") bullishPoints += 4;
+      if (effectiveOptDir === "CE") bullishPoints += 4;
       else bearishPoints += 4;
     }
 
     // 5. Put-Call Ratio (PCR) & Option Volume
     if (optionMetrics.pcr) {
-      if (optionMetrics.optionType === "CE" && optionMetrics.pcr >= 0.95) bullishPoints += 5;
-      if (optionMetrics.optionType === "PE" && optionMetrics.pcr <= 1.05) bearishPoints += 5;
+      if (effectiveOptDir === "CE" && optionMetrics.pcr >= 0.95) bullishPoints += 5;
+      if (effectiveOptDir === "PE" && optionMetrics.pcr <= 1.05) bearishPoints += 5;
     }
 
     // 6. OI Change & Order Book Bid/Ask Imbalance Analysis
     const oiChg = Number(optionMetrics.oiChange ?? 0);
     const bidAskRatio = Number(optionMetrics.bidAskRatio ?? 1.0);
-    if (optionMetrics.optionType === "CE") {
+    if (effectiveOptDir === "CE") {
       oiBuildupDesc =
         oiChg < 0
           ? `Call Short Covering + RVOL ${rvol}x Surge`

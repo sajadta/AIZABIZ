@@ -20,17 +20,20 @@ import { calculateTradeCharges } from '../utils/indicators';
 
 interface PerformanceOverviewCardProps {
   tradeHistory: Position[];
+  activePositions?: Position[];
   language: Language;
 }
 
 export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = ({
   tradeHistory = [],
+  activePositions = [],
   language,
 }) => {
-  const [isExpanded, setIsExpanded] = useState<boolean>(tradeHistory.length > 0);
+  const combinedTrades = useMemo(() => [...activePositions, ...tradeHistory], [activePositions, tradeHistory]);
+  const [isExpanded, setIsExpanded] = useState<boolean>(combinedTrades.length > 0);
   // Compute core performance metrics
   const metrics = useMemo(() => {
-    const totalTrades = tradeHistory.length;
+    const totalTrades = combinedTrades.length;
     if (totalTrades === 0) {
       return {
         totalRealizedPnL: 0,
@@ -66,8 +69,16 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
     let minDurationMs = Number.MAX_SAFE_INTEGER;
     let maxDurationMs = 0;
 
-    tradeHistory.forEach((trade) => {
-      const pnl = trade.realizedPnL || 0;
+    combinedTrades.forEach((trade) => {
+      const buyP = Number(trade.buyPrice || 0);
+      const sellP = Number(trade.sellPrice || trade.currentLTP || buyP);
+      const qty = Math.max(1, Number(trade.quantity || 1));
+      const pnl =
+        trade.realizedPnL !== undefined
+          ? Number(trade.realizedPnL)
+          : trade.pnl !== undefined
+            ? Number(trade.pnl)
+            : (sellP - buyP) * qty;
       totalRealizedPnL += pnl;
 
       const isOpt = Boolean(
@@ -75,9 +86,6 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           /\b(CE|PE)\b/i.test(trade.symbol || '') ||
           String(trade.instrumentKey || '').includes('FO')
       );
-      const buyP = Number(trade.buyPrice || 0);
-      const sellP = Number(trade.sellPrice || trade.currentLTP || buyP);
-      const qty = Math.max(1, Number(trade.quantity || 1));
       const tradeCharges =
         Number((trade as any).brokerageCharges) > 0
           ? Number((trade as any).brokerageCharges)

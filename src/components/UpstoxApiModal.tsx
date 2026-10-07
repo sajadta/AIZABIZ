@@ -42,7 +42,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const t = translations[language];
 
   // Clean 2-Tab Layout: Tab 1 (Daily Token) | Tab 2 (Only OTP Input & Auto Connect)
-  const [activeTab, setActiveTab] = useState<'DAILY_TOKEN' | 'API_KEYS'>('API_KEYS');
+  const [activeTab, setActiveTab] = useState<'DAILY_TOKEN' | 'API_KEYS'>(() => {
+    try {
+      const savedTok = localStorage.getItem('upstox_daily_token') || config.accessToken || '';
+      return savedTok.length > 30 ? 'DAILY_TOKEN' : 'API_KEYS';
+    } catch {
+      return config.accessToken ? 'DAILY_TOKEN' : 'API_KEYS';
+    }
+  });
 
   const [apiKey, setApiKey] = useState(config.apiKey || DEFAULT_API_KEY);
   const [apiSecret, setApiSecret] = useState(
@@ -84,7 +91,16 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       setApiSecret(
         config.apiSecret && config.apiSecret !== '••••••••' ? config.apiSecret : DEFAULT_API_SECRET
       );
-      setAccessToken(config.accessToken || '');
+      let localTok = config.accessToken || '';
+      if (!localTok) {
+        try {
+          localTok = localStorage.getItem('upstox_daily_token') || '';
+        } catch {}
+      }
+      setAccessToken(localTok);
+      if (localTok.length > 30) {
+        setActiveTab('DAILY_TOKEN');
+      }
       const cleanUri =
         config.redirectUri && !config.redirectUri.includes('localhost') && !config.redirectUri.includes('127.0.0.1')
           ? config.redirectUri
@@ -92,13 +108,6 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       setRedirectUri(cleanUri);
       setStatusMsg(null);
 
-      // Load saved mobile & secret from backend if available (and pass our saved daily token so server restores it if Render just woke up)
-      let localTok = config.accessToken || '';
-      if (!localTok) {
-        try {
-          localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {}
-      }
       const reqHeaders: Record<string, string> = {};
       if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
 
@@ -128,7 +137,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               usedMargin: data.usedMargin || 0,
               todayTokenValid: true,
             });
-          } else if (data.tokenExpired || !data.isConnected) {
+          } else if (data.tokenExpired && !localTok) {
             onSaveConfig({
               isConnected: false,
               availableMargin: 0,

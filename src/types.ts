@@ -44,6 +44,7 @@ export interface CandleData {
   macd?: number;
   macdSignal?: number;
   macdHist?: number;
+  adx?: number;
   upperBand?: number;
   lowerBand?: number;
   middleBand?: number;
@@ -89,6 +90,7 @@ export interface IndicatorReadings {
   rsi: { value: number; condition: 'OVERSOLD' | 'OVERBOUGHT' | 'BULLISH' | 'BEARISH' | 'NEUTRAL' };
   macd: { macd: number; signal: number; hist: number; cross: 'BULLISH' | 'BEARISH' | 'NEUTRAL' };
   vwap: { value: number; position: 'ABOVE' | 'BELOW' };
+  adx?: { value: number; condition: 'STRONG_TREND' | 'TRENDING' | 'SIDEWAYS_CHOP' };
 }
 
 export interface TradingSignal {

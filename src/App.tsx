@@ -250,7 +250,20 @@ export const App: React.FC = () => {
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
           const cfg = configRes.value;
-          if (cfg.tokenExpired && savedDailyToken) {
+          // Only clear savedDailyToken if user explicitly cleared it or JWT exp timestamp has passed
+          let isJwtExpired = false;
+          if (savedDailyToken) {
+            try {
+              const parts = savedDailyToken.split('.');
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1]));
+                if (payload?.exp && Date.now() / 1000 > payload.exp + 60) {
+                  isJwtExpired = true;
+                }
+              }
+            } catch {}
+          }
+          if (cfg.tokenExpired && isJwtExpired) {
             try {
               localStorage.removeItem('upstox_daily_token');
             } catch (e) {}
@@ -259,6 +272,9 @@ export const App: React.FC = () => {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
             } catch (e) {}
+          } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
+            cfg.accessToken = savedDailyToken;
+            cfg.isConnected = true;
           }
           setApiConfig(prev => ({ ...prev, ...cfg }));
         }
@@ -1153,195 +1169,49 @@ export const App: React.FC = () => {
     });
   }, [quotes, soundEnabled]);
 
-  // 2. Automated Algo Bot Engine Execution Loop
+  // 2. Real-Time Backend Algo Bot Sync Loop (Fetches authoritative logs, 7-Layer signals, active positions, orders & history from the 200ms server engine)
+  // NOTE: All automated trade entries and exits are strictly executed by the 200ms server engine (which enforces 09:18 AM - 14:45 PM IST market hours, real Upstox Option Chain verification, and Peak-Locked Stop-Loss).
   useEffect(() => {
-    if (!botConfig.enabled) return;
-
-    const botInterval = setInterval(() => {
-      // Check open positions for Auto-Square Off (Target Profit, Trailing Stop-Loss, Peak Profit Protection, or Hard Stop-Loss)
-      positions.forEach(pos => {
-        const pnl = pos.pnl || 0;
-        const pnlPct = pos.pnlPercent || 0;
-        const highestPnl = (pos as any).highestPnl || Math.max(0, pnl);
-        
-        // 1. Target Hit
-        const targetHit = pnlPct >= (botConfig.targetProfitPercent || 25);
-        
-        // 2. Hard Stop-Loss Hit
-        const stopLossHit = pnlPct <= -(botConfig.stopLossPercent || 10);
-
-        // 3. Ultra-Tight Peak Profit Lock & Top-Price Harvesting:
-        // When profit reaches high amounts (e.g., ₹5,000), we protect virtually 100% of the maximum top profit!
-        // At ₹5,000 peak, if it drops even 3-5% (e.g. by ₹150-₹200 from peak), exit IMMEDIATELY to capture 96%-98% of peak profit!
-        let trailingProfitLockHit = false;
-        let trailingReason = '';
-
-        if (highestPnl >= 3000) {
-          // If profit reached ₹5000: if it pulls back by just ₹200 from ₹5000 (i.e. drops below ₹4800),
-          // EXIT IMMEDIATELY! Captures 96%-97% (virtually 100%) of the absolute highest top profit!
-          const maxAllowedPullback = Math.min(250, highestPnl * 0.05); // Only ₹200-₹250 pullback allowed
-          const topLockThreshold = highestPnl - maxAllowedPullback;
-          if (pnl <= topLockThreshold) {
-            trailingProfitLockHit = true;
-            trailingReason = `[100% PEAK TOP HARVEST] Peak was ₹${highestPnl.toFixed(0)}. Exited at ₹${pnl.toFixed(2)} on first 1-tick dip to lock 100% top profit!`;
-          }
-        } else if (highestPnl >= 1000) {
-          // For ₹1,000 - ₹3,000 profits: only allow ₹100-₹150 pullback
-          const maxAllowedPullback = Math.min(150, highestPnl * 0.08);
-          const topLockThreshold = highestPnl - maxAllowedPullback;
-          if (pnl <= topLockThreshold) {
-            trailingProfitLockHit = true;
-            trailingReason = `[PEAK TOP HARVEST] Peak was ₹${highestPnl.toFixed(0)}. Captured ₹${pnl.toFixed(2)} before reversal!`;
-          }
-        } else if (highestPnl >= 500 && pnl <= 400 && (pos as any).highestPnl >= 500) {
-          // If reached ₹500, lock at ₹400+ immediately!
-          trailingProfitLockHit = true;
-          trailingReason = `[MICRO-PROFIT LOCK] Secured ₹${pnl.toFixed(2)} from peak ₹${highestPnl.toFixed(0)}.`;
+    const syncBackendBotState = async () => {
+      try {
+        let token = apiConfig.accessToken;
+        if (!token) {
+          try {
+            token = localStorage.getItem('upstox_daily_token') || '';
+          } catch {}
+        }
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
         }
 
-        // 4. Momentum Exhaustion & Immediate Reversal Detection (Next Move Detection)
-        // If current quote has strong opposite signal (e.g. Supertrend flips or RSI diverges) while in profit
-        const matchingQuote = quotes.find(q => pos.symbol.includes(q.symbol));
-        let earlyExhaustionExit = false;
-        let exhaustionReason = '';
-        if (matchingQuote && pnl >= 400 && candles && candles.length >= 10) {
-          const lastCandle = candles[candles.length - 1];
-          const prevCandle = candles[candles.length - 2];
-          const isCallOrBuy = pos.type === 'BUY' || !pos.type;
-          
-          // If in BUY/CALL and market forms strong bearish rejection or MACD crosses down
-          if (isCallOrBuy) {
-            const rsiDropping = (lastCandle.rsi || 50) < 45 && (prevCandle.rsi || 50) >= 50;
-            const supertrendFlippedBear = lastCandle.supertrendDir === 'SELL';
-            if (rsiDropping || supertrendFlippedBear) {
-              earlyExhaustionExit = true;
-              exhaustionReason = `[NEXT-MOVE EXHAUSTION EXIT] Algorithmic reversal pattern detected at top! Secured peak profit ₹${pnl.toFixed(2)} before market dropped.`;
-            }
-          }
-        }
+        const [logsRes, sigsRes] = await Promise.allSettled([
+          fetch('/api/bot/logs', { headers }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/bot/signals', { headers }).then((r) => (r.ok ? r.json() : null)),
+        ]);
 
-        if (targetHit || stopLossHit || trailingProfitLockHit || earlyExhaustionExit) {
-          const reason = earlyExhaustionExit
-            ? exhaustionReason
-            : trailingProfitLockHit
-              ? trailingReason
-              : targetHit
-                ? `[ALGO BOT] Target profit hit (+${pnlPct.toFixed(2)}%) for ${pos.symbol}. Automatic square-off executed.`
-                : `[ALGO BOT] Stop loss triggered (${pnlPct.toFixed(2)}%) for ${pos.symbol}. Risk management exit executed.`;
-
-          handleSquareOffPosition(pos.id);
-          setBotLogs(prev => [
-            {
-              id: Date.now().toString(),
-              timestamp: new Date().toLocaleTimeString(),
-              message: reason,
-              type: targetHit || trailingProfitLockHit || earlyExhaustionExit ? 'SUCCESS' : 'ERROR',
-            },
-            ...prev.slice(0, 199),
-          ]);
-        }
-      });
-
-      // Scan allowed symbols for automated entry if position limit not exceeded (only when real live quotes & candles exist)
-      if (isWsConnected && candles.length >= 20 && positions.length < (botConfig.maxTradesPerDay || 5)) {
-        const allowed = botConfig.allowedSymbols?.length > 0 ? botConfig.allowedSymbols : ['NIFTY 50', 'BANKNIFTY'];
-        for (const sym of allowed) {
-          const alreadyOpen = positions.some(p => p.symbol.startsWith(sym));
-          if (alreadyOpen) continue;
-
-          const q = quotes.find(item => item.symbol === sym);
-          if (!q || !q.ltp || q.ltp <= 0) continue;
-
-          // Only analyze candles of the matching symbol to avoid cross-index price mismatch
-          if (q.symbol !== selectedSymbol) continue;
-
-          let optMetrics: any = undefined;
-          if (
-            optionChainData &&
-            optionChainData.strikes?.length > 0 &&
-            optionChainData.underlyingSymbol?.toUpperCase().includes(q.symbol.split(' ')[0].toUpperCase())
-          ) {
-            const isBull = (q.changePercent || 0) >= 0;
-            const optType: 'CE' | 'PE' = isBull ? 'CE' : 'PE';
-            const sortedStrikes = [...optionChainData.strikes].sort(
-              (a, b) => Math.abs(a.strikePrice - q.ltp) - Math.abs(b.strikePrice - q.ltp)
-            );
-            const atm = sortedStrikes[0];
-            if (atm) {
-              const ltp = optType === 'CE' ? atm.callLTP : atm.putLTP;
-              const lotSz = atm.lotSize || optionChainData.lotSize || 1;
-              if (ltp > 0) {
-                const charges = calculateTradeCharges(ltp, lotSz, true, ltp * 1.27);
-                const oneLotCost = charges.tradeValue;
-                const availCap =
-                  mode === 'UPSTOX_LIVE'
-                    ? botConfig.maxCapitalPerTrade > 0
-                      ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade)
-                      : apiConfig.availableMargin
-                    : botConfig.maxCapitalPerTrade || 25000;
-                const lotCalc = calculateAffordableLotsWithBrokerage(ltp, lotSz, availCap, true, 5);
-                optMetrics = {
-                  strikePrice: atm.strikePrice,
-                  optionType: optType,
-                  ltp,
-                  expiry: optionChainData.selectedExpiry || 'Current Weekly',
-                  lotSize: lotSz,
-                  delta: optType === 'CE' ? atm.callDelta : atm.putDelta,
-                  iv: optType === 'CE' ? atm.callIV : atm.putIV,
-                  oi: optType === 'CE' ? atm.callOI : atm.putOI,
-                  volume: optType === 'CE' ? atm.callVolume : atm.putVolume,
-                  pcr: optionChainData.pcr,
-                  instrumentKey: optType === 'CE' ? atm.callInstrumentKey : atm.putInstrumentKey,
-                  requiredCapital: oneLotCost,
-                  estimatedBrokerage: charges.roundTripCharges,
-                  totalRequiredWithBrokerage: charges.totalRequiredWithBrokerage,
-                  expectedNetProfit: Number((ltp * 0.27 * lotSz - charges.roundTripCharges).toFixed(2)),
-                  affordableLots: lotCalc.affordableLots,
-                  availableCapital: availCap,
-                };
-              }
-            }
-          }
-
-          const sig = analyzeTradingSignals(
-            q.symbol,
-            q.name,
-            q.instrumentKey,
-            candles,
-            q.ltp,
-            botConfig.selectedStrategy,
-            optMetrics?.ltp,
-            optMetrics
+        if (logsRes.status === 'fulfilled' && Array.isArray(logsRes.value)) {
+          setBotLogs(
+            logsRes.value.map((l: any) => ({
+              id: l.id || String(Date.now()),
+              timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
+              message: l.message || '',
+              type: l.type || 'INFO',
+            }))
           );
-
-          if (sig && (sig.confidenceScore || sig.confidence || 0) >= (botConfig.minConfidence || 75) && (sig.signalType === 'BUY' || sig.signalType === 'SELL')) {
-            // In UPSTOX_LIVE mode, never auto-execute if real Upstox cash is insufficient for (1 Lot Premium + Brokerage & Taxes)
-            const reqCapWithBrokerage =
-              sig.recommendedOptionStrike?.totalRequiredWithBrokerage ||
-              sig.recommendedOptionStrike?.requiredCapital ||
-              sig.price ||
-              0;
-            if (mode === 'UPSTOX_LIVE' && (apiConfig.availableMargin <= 0 || reqCapWithBrokerage > apiConfig.availableMargin)) {
-              continue;
-            }
-            handleExecuteSignal(sig);
-            setBotLogs(prev => [
-              {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
-                message: `[ALGO AUTO-TRADE] BUY executed for ${sig.symbol} at ₹${sig.price} (Confidence: ${sig.confidenceScore || sig.confidence}%).`,
-                type: 'SUCCESS',
-              },
-              ...prev.slice(0, 199),
-            ]);
-            break;
-          }
         }
-      }
-    }, 4000);
+        if (sigsRes.status === 'fulfilled' && Array.isArray(sigsRes.value) && sigsRes.value.length > 0) {
+          setSignals(sigsRes.value);
+          setActiveSignal((prev) => sigsRes.value[0] || prev);
+        }
+      } catch {}
+      fetchLivePositions();
+    };
 
-    return () => clearInterval(botInterval);
-  }, [botConfig, positions, quotes, candles, handleExecuteSignal, handleSquareOffPosition]);
+    syncBackendBotState();
+    const botSyncInterval = setInterval(syncBackendBotState, 1500);
+    return () => clearInterval(botSyncInterval);
+  }, [apiConfig.accessToken, fetchLivePositions]);
 
   // 3. Auto-load AI analysis when switching to AI tab
   useEffect(() => {
@@ -1727,8 +1597,8 @@ export const App: React.FC = () => {
 
             {activeTab === 'ORDERS' && (
               <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-16 lg:pb-0">
-                {/* Performance Overview: Total Realized PnL, Win/Loss Ratio, Avg Trade Duration */}
-                <PerformanceOverviewCard tradeHistory={tradeHistory} language={language} />
+                {/* Performance Overview: Total Realized + Open MTM PnL, Win/Loss Ratio, Avg Trade Duration */}
+                <PerformanceOverviewCard tradeHistory={tradeHistory} activePositions={positions} language={language} />
 
                 <OrderBookPositions
                   positions={positions}

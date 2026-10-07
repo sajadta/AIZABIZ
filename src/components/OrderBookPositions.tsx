@@ -906,65 +906,107 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
         {/* ORDERS TAB */}
         {activeTab === 'ORDERS' && (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {orders.length === 0 ? (
               <div className="p-8 text-center text-slate-500">
                 <Clock className="w-8 h-8 mx-auto mb-2 text-slate-700" />
                 <p className="text-xs font-semibold">
-                  {language === 'ml' ? 'ഇതുവരെ ഓർഡറുകൾ ഒന്നും നൽകിയിട്ടില്ല.' : 'No orders recorded in this session.'}
+                  {language === 'ml' ? 'ഇതുവരെ ഓർഡറുകൾ ഒന്നും നൽകിയിട്ടില്ല (മാർക്കറ്റ് സമയം 09:18 AM മുതൽ അൽഗോരിതം ട്രേഡ് എടുക്കും).' : 'No orders recorded in this session (Algo takes entries after 09:18 AM IST).'}
                 </p>
               </div>
             ) : (
                 orders.map((ord) => {
                   const isNew = newlyAddedIds.has(ord.id);
                   const isBuy = ord.transactionType === 'BUY';
+                  const execPx = Number(ord.executedPrice || ord.price || 0);
+                  const qty = Math.max(1, Number(ord.quantity || 1));
+                  const isOpt = /\b(CE|PE)\b/i.test(ord.symbol || '') || String(ord.instrumentKey || '').includes('FO');
+                  const matchingOpenPos = positions.find(p => p.symbol === ord.symbol);
+                  const matchingClosedTrade = tradeHistory.find(t => t.symbol === ord.symbol);
+                  const currentOrExitPx = matchingOpenPos
+                    ? Number(matchingOpenPos.currentLTP || execPx)
+                    : matchingClosedTrade
+                      ? Number(matchingClosedTrade.sellPrice || matchingClosedTrade.currentLTP || execPx)
+                      : execPx;
+                  const ordCharges = calculateTradeCharges(execPx, qty, isOpt, currentOrExitPx);
+                  const grossPnl = matchingOpenPos
+                    ? Number(matchingOpenPos.pnl ?? (currentOrExitPx - execPx) * qty)
+                    : matchingClosedTrade
+                      ? Number(matchingClosedTrade.realizedPnL ?? (currentOrExitPx - execPx) * qty)
+                      : 0;
+                  const netPnlAfterTax = Number((grossPnl - ordCharges.roundTripCharges).toFixed(2));
+
                   return (
                     <div
                       key={ord.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono transition-all duration-300 ${
+                      className={`p-3.5 rounded-xl border flex flex-col gap-2.5 text-xs font-mono transition-all duration-300 ${
                         isNew
                           ? (isBuy ? 'animate-trade-glow-buy' : 'animate-trade-glow-sell')
-                          : 'bg-slate-900/50 border-slate-800 hover:bg-slate-900 animate-row-enter'
+                          : 'bg-slate-900/60 border-slate-800 hover:bg-slate-900 animate-row-enter'
                       }`}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-black w-12 text-center ${
-                          isBuy
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                        }`}>
-                          {ord.transactionType}
-                        </span>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white font-sans text-sm">{ord.symbol}</span>
-                            {isNew && (
-                              <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
-                                <span className="w-1 h-1 rounded-full bg-cyan-400"></span>
-                                {language === 'ml' ? 'പുതിയ ട്രേഡ്' : 'EXECUTED'}
-                              </span>
-                            )}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black w-12 text-center ${
+                            isBuy
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {ord.transactionType}
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white font-sans text-sm">{ord.symbol}</span>
+                              {isNew && (
+                                <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
+                                  <span className="w-1 h-1 rounded-full bg-cyan-400"></span>
+                                  {language === 'ml' ? 'പുതിയ ട്രേഡ്' : 'EXECUTED'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="text-slate-400 text-[10px]">{ord.timestamp}</span>
+                              <span className="w-1 h-1 rounded-full bg-slate-700" />
+                              <span className="text-slate-300 text-[10px]">Qty: <strong>{qty}</strong></span>
+                              {ord.productType && (
+                                <>
+                                  <span className="w-1 h-1 rounded-full bg-slate-700" />
+                                  <span className="text-slate-400 text-[10px]">{ord.productType}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-slate-500 text-[10px]">{ord.timestamp}</span>
-                            <span className="w-1 h-1 rounded-full bg-slate-700" />
-                            <span className="text-slate-400 text-[10px]">Qty: {ord.quantity}</span>
-                            {ord.productType && (
-                              <>
-                                <span className="w-1 h-1 rounded-full bg-slate-700" />
-                                <span className="text-slate-500 text-[10px]">{ord.productType}</span>
-                              </>
-                            )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-white font-bold text-sm mb-0.5">
+                            ₹{execPx.toFixed(2)}
+                          </div>
+                          <div className="flex items-center justify-end gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{ord.status}</span>
                           </div>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-white font-bold text-sm mb-0.5">
-                          ₹{Number(ord.executedPrice || ord.price || 0).toFixed(2)}
+
+                      {/* Trade Details & Net P&L Breakdown Bar inside Order Card */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
+                        <div>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ട്രേഡ് മൂല്യം (Value)' : 'Trade Value'}</span>
+                          <span className="text-slate-200 font-bold">₹{ordCharges.tradeValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                         </div>
-                        <div className="flex items-center justify-end gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>{ord.status}</span>
+                        <div>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'നിലവിലെ വില / Exit' : 'Current / Exit LTP'}</span>
+                          <span className="text-cyan-300 font-bold">₹{currentOrExitPx.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}</span>
+                          <span className="text-amber-300 font-bold">-₹{ordCharges.roundTripCharges.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'അറ്റ ലാഭം / നഷ്ടം (Net P&L)' : 'Net P&L (After Tax)'}</span>
+                          <span className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}
+                          </span>
                         </div>
                       </div>
                     </div>
