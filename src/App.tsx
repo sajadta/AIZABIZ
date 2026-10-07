@@ -61,6 +61,12 @@ import {
   calculateAffordableLotsWithBrokerage,
 } from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
+import {
+  triggerAlertEvent,
+  getIstMarketSessionStatus,
+  LightingAlertBannerState,
+  MarketSessionStatus,
+} from './utils/soundAlerts';
 
 const INITIAL_WATCHLIST_SYMBOLS: StockQuote[] = [
   { symbol: 'NIFTY 50', name: 'Nifty 50 Index', instrumentKey: 'NSE_INDEX|Nifty 50', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
@@ -86,6 +92,13 @@ export const App: React.FC = () => {
   const [mode, setMode] = useState<ExecutionMode>('PAPER_TRADING');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isWsConnected, setIsWsConnected] = useState(false);
+  const [marketSession, setMarketSession] = useState<MarketSessionStatus>(() =>
+    getIstMarketSessionStatus()
+  );
+  const [lightingBanner, setLightingBanner] = useState<LightingAlertBannerState | null>(null);
+  const prevPositionsRef = useRef<Record<string, { pnl: number; is50Hit: boolean; tier: number }>>({});
+  const prevHoldingsRef = useRef<Record<string, { pnl: number; is50Hit: boolean }>>({});
+  const prevMarketPhaseRef = useRef<string>(marketSession.phase);
 
   // Quotes and Selection
   const [quotes, setQuotes] = useState<StockQuote[]>(INITIAL_WATCHLIST_SYMBOLS);
@@ -716,6 +729,7 @@ export const App: React.FC = () => {
             setOrders(oData.map((o: any) => ({
               id: o.id,
               orderId: o.orderId || o.id,
+              positionId: o.positionId,
               symbol: o.symbol,
               instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
               transactionType: o.transactionType || o.type || 'BUY',
@@ -724,6 +738,11 @@ export const App: React.FC = () => {
               quantity: o.quantity,
               price: o.price,
               executedPrice: o.executedPrice || o.price,
+              buyPrice: o.buyPrice,
+              sellPrice: o.sellPrice,
+              realizedPnL: o.realizedPnL,
+              brokerageCharges: o.brokerageCharges,
+              netRealizedPnL: o.netRealizedPnL,
               status: o.status || 'COMPLETE',
               timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
               mode: 'PAPER_TRADING',
@@ -1220,6 +1239,155 @@ export const App: React.FC = () => {
     }
   }, [activeTab, geminiAnalysis, aiLoading, handleFetchGeminiAnalysis]);
 
+  // 4. Live 1-Second IST Market Session Clock & Opening/Closing Bell Trigger
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const nextSession = getIstMarketSessionStatus();
+      setMarketSession(nextSession);
+
+      if (prevMarketPhaseRef.current !== nextSession.phase) {
+        if (nextSession.phase === 'LIVE_TRADING' || nextSession.phase === 'OPENING_VOLATILITY') {
+          const banner = triggerAlertEvent(
+            'MARKET_OPEN_BELL',
+            'NSE / BSE',
+            '🔔 മാർക്കറ്റ് ട്രേഡിങ് ആരംഭിച്ചു (09:15 AM IST)!',
+            'അൽഗോരിതം 09:18 AM മുതൽ തത്സമയ ബ്രേക്ക്ഔട്ട് ട്രേഡുകൾ എടുത്തു തുടങ്ങും.',
+            !soundEnabled
+          );
+          if (banner) setLightingBanner(banner);
+        } else if (nextSession.phase === 'CLOSED_POST_MARKET') {
+          const banner = triggerAlertEvent(
+            'MARKET_CLOSE_BELL',
+            'NSE / BSE',
+            '🏁 ഇന്നത്തെ മാർക്കറ്റ് ട്രേഡിങ് അവസാനിച്ചു (03:30 PM IST)!',
+            'ഇന്നത്തെ ട്രേഡിങ് സമയം പൂർത്തിയായി. അടുത്ത ട്രേഡിങ് സെഷൻ രാവിലെ 09:15 AM-ന് ആരംഭിക്കും.',
+            !soundEnabled
+          );
+          if (banner) setLightingBanner(banner);
+        }
+        prevMarketPhaseRef.current = nextSession.phase;
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [soundEnabled]);
+
+  // 5. Multi-Tier Audio & Visual Lighting Alert Monitor for Positions & Holdings
+  useEffect(() => {
+    // Check Open Positions for New Entry, Loss, Medium Profit, High Profit, and +50% Buy-Price Jackpot
+    positions.forEach((pos) => {
+      const key = pos.id || pos.symbol;
+      const buyPx = Number(pos.buyPrice || 0);
+      const curPx = Number(pos.currentLTP || buyPx);
+      const pnl = Number(pos.pnl || 0);
+      const is50Hit = buyPx > 0 && curPx >= buyPx * 1.5;
+      const prev = prevPositionsRef.current[key];
+
+      let currentTier = 0;
+      if (is50Hit) currentTier = 4;
+      else if (pnl >= 1000) currentTier = 3;
+      else if (pnl >= 300) currentTier = 2;
+      else if (pnl <= -250) currentTier = -1;
+
+      if (!prev) {
+        const banner = triggerAlertEvent(
+          'TRADE_ENTRY',
+          pos.symbol,
+          `⚡ പുതിയ ട്രേഡ് എടുത്തു: ${pos.symbol}`,
+          `Buy Price: ₹${buyPx.toFixed(2)} | Qty: ${pos.quantity} — അൽഗോരിതം Peak-Locked Stop-Loss നിരീക്ഷിക്കുന്നു.`,
+          !soundEnabled,
+          pnl
+        );
+        if (banner) setLightingBanner(banner);
+      } else {
+        if (is50Hit && !prev.is50Hit) {
+          const banner = triggerAlertEvent(
+            'FIFTY_PERCENT_JACKPOT',
+            pos.symbol,
+            `🏆 +50% ജാക്ക്പോട്ട് ലാഭം! ${pos.symbol}`,
+            `വാങ്ങിയ വിലയുടെ (₹${buyPx.toFixed(2)}) 50% ലാഭ ലക്ഷ്യം (₹${curPx.toFixed(2)}) മറികടന്നു! ലാഭം: +₹${pnl.toFixed(2)}`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        } else if (currentTier === 3 && prev.tier < 3) {
+          const banner = triggerAlertEvent(
+            'PROFIT_HIGH',
+            pos.symbol,
+            `🚀 ഉയർന്ന ലാഭം (+₹${pnl.toFixed(0)}): ${pos.symbol}`,
+            `LTP ₹${curPx.toFixed(2)}-ലേക്ക് കുതിച്ചു! Auto-Moving Peak Stop-Loss ലാഭം സുരക്ഷിതമായി ലോക്ക് ചെയ്തു.`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        } else if (currentTier === 2 && prev.tier < 2) {
+          const banner = triggerAlertEvent(
+            'PROFIT_MEDIUM',
+            pos.symbol,
+            `🟢 മികച്ച ലാഭത്തിലേക്ക് (+₹${pnl.toFixed(0)}): ${pos.symbol}`,
+            `ട്രേഡ് നല്ല ലാഭത്തിലാണ് (LTP: ₹${curPx.toFixed(2)}). Zero-Loss ബ്രേക്ക്-ഈവൻ സംരക്ഷണം ആക്ടീവ് ആയി.`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        } else if (currentTier === -1 && prev.tier > -1) {
+          const banner = triggerAlertEvent(
+            'TRADE_LOSS_WARNING',
+            pos.symbol,
+            `⚠️ സ്റ്റോപ്പ്-ലോസ് / നഷ്ട മുന്നറിയിപ്പ് (${pos.symbol})`,
+            `നിലവിലെ P&L: ₹${pnl.toFixed(2)}. അൽഗോരിതം ₹400 Max SL Cap & 1m സപ്പോർട്ട് പരിശോധിക്കുന്നു.`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        }
+      }
+
+      prevPositionsRef.current[key] = { pnl, is50Hit, tier: currentTier };
+    });
+
+    // Check Holdings for Profit Turn & +50% Buy-Price Milestone
+    holdings.forEach((h) => {
+      const key = h.symbol;
+      const buyPx = Number(h.buyPrice ?? h.avgPrice ?? 0);
+      const curPx = Number(h.currentLTP || 0);
+      const pnl = Number(h.pnl || 0);
+      const is50Hit = Boolean(h.fiftyPercentTarget?.isReached || (buyPx > 0 && curPx >= buyPx * 1.5));
+      const prev = prevHoldingsRef.current[key];
+
+      if (prev) {
+        if (is50Hit && !prev.is50Hit) {
+          const banner = triggerAlertEvent(
+            'FIFTY_PERCENT_JACKPOT',
+            h.symbol,
+            `⚡ ഹോൾഡിങ്ങ് +50% ലാഭ ലക്ഷ്യം മറികടന്നു: ${h.symbol}!`,
+            `വാങ്ങിയ വില ₹${buyPx.toFixed(2)} -> ഇപ്പോൾ ₹${curPx.toFixed(2)} (+₹${pnl.toFixed(2)} ലാഭം)!`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        } else if (pnl > 0 && prev.pnl <= 0) {
+          const banner = triggerAlertEvent(
+            'HOLDING_IN_PROFIT',
+            h.symbol,
+            `💎 ഹോൾഡിങ്ങ് ലാഭത്തിലായി: ${h.symbol}`,
+            `LTP ₹${curPx.toFixed(2)} — നിലവിലെ ലാഭം: +₹${pnl.toFixed(2)} (${h.pnlPercent?.toFixed(2)}%)`,
+            !soundEnabled,
+            pnl
+          );
+          if (banner) setLightingBanner(banner);
+        }
+      }
+      prevHoldingsRef.current[key] = { pnl, is50Hit };
+    });
+  }, [positions, holdings, soundEnabled]);
+
+  // Auto-dismiss lighting alert banner after 8 seconds
+  useEffect(() => {
+    if (!lightingBanner) return;
+    const tId = setTimeout(() => setLightingBanner(null), 8000);
+    return () => clearTimeout(tId);
+  }, [lightingBanner]);
+
   const t = translations[language];
 
   return (
@@ -1254,28 +1422,98 @@ export const App: React.FC = () => {
         onOpenAlerts={() => setIsAlertsModalOpen(true)}
       />
 
-      {/* Real Live Feed Status Banner */}
-      <div className="w-full px-3 py-1 text-[11px] font-mono flex items-center justify-between border-b shrink-0 bg-emerald-950/40 border-emerald-900/50 text-emerald-400">
+      {/* Real Live Feed Status & IST Daily Trading Session Clock Banner */}
+      <div className="w-full px-3 py-1.5 text-[11px] font-mono flex flex-wrap items-center justify-between gap-2 border-b shrink-0 bg-emerald-950/40 border-emerald-900/50 text-emerald-400">
         <div className="flex items-center gap-2 overflow-hidden text-ellipsis whitespace-nowrap">
           <span className="flex h-2 w-2 relative shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          <span className="font-bold tracking-wide">
+          <span className="font-bold tracking-wide truncate">
             {apiConfig.isConnected
-              ? (language === 'ml' ? '⚡ UPSTOX ഡയറക്റ്റ് ലൈവ് ഫീഡ്: 100% റിയൽ-ടൈം NSE / BSE മാർക്കറ്റ് ഡാറ്റ (BROKER CONNECTED)' : '⚡ UPSTOX DIRECT LIVE FEED: 100% REAL-TIME NSE / BSE MARKET DATA (BROKER CONNECTED)')
-              : (language === 'ml' ? '🟢 ലൈവ് NSE / BSE എക്സ്ചേഞ്ച് ഫീഡ് സജീവം: 100% ഒറിജിനൽ തത്സമയ മാർക്കറ്റ് വിലകൾ' : '🟢 LIVE NSE / BSE EXCHANGE FEED ACTIVE: 100% GENUINE REAL-TIME MARKET PRICES')}
+              ? (language === 'ml' ? '⚡ UPSTOX ഡയറക്റ്റ് ലൈവ് ഫീഡ് (BROKER CONNECTED)' : '⚡ UPSTOX DIRECT LIVE FEED (BROKER CONNECTED)')
+              : (language === 'ml' ? '🟢 ലൈവ് NSE / BSE എക്സ്ചേഞ്ച് ഫീഡ് സജീവം' : '🟢 LIVE NSE / BSE EXCHANGE FEED ACTIVE')}
           </span>
         </div>
-        {!apiConfig.isConnected && (
-          <button
-            onClick={() => setIsApiModalOpen(true)}
-            className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[10px] font-bold border border-emerald-500/30 transition shrink-0 ml-2"
+
+        {/* Daily Market Session Start (09:15 AM) & End (03:30 PM) IST Countdown */}
+        <div className="flex items-center gap-2 flex-wrap text-[10px]">
+          <span className="px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700/80 text-slate-200 font-bold">
+            🕒 IST: <strong className="text-cyan-300">{marketSession.istTimeFormatted}</strong>
+          </span>
+          <span
+            className={`px-2 py-0.5 rounded font-bold border ${
+              marketSession.isMarketOpen
+                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-200'
+                : 'bg-amber-500/20 border-amber-500/40 text-amber-200'
+            }`}
           >
-            {language === 'ml' ? 'Upstox ട്രേഡിംഗ് കണക്റ്റ്' : 'Connect Upstox Trading'}
+            {language === 'ml' ? marketSession.labelMl : marketSession.labelEn}
+          </span>
+          <span className="px-2 py-0.5 rounded bg-indigo-950/80 border border-indigo-500/40 text-indigo-200 font-bold">
+            ⏳ {marketSession.countdownLabelMl}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const banner = triggerAlertEvent(
+                'FIFTY_PERCENT_JACKPOT',
+                'SOUND & LIGHTING TEST',
+                '⚡ ലൈറ്റിംഗ് & സൗണ്ട് അലേർട്ട് ടെസ്റ്റ് വിജയകരം!',
+                'ട്രേഡ് എൻട്രി, നഷ്ടം, ലാഭം, ഹോൾഡിങ്ങ് ലാഭം, +50% ജാക്ക്പോട്ട് അലേർട്ടുകൾ സജ്ജമാണ്!',
+                false
+              );
+              if (banner) setLightingBanner(banner);
+            }}
+            className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/40 font-bold transition"
+            title="Test Sound & Lighting Alert"
+          >
+            🔔 {language === 'ml' ? 'അലേർട്ട് ടെസ്റ്റ്' : 'Test Alert'}
           </button>
-        )}
+          {!apiConfig.isConnected && (
+            <button
+              onClick={() => setIsApiModalOpen(true)}
+              className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[10px] font-bold border border-emerald-500/30 transition shrink-0"
+            >
+              {language === 'ml' ? 'Upstox കണക്റ്റ്' : 'Connect Upstox'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Multi-Tier Visual Lighting Alert Banner (Trade Entry / Loss / Profit / +50% Jackpot / Holdings) */}
+      {lightingBanner && lightingBanner.active && (
+        <div
+          className={`w-full px-4 py-2 border-b flex items-center justify-between gap-3 shrink-0 transition-all duration-300 ${
+            lightingBanner.colorTheme === 'GOLD_JACKPOT'
+              ? 'bg-gradient-to-r from-amber-600/35 via-yellow-500/25 to-emerald-600/35 border-amber-400 text-amber-100 shadow-[0_0_30px_rgba(251,191,36,0.45)] animate-pulse'
+              : lightingBanner.colorTheme === 'EMERALD_HIGH'
+                ? 'bg-gradient-to-r from-emerald-600/35 via-teal-500/25 to-cyan-600/35 border-emerald-400 text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.4)]'
+                : lightingBanner.colorTheme === 'ROSE_LOSS'
+                  ? 'bg-gradient-to-r from-rose-600/35 via-red-600/25 to-orange-600/35 border-rose-400 text-rose-100 shadow-[0_0_25px_rgba(244,63,94,0.4)]'
+                  : 'bg-gradient-to-r from-cyan-600/30 via-indigo-600/25 to-emerald-600/30 border-cyan-400 text-cyan-100'
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-3 h-3 rounded-full bg-white animate-ping shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs sm:text-sm font-black tracking-wide truncate">
+                {lightingBanner.titleMl}
+              </div>
+              <div className="text-[11px] font-medium opacity-95 truncate">
+                {lightingBanner.subtitleMl}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLightingBanner(null)}
+            className="px-2.5 py-1 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[10px] font-bold border border-white/20 shrink-0"
+          >
+            ✕ Dismiss
+          </button>
+        </div>
+      )}
 
       {/* 2. TICKER BAR */}
       <TickerBar

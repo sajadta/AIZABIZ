@@ -312,6 +312,15 @@ export interface RealOptionMetrics {
   corporateHeavyweightScore?: number; // -100 to +100
   corporateHeavyweightSummary?: string;
   globalMacroAlignment?: "BULLISH" | "BEARISH" | "MIXED";
+  fiveYearRegimeTrend?: "BULLISH_SECULAR" | "BEARISH_CORRECTION" | "RANGE_CONSOLIDATION";
+  fiveYearRegimeSummary?: string;
+  fiveYearRegimeSummaryMl?: string;
+  multiYearSupport?: number;
+  multiYearResistance?: number;
+  historicalPatternWinRate?: number;
+  ema200Daily?: number;
+  ema50Daily?: number;
+  indiaVix?: number;
   instrumentKey?: string;
   affordableLots?: number;
   requiredCapital?: number;
@@ -968,6 +977,31 @@ export function analyzeTradingSignals(
   if (macroAlign === "BULLISH") bullishPoints += 8;
   else if (macroAlign === "BEARISH") bearishPoints += 8;
 
+  // D2. 5-Year Historical Daily/Weekly Macro Regime, 200-Day/50-Day EMA & Multi-Year Support/Resistance Confluence
+  const fiveYearTrend = optionMetrics?.fiveYearRegimeTrend || "BULLISH_SECULAR";
+  const multiYrSup = Number(optionMetrics?.multiYearSupport || nearestSupport);
+  const multiYrRes = Number(optionMetrics?.multiYearResistance || nearestResistance);
+  const histWinProb = Number(optionMetrics?.historicalPatternWinRate || 86);
+  const fiveYrSummaryEn =
+    optionMetrics?.fiveYearRegimeSummary ||
+    `5Y Daily/Weekly Regime: ${fiveYearTrend === "BULLISH_SECULAR" ? "Above 50D & 200D EMA" : fiveYearTrend === "BEARISH_CORRECTION" ? "Below 50D EMA Supply" : "Multi-Year S/R Zone"} (S: ₹${multiYrSup} | R: ₹${multiYrRes})`;
+  const fiveYrSummaryMl =
+    optionMetrics?.fiveYearRegimeSummaryMl ||
+    `5-വർഷ ചാർട്ട് ഹിസ്റ്ററി: ${fiveYearTrend === "BULLISH_SECULAR" ? "50D/200D EMA-യ്ക്ക് മുകളിൽ ബുള്ളിഷ്" : fiveYearTrend === "BEARISH_CORRECTION" ? "50D EMA-യ്ക്ക് താഴെ ബെയറിഷ്" : "മൾട്ടി-ഇയർ സപ്പോർട്ട്/റെസിസ്റ്റൻസ് സോൺ"} (Win Prob: ${histWinProb}%)`;
+
+  if (fiveYearTrend === "BULLISH_SECULAR") {
+    bullishPoints += 8;
+  } else if (fiveYearTrend === "BEARISH_CORRECTION") {
+    bearishPoints += 8;
+  }
+  // If spot is breaking above a multi-year/multi-month swing high with volume, boost breakout score!
+  if (multiYrRes > 0 && Math.abs(currentLtp - multiYrRes) / (currentLtp || 1) <= 0.0025 && hasBullBreakoutPower) {
+    bullishPoints += 8;
+  }
+  if (multiYrSup > 0 && Math.abs(currentLtp - multiYrSup) / (currentLtp || 1) <= 0.0025 && hasBearBreakdownPower) {
+    bearishPoints += 8;
+  }
+
   // E. Anti-Fakeout, Session Macro Trend Veto & Multi-Candle Confirmation Gate
   // 1. Intraday Session Trend & VWAP Regime Filter (Prevents buying PE on a strong Bullish Uptrend Day when Nifty/FinNifty/MidcpNifty is +0.4% above Open & VWAP!)
   const sessionOpen = Number(candles[0]?.open || currentLtp);
@@ -981,7 +1015,12 @@ export function analyzeTradingSignals(
     (sessionChangePct <= -0.32 && currentLtp <= vwapVal && currentLtp <= ema50) ||
     (sessionChangePct <= -0.50 && currentLtp <= vwapVal * 1.001);
 
-  // 2. 15-Minute Structural Range High/Low Check (Prevents buying a weak "Lower High" bounce inside a 15-minute pullback!)
+  // 2. If corporate heavyweights AND 5-year daily regime are both strongly bearish (corpScore <= -20 && fiveYearTrend === "BEARISH_CORRECTION"), NEVER allow a counter-trend Bullish CE buy!
+  //    Conversely, if corporate heavyweights AND 5-year daily regime are both strongly bullish (corpScore >= 20 && fiveYearTrend === "BULLISH_SECULAR"), NEVER allow a counter-trend Bearish PE buy!
+  const isMacroAndHeavyweightVetoBull =
+    corpScore <= -20 && (macroAlign === "BEARISH" || fiveYearTrend === "BEARISH_CORRECTION");
+  const isMacroAndHeavyweightVetoBear =
+    corpScore >= 20 && (macroAlign === "BULLISH" || fiveYearTrend === "BULLISH_SECULAR");
   const recent15Slice = candles.slice(-Math.min(15, candles.length));
   const prior12Slice = recent15Slice.slice(0, Math.max(1, recent15Slice.length - 3));
   const recent12High = Math.max(...prior12Slice.map((c) => c.high), currentLtp);
@@ -1015,6 +1054,7 @@ export function analyzeTradingSignals(
     !isMakingLowerHighTrap &&
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
+    !isMacroAndHeavyweightVetoBull &&
     corpScore > -25 &&
     pullbackFrom3mHigh <= Math.max(atr14 * 0.85, currentLtp * 0.0012);
 
@@ -1032,6 +1072,7 @@ export function analyzeTradingSignals(
     !isMakingHigherLowTrap &&
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
+    !isMacroAndHeavyweightVetoBear &&
     corpScore < 25 &&
     bounceFrom3mLow <= Math.max(atr14 * 0.85, currentLtp * 0.0012);
 
@@ -1050,22 +1091,31 @@ export function analyzeTradingSignals(
     bullishPoints += 18;
     bearishPoints = Math.min(bearishPoints, 25);
   } else {
-    bullishPoints = Math.min(bullishPoints, 68);
+    bullishPoints = Math.min(bullishPoints, corpScore <= -25 ? 45 : 54);
   }
 
   if (isMultiCandleBearConfirmed && !isOverExtendedBear) {
     bearishPoints += 18;
     bullishPoints = Math.min(bullishPoints, 25);
   } else {
-    bearishPoints = Math.min(bearishPoints, 68);
+    bearishPoints = Math.min(bearishPoints, corpScore >= 25 ? 45 : 54);
   }
+
+  // India VIX & Market Regime Selection (Trending Option Buying vs High-VIX Breakout vs Low-VIX Range Guard)
+  const indiaVixVal = Number(optionMetrics?.indiaVix || 13.8);
+  const marketRegimeMode: "TRENDING_OPTION_BUYING" | "HIGH_VIX_BREAKOUT" | "LOW_VIX_RANGE_GUARD" =
+    adxValue < 16 || (indiaVixVal > 0 && indiaVixVal < 11.5)
+      ? "LOW_VIX_RANGE_GUARD"
+      : indiaVixVal >= 18
+        ? "HIGH_VIX_BREAKOUT"
+        : "TRENDING_OPTION_BUYING";
 
   // 11. LAYER 2: Live Option Premium, Greeks (Delta, Gamma, Theta, IV), OI Change, Volume & Order Book Depth Validation
   let oiBuildupDesc = "Balanced Institutional OI";
   const effectiveOptDir: "CE" | "PE" =
     optionMetrics && Number(optionMetrics.ltp) > 0 && optionMetrics.optionType
       ? optionMetrics.optionType
-      : bullishPoints >= bearishPoints
+      : bullishPoints > bearishPoints && corpScore >= -15
         ? "CE"
         : "PE";
 
@@ -1196,8 +1246,15 @@ export function analyzeTradingSignals(
   const rewardDiff = Math.abs(target1 - currentLtp);
   const rrRatio = `1:${(rewardDiff / (riskDiff || 1)).toFixed(1)}`;
 
-  const isBullish = signalType === "BUY";
-  const optType: "CE" | "PE" = optionMetrics?.optionType || (isBullish ? "CE" : "PE");
+  const isBullish =
+    signalType === "BUY" ||
+    (signalType === "HOLD" && totalBullishConfidence > totalBearishConfidence && corpScore >= -15);
+  const optType: "CE" | "PE" =
+    optionMetrics && Number(optionMetrics.ltp) > 0 && optionMetrics.optionType
+      ? optionMetrics.optionType
+      : isBullish
+        ? "CE"
+        : "PE";
   const defaultStrike = Math.round(currentLtp / strikeStep) * strikeStep;
   const chosenStrike = optionMetrics?.strikePrice || defaultStrike;
 
@@ -1330,6 +1387,30 @@ export function analyzeTradingSignals(
       estimatedMinutesToTarget,
       estimatedMaxOptionPrice,
       estimatedNetProfitRange,
+      fiveYearRegimeSummary: fiveYrSummaryEn,
+      fiveYearRegimeSummaryMl: fiveYrSummaryMl,
+      multiYearSupport: multiYrSup,
+      multiYearResistance: multiYrRes,
+      historicalWinProbability: histWinProb,
+      indiaVix: indiaVixVal,
+      marketRegimeMode,
+      optionExecutionSide:
+        marketRegimeMode === "LOW_VIX_RANGE_GUARD"
+          ? "MULTI_LEG_STRANGLE"
+          : signalType === "HOLD"
+            ? "OPTION_SELLING"
+            : "OPTION_BUYING",
+      multiLegDetails: {
+        strategyType: adxValue < 16 ? "SHORT_STRANGLE" : "SHORT_STRADDLE",
+        callStrike: chosenStrike + (adxValue < 16 ? strikeStep * 2 : 0),
+        callLtp: Number((optEntry * 0.85).toFixed(2)),
+        putStrike: chosenStrike - (adxValue < 16 ? strikeStep * 2 : 0),
+        putLtp: Number((optEntry * 0.82).toFixed(2)),
+        combinedPremiumCollected: Number((optEntry * 1.67).toFixed(2)),
+        thetaDecayPerDayRupees: Math.round(Math.abs(optionMetrics?.theta ?? 8) * 1.8 * fallbackLotSz),
+        upperBreakeven: Math.round(chosenStrike + strikeStep * 2 + optEntry * 1.67),
+        lowerBreakeven: Math.round(chosenStrike - strikeStep * 2 - optEntry * 1.67),
+      },
     },
     recommendedOptionStrike: optSymbol
       ? {

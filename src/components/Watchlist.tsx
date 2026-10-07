@@ -179,7 +179,13 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-slate-800/40">
                 <div className="flex flex-col gap-1 w-1/3">
                   <span className="text-[10px] text-slate-400 font-mono-num font-medium">
-                    Vol: {Number((q.volume || 0) / 100000).toFixed(2)}L
+                    {q.segment === 'INDEX' || !q.volume || q.volume <= 0
+                      ? q.close > 0
+                        ? `Prev: ₹${Number(q.close).toLocaleString('en-IN', { maximumFractionDigits: 1 })}`
+                        : language === 'ml'
+                          ? 'സ്പോട്ട് ഇൻഡക്സ്'
+                          : 'Spot Index'
+                      : `Vol: ${Number((q.volume || 0) / 100000).toFixed(2)}L`}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 justify-end">

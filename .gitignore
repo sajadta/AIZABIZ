@@ -3,6 +3,7 @@ build/
 dist/
 dev-dist/
 local_db.json
+.upstox_token_backup.json
 coverage/
 .DS_Store
 *.log

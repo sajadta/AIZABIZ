@@ -134,6 +134,27 @@ export interface TradingSignal {
     estimatedMinutesToTarget: string;
     estimatedMaxOptionPrice: number;
     estimatedNetProfitRange: string;
+    fiveYearRegimeSummary?: string;
+    fiveYearRegimeSummaryMl?: string;
+    multiYearSupport?: number;
+    multiYearResistance?: number;
+    historicalWinProbability?: number;
+    indiaVix?: number;
+    marketRegimeMode?: 'TRENDING_OPTION_BUYING' | 'HIGH_VIX_BREAKOUT' | 'LOW_VIX_RANGE_GUARD';
+    optionExecutionSide?: 'OPTION_BUYING' | 'OPTION_SELLING' | 'MULTI_LEG_STRANGLE';
+    multiLegDetails?: {
+      strategyType: 'SHORT_STRADDLE' | 'SHORT_STRANGLE' | 'IRON_CONDOR_SPREAD';
+      callStrike: number;
+      callLtp: number;
+      callInstrumentKey?: string;
+      putStrike: number;
+      putLtp: number;
+      putInstrumentKey?: string;
+      combinedPremiumCollected: number;
+      thetaDecayPerDayRupees: number;
+      upperBreakeven: number;
+      lowerBreakeven: number;
+    };
   };
   recommendedOptionStrike?: {
     strikePrice: number;
@@ -233,6 +254,7 @@ export interface Position {
 export interface Holding {
   symbol: string;
   companyName: string;
+  instrumentKey?: string;
   quantity: number;
   avgPrice: number;
   buyPrice?: number;
@@ -241,6 +263,47 @@ export interface Holding {
   currentValue: number;
   pnl: number;
   pnlPercent: number;
+  fiftyPercentTarget?: {
+    targetPrice: number;
+    targetTotalValue: number;
+    targetProfitAmount: number;
+    priceNeeded: number;
+    profitRemaining: number;
+    progressPct: number;
+    isReached: boolean;
+    targetPrice50Pct?: number;
+    targetValue50Pct?: number;
+    netProfitAt50Pct?: number;
+    priceNeededFor50Pct?: number;
+    pctAwayFrom50Pct?: number;
+    progressTo50Pct?: number;
+    is50PctMilestoneReached?: boolean;
+  };
+  algoForecast?: {
+    direction: 'STRONG_UPTREND' | 'UPTREND' | 'SIDEWAYS_CONSOLIDATION' | 'DOWNTREND_RISK';
+    confidencePct: number;
+    expectedTarget30d: number;
+    supportLevel: number;
+    resistanceLevel: number;
+    rsi14: number;
+    ema20: number;
+    ema50: number;
+    ema200: number;
+    fiftyPctReachProbability: number;
+    recommendedAction: string;
+    forecastSummaryMl: string;
+    trendOutlook?: 'STRONG_UPTREND' | 'ACCUMULATION_RECOVERY' | 'PROFIT_BOOKING_ZONE' | 'DOWNTREND_CAUTION';
+    verdictEn?: string;
+    verdictMl?: string;
+    nextBreakoutTarget?: number;
+    supportFloor?: number;
+    resistanceWall?: number;
+    ema20Daily?: number;
+    ema50Daily?: number;
+    rsi14Daily?: number;
+    probabilityOf50PctTarget?: number;
+    estimatedHoldingHorizonMl?: string;
+  };
 }
 
 export type StrategyKey = 
@@ -263,10 +326,19 @@ export interface CandlestickPattern {
 
 export type TradeMode = 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH';
 
+export type OptionStrategyMode =
+  | 'OPTION_BUYING'
+  | 'OPTION_SELLING'
+  | 'MULTI_LEG_STRANGLE'
+  | 'HYBRID_AUTO_REGIME';
+
 export interface BotConfig {
   enabled: boolean;
   mode: ExecutionMode;
   tradeMode: TradeMode;
+  optionStrategyMode?: OptionStrategyMode;
+  enableMultiLegExecution?: boolean;
+  limitOrderSlippageGuard?: boolean;
   minOptionProfitAmount: number;
   maxOptionLossCount: number;
   maxStockLossCount: number;

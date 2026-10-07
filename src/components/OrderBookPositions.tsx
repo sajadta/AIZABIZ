@@ -109,12 +109,29 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
 
   const gross = pos.pnl || 0;
   const net = estCharges !== null ? gross - estCharges : gross;
+  const buyPx = Number(pos.buyPrice || 0);
+  const curPx = Number(pos.currentLTP || buyPx);
+  const qty = Math.max(1, Number(pos.quantity || 1));
+  const target50Px = Number((buyPx * 1.5).toFixed(2));
+  const target50Profit = Number(((target50Px - buyPx) * qty).toFixed(2));
+  const is50PctHit = buyPx > 0 && curPx >= target50Px;
+  const progressTo50 = buyPx > 0 ? Math.max(0, Math.min(100, ((curPx - buyPx) / (buyPx * 0.5)) * 100)) : 0;
+  const isHighProfit = net >= 1000 || is50PctHit;
+  const isMedProfit = net >= 300 && !isHighProfit;
 
   return (
       <div className={`p-3.5 rounded-xl border flex flex-col gap-3 transition-all duration-300 ${
-        isNew 
-          ? (gross >= 0 ? 'animate-trade-glow-buy' : 'animate-trade-glow-sell')
-          : 'bg-slate-900/80 border-slate-800 animate-row-enter'
+        is50PctHit
+          ? 'bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-emerald-950/40 border-amber-400/80 shadow-[0_0_24px_rgba(251,191,36,0.28)]'
+          : isHighProfit
+            ? 'bg-emerald-950/30 border-emerald-400/70 shadow-[0_0_20px_rgba(16,185,129,0.22)]'
+            : isMedProfit
+              ? 'bg-slate-900/90 border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.14)]'
+              : gross < 0
+                ? 'bg-rose-950/20 border-rose-500/40'
+                : isNew 
+                  ? (gross >= 0 ? 'animate-trade-glow-buy' : 'animate-trade-glow-sell')
+                  : 'bg-slate-900/80 border-slate-800 animate-row-enter'
       }`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
@@ -133,6 +150,16 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
             <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
               Qty: <strong className="text-white">{pos.quantity}</strong>
             </span>
+            {is50PctHit && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 animate-pulse">
+                ⚡ +50% JACKPOT MILESTONE HIT!
+              </span>
+            )}
+            {!is50PctHit && isHighProfit && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/25 text-emerald-200 border border-emerald-400/60 animate-pulse">
+                🚀 HIGH PROFIT SURGE (+₹{net.toFixed(0)})
+              </span>
+            )}
             {isNew && (
               <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
@@ -148,7 +175,7 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50">
             <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500">Buy Price</span>
                 <span className="text-slate-200 font-semibold">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
@@ -156,6 +183,10 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
             <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500">Current (LTP)</span>
                 <span className="text-slate-200 font-semibold">₹{pos.currentLTP?.toFixed(2) || '0.00'}</span>
+            </div>
+            <div className="flex flex-col">
+                <span className="text-[10px] text-amber-400/90">+50% Target Price</span>
+                <span className="text-amber-300 font-bold">₹{target50Px.toFixed(2)} (+₹{target50Profit.toFixed(0)})</span>
             </div>
             <div className="flex flex-col">
                 <span className="text-[10px] text-slate-500">Gross P&L</span>
@@ -179,6 +210,30 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
                     {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
                 </span>
             </div>
+        </div>
+
+        {/* +50% Buy-Price Profit Milestone Progress Bar */}
+        <div className="bg-slate-950/70 px-3 py-2 rounded-lg border border-slate-800/80 flex flex-col gap-1">
+          <div className="flex items-center justify-between text-[10px] font-mono">
+            <span className="text-slate-300 font-sans font-semibold">
+              🎯 വാങ്ങിയ വിലയുടെ +50% ലാഭ ലക്ഷ്യം (₹{target50Px.toFixed(2)}):
+            </span>
+            <span className={is50PctHit ? 'text-amber-300 font-black' : 'text-cyan-300 font-bold'}>
+              {is50PctHit
+                ? `⚡ +50% മറികടന്നു! (+₹${gross.toFixed(0)} ലാഭം)`
+                : `${progressTo50.toFixed(1)}% പൂർത്തിയായി (ഇനി ₹${Math.max(0, target50Px - curPx).toFixed(2)} കൂടി)`}
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className={`h-full transition-all duration-300 ${
+                is50PctHit
+                  ? 'bg-gradient-to-r from-emerald-400 via-amber-400 to-yellow-300'
+                  : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
+              }`}
+              style={{ width: `${progressTo50}%` }}
+            />
+          </div>
         </div>
 
         {/* Live In-Trade Next-Moment Trajectory & Fake-Dip Radar */}
@@ -814,47 +869,164 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {holdings.map((h, idx) => {
-                  const invested = h.investedValue || (h.quantity * (h.buyPrice ?? h.avgPrice ?? 0));
-                  const currentVal = h.currentValue || (h.quantity * (h.currentLTP || 0));
-                  const pnl = h.pnl !== undefined ? h.pnl : (currentVal - invested);
-                  const pnlPercent = h.pnlPercent !== undefined ? h.pnlPercent : (invested > 0 ? (pnl / invested) * 100 : 0);
+                  const avgPx = Number(h.buyPrice ?? h.avgPrice ?? 0);
+                  const curLtp = Number(h.currentLTP || 0);
+                  const qty = Number(h.quantity || 0);
+                  const invested = h.investedValue || Number((qty * avgPx).toFixed(2));
+                  const currentVal = h.currentValue || Number((qty * curLtp).toFixed(2));
+                  const pnl = Number((currentVal - invested).toFixed(2));
+                  const pnlPercent = avgPx > 0 ? Number((((curLtp - avgPx) / avgPx) * 100).toFixed(2)) : 0;
                   const isGain = pnl >= 0;
 
+                  const target50 = h.fiftyPercentTarget || {
+                    targetPrice: Number((avgPx * 1.5).toFixed(2)),
+                    targetTotalValue: Number((avgPx * 1.5 * qty).toFixed(2)),
+                    targetProfitAmount: Number((avgPx * 0.5 * qty).toFixed(2)),
+                    priceNeeded: Number(Math.max(0, avgPx * 1.5 - curLtp).toFixed(2)),
+                    profitRemaining: Number(Math.max(0, avgPx * 0.5 * qty - pnl).toFixed(2)),
+                    progressPct: avgPx > 0 ? Number(Math.max(0, Math.min(100, ((curLtp - avgPx) / (avgPx * 0.5)) * 100)).toFixed(1)) : 0,
+                    isReached: avgPx > 0 && curLtp >= avgPx * 1.5,
+                  };
+                  const forecast = h.algoForecast;
+
                   return (
-                    <div key={idx} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 transition flex flex-col justify-between gap-3 shadow-sm">
-                      <div className="flex items-start justify-between">
+                    <div
+                      key={idx}
+                      className={`p-4 rounded-xl border transition flex flex-col justify-between gap-3 shadow-sm ${
+                        target50.isReached
+                          ? 'bg-gradient-to-br from-amber-950/40 via-slate-900/95 to-emerald-950/40 border-amber-400/80 shadow-[0_0_24px_rgba(251,191,36,0.25)]'
+                          : isGain && pnl > 0
+                            ? 'bg-slate-900/95 border-emerald-500/50 shadow-[0_0_14px_rgba(16,185,129,0.14)]'
+                            : 'bg-slate-900/90 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-base font-extrabold text-white">{h.symbol}</span>
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                               DELIVERY · CNC
                             </span>
+                            {target50.isReached ? (
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 animate-pulse">
+                                ⚡ +50% PROFIT TARGET HIT!
+                              </span>
+                            ) : isGain && pnl > 0 ? (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                                🟢 IN PROFIT (ലാഭത്തിൽ)
+                              </span>
+                            ) : null}
                           </div>
                           <p className="text-xs text-slate-400 mt-0.5">{h.companyName || `${h.symbol} Ltd`}</p>
                         </div>
                         <div className="text-right">
-                          <span className="text-sm font-bold font-mono text-white">₹{(h.currentLTP || 0).toFixed(2)}</span>
+                          <span className="text-sm font-bold font-mono text-white">₹{curLtp.toFixed(2)}</span>
                           <span className="text-[10px] text-slate-400 block font-mono">LTP</span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-center font-mono">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-center font-mono">
                         <div>
-                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'അളവ്' : 'Qty'}</span>
-                          <span className="text-xs font-bold text-slate-200">{h.quantity}</span>
+                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'അളവ് (Qty)' : 'Qty'}</span>
+                          <span className="text-xs font-bold text-slate-200">{qty}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'ശരാശരി വില' : 'Avg Price'}</span>
-                          <span className="text-xs font-bold text-slate-200">₹{Number(h.buyPrice ?? h.avgPrice ?? 0).toFixed(2)}</span>
+                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'വാങ്ങിയ വില (Avg)' : 'Avg Buy Price'}</span>
+                          <span className="text-xs font-bold text-slate-200">₹{avgPx.toFixed(2)}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'ലാഭം / നഷ്ടം' : 'P&L'}</span>
+                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'നിക്ഷേപം (Invested)' : 'Invested'}</span>
+                          <span className="text-xs font-bold text-slate-300">₹{invested.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'ലാഭം / നഷ്ടം' : 'Exact P&L'}</span>
                           <span className={`text-xs font-bold ${isGain ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {isGain ? '+' : ''}₹{pnl.toFixed(2)}
-                            <span className="block text-[9px]">({pnlPercent.toFixed(2)}%)</span>
+                            <span className="block text-[9px]">({pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%)</span>
                           </span>
                         </div>
                       </div>
+
+                      {/* +50% Profitable Value Milestone Calculation Box */}
+                      <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 text-[11px] flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-bold text-amber-300 flex items-center gap-1">
+                            🎯 {language === 'ml' ? 'വാങ്ങിയ വിലയുടെ +50% ലാഭ കണക്കുകൂട്ടൽ:' : '+50% Buy-Price Profit Milestone:'}
+                          </span>
+                          <span className="font-mono text-[10px] font-black text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-400/40">
+                            {target50.isReached
+                              ? '⚡ +50% ലക്ഷ്യം കൈവരിച്ചു!'
+                              : `${target50.progressPct}% Complete`}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono pt-1 border-t border-amber-500/20">
+                          <div>
+                            <span className="text-slate-400 block">{language === 'ml' ? '+50% ടാർഗറ്റ് വില:' : '+50% Target LTP:'}</span>
+                            <strong className="text-amber-300">₹{target50.targetPrice.toFixed(2)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">{language === 'ml' ? '+50% ആകുമ്പോൾ ലാഭം:' : 'Profit at +50%:'}</span>
+                            <strong className="text-emerald-300">+₹{target50.targetProfitAmount.toFixed(2)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">{language === 'ml' ? 'ഇനി വേണ്ട വില കയറ്റം:' : 'LTP Rise Needed:'}</span>
+                            <strong className="text-cyan-300">
+                              {target50.isReached ? '₹0.00 (Hit!)' : `+₹${target50.priceNeeded.toFixed(2)}/sh`}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">{language === 'ml' ? '+50% മൂല്യം (Total):' : 'Value at +50%:'}</span>
+                            <strong className="text-white">₹{target50.targetTotalValue.toFixed(2)}</strong>
+                          </div>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-0.5">
+                          <div
+                            className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-emerald-400 transition-all duration-300"
+                            style={{ width: `${target50.progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Pre-Cognitive 8-Layer & 5-Year Historical Algorithmic Forecast for Holding */}
+                      {forecast && (
+                        <div className={`p-2.5 rounded-lg border text-[11px] flex flex-col gap-1.5 ${
+                          forecast.direction === 'STRONG_UPTREND' || forecast.direction === 'UPTREND'
+                            ? 'bg-emerald-950/25 border-emerald-500/35 text-emerald-200'
+                            : forecast.direction === 'DOWNTREND_RISK'
+                              ? 'bg-rose-950/25 border-rose-500/35 text-rose-200'
+                              : 'bg-cyan-950/25 border-cyan-500/35 text-cyan-200'
+                        }`}>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="font-extrabold flex items-center gap-1.5 text-xs">
+                              🧠 {language === 'ml' ? 'അൽഗോരിതം മുൻകൂട്ടി കാണുന്ന പ്രവചനം (Algo Forecast):' : 'Pre-Cognitive Algo Forecast:'}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] font-bold">
+                              Confidence: {forecast.confidencePct}% | +50% Hit Prob: {forecast.fiftyPctReachProbability}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed font-medium text-slate-200">
+                            {forecast.forecastSummaryMl}
+                          </p>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/10 text-[10px] font-mono text-slate-300">
+                            <div>
+                              <span className="text-slate-400 block">30D Algo Target:</span>
+                              <strong className="text-emerald-300">₹{forecast.expectedTarget30d.toFixed(2)}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">Support / Resist:</span>
+                              <strong className="text-cyan-300">₹{forecast.supportLevel} / ₹{forecast.resistanceLevel}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">20D / 50D EMA:</span>
+                              <strong className="text-slate-200">₹{forecast.ema20} / ₹{forecast.ema50}</strong>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 block">14D RSI & Action:</span>
+                              <strong className="text-amber-300">RSI {forecast.rsi14} · {forecast.recommendedAction.replace(/_/g, ' ')}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex items-center justify-between pt-1 border-t border-slate-800/60 text-xs">
                         <div className="text-[11px] text-slate-400">
@@ -921,20 +1093,44 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   const execPx = Number(ord.executedPrice || ord.price || 0);
                   const qty = Math.max(1, Number(ord.quantity || 1));
                   const isOpt = /\b(CE|PE)\b/i.test(ord.symbol || '') || String(ord.instrumentKey || '').includes('FO');
-                  const matchingOpenPos = positions.find(p => p.symbol === ord.symbol);
-                  const matchingClosedTrade = tradeHistory.find(t => t.symbol === ord.symbol);
+                  const matchingOpenPos = positions.find(
+                    p => ((ord as any).positionId && p.id === (ord as any).positionId) || p.symbol === ord.symbol
+                  );
+                  const matchingClosedTrade = tradeHistory.find(t => {
+                    if ((ord as any).positionId && t.id === (ord as any).positionId) return true;
+                    if (t.symbol !== ord.symbol) return false;
+                    if (isBuy && Math.abs(Number(t.buyPrice || 0) - execPx) < 0.05) return true;
+                    if (!isBuy && Math.abs(Number(t.sellPrice || 0) - execPx) < 0.05) return true;
+                    return false;
+                  }) || tradeHistory.find(t => t.symbol === ord.symbol);
+
+                  const entryPx = Number(
+                    (ord as any).buyPrice ||
+                      matchingOpenPos?.buyPrice ||
+                      matchingClosedTrade?.buyPrice ||
+                      execPx
+                  );
                   const currentOrExitPx = matchingOpenPos
                     ? Number(matchingOpenPos.currentLTP || execPx)
-                    : matchingClosedTrade
-                      ? Number(matchingClosedTrade.sellPrice || matchingClosedTrade.currentLTP || execPx)
-                      : execPx;
-                  const ordCharges = calculateTradeCharges(execPx, qty, isOpt, currentOrExitPx);
+                    : Number(
+                        (ord as any).sellPrice ||
+                          matchingClosedTrade?.sellPrice ||
+                          matchingClosedTrade?.currentLTP ||
+                          execPx
+                      );
+                  const ordCharges = calculateTradeCharges(entryPx, qty, isOpt, currentOrExitPx);
+                  const roundTripTax = Number((ord as any).brokerageCharges || ordCharges.roundTripCharges);
                   const grossPnl = matchingOpenPos
-                    ? Number(matchingOpenPos.pnl ?? (currentOrExitPx - execPx) * qty)
-                    : matchingClosedTrade
-                      ? Number(matchingClosedTrade.realizedPnL ?? (currentOrExitPx - execPx) * qty)
-                      : 0;
-                  const netPnlAfterTax = Number((grossPnl - ordCharges.roundTripCharges).toFixed(2));
+                    ? Number(matchingOpenPos.pnl ?? (currentOrExitPx - entryPx) * qty)
+                    : (ord as any).realizedPnL !== undefined
+                      ? Number((ord as any).realizedPnL)
+                      : matchingClosedTrade?.realizedPnL !== undefined
+                        ? Number(matchingClosedTrade.realizedPnL)
+                        : Number(((currentOrExitPx - entryPx) * qty).toFixed(2));
+                  const netPnlAfterTax =
+                    !matchingOpenPos && (ord as any).netRealizedPnL !== undefined
+                      ? Number((ord as any).netRealizedPnL)
+                      : Number((grossPnl - roundTripTax).toFixed(2));
 
                   return (
                     <div
@@ -989,21 +1185,27 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                       </div>
 
                       {/* Trade Details & Net P&L Breakdown Bar inside Order Card */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ട്രേഡ് മൂല്യം (Value)' : 'Trade Value'}</span>
-                          <span className="text-slate-200 font-bold">₹{ordCharges.tradeValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'വാങ്ങിയ വില (Buy)' : 'Buy Price'}</span>
+                          <span className="text-slate-200 font-bold">₹{entryPx.toFixed(2)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'നിലവിലെ വില / Exit' : 'Current / Exit LTP'}</span>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'വിറ്റ വില / LTP' : 'Exit / LTP'}</span>
                           <span className="text-cyan-300 font-bold">₹{currentOrExitPx.toFixed(2)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}</span>
-                          <span className="text-amber-300 font-bold">-₹{ordCharges.roundTripCharges.toFixed(2)}</span>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'മൊത്തം ലാഭം (Gross)' : 'Gross P&L'}</span>
+                          <span className={`font-bold ${grossPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {grossPnl >= 0 ? '+' : ''}₹{grossPnl.toFixed(2)}
+                          </span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'അറ്റ ലാഭം / നഷ്ടം (Net P&L)' : 'Net P&L (After Tax)'}</span>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}</span>
+                          <span className="text-amber-300 font-bold">-₹{roundTripTax.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L (After Tax)'}</span>
                           <span className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}
                           </span>

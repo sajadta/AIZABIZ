@@ -30,7 +30,6 @@ import {
 } from 'lucide-react';
 import { BotConfig, BotLog, TradingSignal, StrategyKey, Language, OptionChainData, StockQuote, Position } from '../types';
 import { translations } from '../translations';
-import { DiagnosticsModal } from './DiagnosticsModal';
 
 interface AlgoBotPanelProps {
   botConfig: BotConfig;
@@ -59,7 +58,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 }) => {
     const t = translations[language];
   const [scanMessageIndex, setScanMessageIndex] = useState(0);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
   
   useEffect(() => {
     if (!botConfig.enabled) return;
@@ -414,17 +412,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
           <Terminal className="w-3.5 h-3.5" />
           <span>{language === 'ml' ? 'ലോഗ്' : 'Bot Logs'}</span>
         </button>
-        <button
-          onClick={() => setShowDiagnostics(true)}
-          className={`pb-2 px-3 border-b-2 transition flex items-center gap-1.5 whitespace-nowrap ${
-            showDiagnostics
-              ? 'border-indigo-400 text-indigo-400'
-              : 'border-transparent text-indigo-400/70 hover:text-indigo-300'
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Diagnostics</span>
-        </button>
 
       </div>
 
@@ -472,7 +459,11 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             ? 'bg-rose-500 text-white'
                             : 'bg-slate-700 text-slate-200'
                         }`}>
-                          {sig.symbol.includes('CE') || sig.symbol.includes('PE') ? 'BUY' : sig.signalType}
+                          {sig.signalType === 'HOLD'
+                            ? 'HOLD (WAITING)'
+                            : sig.symbol.includes('CE') || sig.symbol.includes('PE')
+                              ? 'BUY OPTION'
+                              : sig.signalType}
                         </span>
                         <span className="text-sm font-extrabold text-white tracking-tight">
                           {sig.symbol}
@@ -588,6 +579,30 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             {sig.institutionalQuantAnalysis.globalMacroAlignment} | {sig.institutionalQuantAnalysis.oiBuildupType}
                           </span>
                         </div>
+                        {sig.institutionalQuantAnalysis.fiveYearRegimeSummary && (
+                          <div className="sm:col-span-2 bg-indigo-950/30 px-2.5 py-1.5 rounded border border-indigo-500/30 flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-indigo-300 font-bold">
+                              {language === 'ml' ? '📅 5-വർഷ ചാർട്ട് & 200D EMA ഹിസ്റ്ററി:' : '📅 5-Year Daily Chart & 200D EMA Regime:'}
+                            </span>
+                            <span className="text-emerald-300 font-bold">
+                              {language === 'ml'
+                                ? sig.institutionalQuantAnalysis.fiveYearRegimeSummaryMl || sig.institutionalQuantAnalysis.fiveYearRegimeSummary
+                                : sig.institutionalQuantAnalysis.fiveYearRegimeSummary}
+                            </span>
+                          </div>
+                        )}
+                        {sig.institutionalQuantAnalysis.multiLegDetails && (
+                          <div className="sm:col-span-2 bg-cyan-950/30 px-2.5 py-1.5 rounded border border-cyan-500/30 flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-cyan-300 font-bold">
+                              {language === 'ml'
+                                ? `⚖️ ${sig.institutionalQuantAnalysis.multiLegDetails.strategyType === 'SHORT_STRANGLE' ? 'Short Strangle (സൈഡ്‌വേയ്‌സ് മൾട്ടി-ലെഗ്)' : 'Short Straddle / Option Selling'}:`
+                                : `⚖️ ${sig.institutionalQuantAnalysis.multiLegDetails.strategyType}:`}
+                            </span>
+                            <span className="text-amber-300 font-bold">
+                              SELL {sig.institutionalQuantAnalysis.multiLegDetails.callStrike} CE @ ₹{sig.institutionalQuantAnalysis.multiLegDetails.callLtp} + SELL {sig.institutionalQuantAnalysis.multiLegDetails.putStrike} PE @ ₹{sig.institutionalQuantAnalysis.multiLegDetails.putLtp} | Theta: +₹{sig.institutionalQuantAnalysis.multiLegDetails.thetaDecayPerDayRupees}/day
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1366,6 +1381,69 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   >
                     BOTH
                   </button>
+                </div>
+              </div>
+
+              {/* Option Strategy Mode: Option Buying vs Option Selling vs Multi-Leg Strangle vs Hybrid Auto-Regime */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                <label className="text-[11px] font-bold text-cyan-300 flex items-center justify-between">
+                  <span>
+                    {language === 'ml'
+                      ? 'ഓപ്ഷൻ സ്ട്രാറ്റജി മോഡ് (Buying / Selling / Multi-Leg / Auto):'
+                      : 'Option Strategy Mode (Buying / Selling / Multi-Leg / Auto):'}
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                    {botConfig.optionStrategyMode || 'HYBRID_AUTO_REGIME'}
+                  </span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {[
+                    {
+                      id: 'HYBRID_AUTO_REGIME',
+                      labelEn: 'Auto Regime (Buy+Sell)',
+                      labelMl: 'ഓട്ടോ (Buying + Selling)',
+                      descMl: 'ട്രെൻഡിൽ Option Buying, സൈഡ്‌വേയ്‌സിൽ Option Selling/Strangle',
+                    },
+                    {
+                      id: 'OPTION_BUYING',
+                      labelEn: 'Option Buying Only',
+                      labelMl: 'Option Buying മാത്രം',
+                      descMl: 'CE / PE വാങ്ങൽ (Gamma Breakout & കുറഞ്ഞ മൂലധനം)',
+                    },
+                    {
+                      id: 'OPTION_SELLING',
+                      labelEn: 'Option Selling (Theta)',
+                      labelMl: 'Option Selling (Theta)',
+                      descMl: 'CE / PE വിൽക്കൽ (Theta Time Decay ലാഭം)',
+                    },
+                    {
+                      id: 'MULTI_LEG_STRANGLE',
+                      labelEn: 'Multi-Leg Straddle/Strangle',
+                      labelMl: 'Multi-Leg Straddle/Strangle',
+                      descMl: 'CE + PE ഒരേ സെക്കൻഡിൽ വിൽക്കൽ (Non-Directional)',
+                    },
+                  ].map((m) => {
+                    const isSelected = (botConfig.optionStrategyMode || 'HYBRID_AUTO_REGIME') === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => onUpdateBotConfig({ optionStrategyMode: m.id as any })}
+                        className={`p-2 rounded-lg border text-left transition ${
+                          isSelected
+                            ? 'bg-cyan-950/50 border-cyan-400 text-white shadow-sm'
+                            : 'bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="text-[10px] font-black text-cyan-300">
+                          {language === 'ml' ? m.labelMl : m.labelEn}
+                        </div>
+                        <div className="text-[9px] text-slate-400 mt-0.5 leading-tight">
+                          {m.descMl}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
