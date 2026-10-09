@@ -1942,8 +1942,9 @@ setInterval(async () => {
             }
           }
 
-          // If intraday returned no candles (e.g., after market hours or weekend), fetch recent 1-minute historical candles from Upstox so 7-Layer Quant Matrix signals remain populated
-          if (!cData?.data?.candles || cData.data.candles.length === 0) {
+          // If intraday returned fewer than 45 candles (e.g., first 30 minutes of market open 09:15–09:45 AM, or after market hours),
+          // fetch recent 1-minute historical candles from the previous trading session and prepend them for indicator warmup (EMA21, EMA50, SuperTrend, RSI, MACD)!
+          if (!cData?.data?.candles || cData.data.candles.length < 45) {
             const fromDate = new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000)
               .toISOString()
               .split("T")[0];
@@ -1959,11 +1960,24 @@ setInterval(async () => {
                 });
                 const histData = await histRes.json();
                 if (histData?.status === "success" && histData?.data?.candles?.length > 0) {
-                  const recentCandles = histData.data.candles.slice(0, 180);
-                  cData = { status: "success", data: { candles: recentCandles } };
+                  const existingIntraday = Array.isArray(cData?.data?.candles)
+                    ? cData.data.candles
+                    : [];
+                  const oldestIntradayTs =
+                    existingIntraday.length > 0
+                      ? new Date(existingIntraday[existingIntraday.length - 1][0]).getTime()
+                      : Infinity;
+                  const priorWarmupCandles = histData.data.candles
+                    .filter((hc: any) => new Date(hc[0]).getTime() < oldestIntradayTs)
+                    .slice(0, 90);
+                  const mergedCandles =
+                    existingIntraday.length > 0
+                      ? [...existingIntraday, ...priorWarmupCandles]
+                      : histData.data.candles.slice(0, 180);
+                  cData = { status: "success", data: { candles: mergedCandles } };
                   intradayCandleCache[idx.key] = {
                     timestamp: Date.now(),
-                    raw: recentCandles,
+                    raw: mergedCandles,
                   };
                 }
               }
@@ -2606,7 +2620,7 @@ setInterval(async () => {
 
                         // Score strike on Capital Efficiency (Big Profit from Compact Investment!) + Net Profitability after Brokerage + Delta sweet spot
                         let score = 0;
-                        if (fitsCapital) {
+                         if (fitsCapital) {
                           score += 350; // Strictly prioritize strikes where (Premium + Brokerage) fits real account cash!
                           // High-ROI Compact-Capital Sweet Spot: Prioritize strikes costing ₹1,800 – ₹6,500 per lot (e.g. ₹25–₹85 premium)
                           // where 1 lot requires small capital but delivers ₹700–₹1,500+ net profit on a Gamma surge!
@@ -2617,6 +2631,14 @@ setInterval(async () => {
                           } else if (totalRequiredWithBrokerage > 18000) {
                             // Penalize heavy ₹20,000+ lots when a compact ₹3,000–₹6,000 lot can deliver higher % ROI with lower rupee risk
                             score -= 45;
+                          }
+                        } else if (botConfig.mode === "UPSTOX_LIVE" && effectiveCapital <= 0) {
+                          // When Upstox Available Cash is ₹0 in UPSTOX_LIVE mode, still evaluate the best compact-capital strike (₹1,800–₹6,500)
+                          // so the signal passes Layer-2 and logs a clear [LIVE CAPITAL & BROKERAGE GUARD] message telling the user how much cash is needed!
+                          if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 6500 && absDelta >= 0.25) {
+                            score += 85;
+                          } else if (totalRequiredWithBrokerage > 6500 && totalRequiredWithBrokerage <= 12000) {
+                            score += 40;
                           }
                         } else {
                           score -= 500;
@@ -2785,7 +2807,7 @@ setInterval(async () => {
                               : liveLtp < idxLastCandle.open && liveLtp <= idxPrevCandle.close;
 
                             // Strict Anti-Immediate-Drop Option Premium Breakout / Decay Requirements:
-                            // - For OPTION_BUYING: Option must show Higher-Lows, rising closes above 3m VWAP, and 3m high breakout without exhaustion (> 6% spike).
+                            // - For OPTION_BUYING: Option must show rising momentum above 3m VWAP, strong close position (>= 0.58), controlled upper wick (<= 0.38), and either a fresh 3m high breakout or strong 2-bar continuation without climax exhaustion (> 14% 1m spike).
                             // - For OPTION_SELLING: Option must be decaying below its open and 3m VWAP so shorting the option captures Theta decay safely.
                             const singleMinuteSpikePct = optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
                             if (isOptionSellingMode) {
@@ -2802,15 +2824,15 @@ setInterval(async () => {
                             } else if (
                               isUnderlying1mConfirmingNow &&
                               liveOptLtp > optOpen0 &&
-                              optClose1 >= optOpen1 * 0.997 &&
-                              optLow0 >= optLow1 * 0.995 &&
+                              optClose1 >= optOpen1 * 0.985 &&
+                              optLow0 >= optLow1 * 0.988 &&
                               liveOptLtp > optClose1 &&
-                              liveOptLtp > optClose2 &&
+                              liveOptLtp >= optClose2 * 0.995 &&
                               liveOptLtp > optShortVwap &&
-                              liveOptLtp >= recentOpt3mHigh * 0.993 &&
-                              optClosePos >= 0.70 &&
-                              optUpperWickRatio <= 0.25 &&
-                              singleMinuteSpikePct <= 6.0
+                              liveOptLtp >= recentOpt3mHigh * 0.982 &&
+                              optClosePos >= 0.58 &&
+                              optUpperWickRatio <= 0.38 &&
+                              singleMinuteSpikePct <= 14.0
                             ) {
                               optionMomentumConfirmed = true;
                             } else {
