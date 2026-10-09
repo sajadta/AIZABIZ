@@ -48,6 +48,7 @@ app.get('/api/history', async (req, res) => {
 let botConfig = {
   enabled: true, // Always running continuously on the server even if client internet disconnects
   mode: "PAPER_TRADING", // 'PAPER_TRADING' | 'UPSTOX_LIVE'
+  userExplicitlySelectedMode: false, // Prevents background token sync from overwriting user's chosen PAPER_TRADING mode
   selectedStrategy: "PROFIT_MAX_100_PERCENT_MATRIX",
   minConfidence: 78,
   maxCapitalPerTrade: 25000,
@@ -96,6 +97,9 @@ app.post("/api/bot/config", (req, res) => {
   if (incoming.enabled === true || incoming.dailyLossLocked === false) {
     incoming.dailyLossLocked = false;
     incoming.circuitBreakerResetAt = Date.now();
+  }
+  if (incoming.mode === "PAPER_TRADING" || incoming.mode === "UPSTOX_LIVE") {
+    incoming.userExplicitlySelectedMode = true;
   }
   botConfig = { ...botConfig, ...incoming };
   botConfig.maxOptionLossCount = Math.min(
@@ -3788,7 +3792,9 @@ async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: stri
       upstoxConfig.userClientCode = pData.data.user_id || "5VCABX";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-      botConfig.mode = "UPSTOX_LIVE";
+      if (!botConfig.userExplicitlySelectedMode) {
+        botConfig.mode = "PAPER_TRADING";
+      }
       lastWebhookDiagnostic = `✅ Token auto-activated via ${sourceLabel} at ${upstoxConfig.tokenGeneratedAt}`;
       saveTokenBackupToDisk(cleanToken, upstoxConfig);
       await savePostgresDb().catch(() => {});
@@ -4170,7 +4176,9 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
       upstoxConfig.userClientCode = data.data.user_id || "UPSTOX_USER";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-      botConfig.mode = "UPSTOX_LIVE";
+      if (!botConfig.userExplicitlySelectedMode) {
+        botConfig.mode = "UPSTOX_LIVE";
+      }
       invalidTokens.delete(token);
       await savePostgresDb().catch(() => {});
       publishTokenToCloudRelay(token).catch(() => {});
@@ -4257,7 +4265,9 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
         upstoxConfig.userClientCode = data.user_id || "5VCABX";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        botConfig.mode = "UPSTOX_LIVE";
+        if (!botConfig.userExplicitlySelectedMode) {
+          botConfig.mode = "UPSTOX_LIVE";
+        }
         invalidTokens.delete(data.access_token);
         await savePostgresDb().catch(() => {});
         publishTokenToCloudRelay(data.access_token).catch(() => {});
@@ -4324,7 +4334,9 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
       }
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-      botConfig.mode = "UPSTOX_LIVE";
+      if (!botConfig.userExplicitlySelectedMode) {
+        botConfig.mode = "UPSTOX_LIVE";
+      }
       invalidTokens.delete(cleanToken);
       await savePostgresDb().catch(() => {});
       botLogs.unshift({
@@ -4793,7 +4805,9 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         upstoxConfig.userClientCode = tokenData.user_id || "5VCABX";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        botConfig.mode = "UPSTOX_LIVE";
+        if (!botConfig.userExplicitlySelectedMode) {
+          botConfig.mode = "UPSTOX_LIVE";
+        }
         invalidTokens.delete(tokenData.access_token);
         await savePostgresDb().catch(() => {});
         publishTokenToCloudRelay(tokenData.access_token).catch(() => {});
@@ -4854,7 +4868,9 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         data.user_id || data.data?.user_id || "5VCABX";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-      botConfig.mode = "UPSTOX_LIVE";
+      if (!botConfig.userExplicitlySelectedMode) {
+        botConfig.mode = "UPSTOX_LIVE";
+      }
       invalidTokens.delete(token);
       await savePostgresDb().catch(() => {});
       publishTokenToCloudRelay(token).catch(() => {});

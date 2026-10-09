@@ -89,7 +89,15 @@ export const App: React.FC = () => {
   
   // App configurations
   const [language, setLanguage] = useState<Language>('ml');
-  const [mode, setMode] = useState<ExecutionMode>('PAPER_TRADING');
+  const [mode, setMode] = useState<ExecutionMode>(() => {
+    try {
+      const savedMode = localStorage.getItem('aizabiz_preferred_trading_mode');
+      if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
+        return savedMode;
+      }
+    } catch {}
+    return 'PAPER_TRADING';
+  });
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isWsConnected, setIsWsConnected] = useState(false);
   const [marketSession, setMarketSession] = useState<MarketSessionStatus>(() =>
@@ -256,9 +264,29 @@ export const App: React.FC = () => {
         ]);
 
         if (botRes.status === 'fulfilled' && botRes.value) {
-          setBotConfig(prev => ({ ...prev, ...botRes.value }));
-          if (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE') {
-            setMode(botRes.value.mode);
+          let preferredMode: ExecutionMode | null = null;
+          try {
+            const saved = localStorage.getItem('aizabiz_preferred_trading_mode');
+            if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
+              preferredMode = saved as ExecutionMode;
+            }
+          } catch {}
+          function savedModeIsValid(v: string | null): v is ExecutionMode {
+            return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
+          }
+          const finalMode: ExecutionMode =
+            preferredMode ||
+            (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE'
+              ? botRes.value.mode
+              : 'PAPER_TRADING');
+          setMode(finalMode);
+          setBotConfig(prev => ({ ...prev, ...botRes.value, mode: finalMode }));
+          if (preferredMode && botRes.value.mode !== preferredMode) {
+            fetch('/api/bot/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...botRes.value, mode: preferredMode }),
+            }).catch(() => {});
           }
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
@@ -1397,6 +1425,9 @@ export const App: React.FC = () => {
         isWsConnected={isWsConnected}
         mode={mode}
         setMode={(newMode) => {
+          try {
+            localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
+          } catch {}
           setMode(newMode);
           setBotConfig(prev => {
             const updated = { ...prev, mode: newMode };
@@ -1770,6 +1801,9 @@ export const App: React.FC = () => {
                   botConfig={botConfig}
                   onUpdateBotConfig={(cfg) => {
                     if (cfg.mode) {
+                      try {
+                        localStorage.setItem('aizabiz_preferred_trading_mode', cfg.mode);
+                      } catch {}
                       setMode(cfg.mode);
                     }
                     setBotConfig(prev => {
@@ -2021,7 +2055,14 @@ export const App: React.FC = () => {
         onSaveConfig={async (cfg) => {
           setApiConfig(prev => ({ ...prev, ...cfg }));
           if (cfg.isConnected) {
-            setMode('UPSTOX_LIVE');
+            let savedPref: string | null = null;
+            try {
+              savedPref = localStorage.getItem('aizabiz_preferred_trading_mode');
+            } catch {}
+            // Only auto-switch to UPSTOX_LIVE if user hasn't explicitly chosen PAPER_TRADING
+            if (savedPref !== 'PAPER_TRADING') {
+              setMode('UPSTOX_LIVE');
+            }
             setTimeout(() => {
               fetchHoldings();
               fetchLivePositions();
