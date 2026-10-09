@@ -411,12 +411,22 @@ function buildSupervisorAuditReport() {
     const qty = Number(tr.quantity || 1);
     const buyPx = Number(tr.buyPrice || 0);
     const sellPx = Number(tr.sellPrice || tr.currentLTP || buyPx);
-    const gross = Number(tr.realizedPnL ?? (sellPx - buyPx) * qty);
+    const isShortTrade =
+      tr.type === "SELL" ||
+      tr.transactionType === "SELL" ||
+      tr.optionStrategyType === "OPTION_SELLING";
+    const gross = Number(
+      tr.realizedPnL ?? (isShortTrade ? (buyPx - sellPx) * qty : (sellPx - buyPx) * qty),
+    );
     const chg = calculateTradeCharges(buyPx, qty, true, sellPx);
     const brok = chg.roundTripCharges;
     const net = Number((gross - brok).toFixed(2));
-    const peakLtp = Number(tr.highestLTP || Math.max(buyPx, sellPx));
-    const peakGross = Number(((peakLtp - buyPx) * qty).toFixed(2));
+    const peakLtp = isShortTrade
+      ? Number(tr.lowestLTP || Math.min(buyPx, sellPx))
+      : Number(tr.highestLTP || Math.max(buyPx, sellPx));
+    const peakGross = Number(
+      ((isShortTrade ? buyPx - peakLtp : peakLtp - buyPx) * qty).toFixed(2),
+    );
     const peakNet = Number((peakGross - brok).toFixed(2));
 
     grossPnLTotal += gross;
@@ -1090,9 +1100,37 @@ setInterval(async () => {
         };
 
         if (isEodSquareOff || ltpShort >= dynamicShortStopPrice || ltpShort <= shortTargetPrice) {
-          const exitPx = Number(ltpShort.toFixed(2));
+          // Honour the stop-loss cap price (dynamicShortStopPrice) in Paper Mode so 1-second tick jumps never exceed the ₹400 max loss cap!
+          const exitPx =
+            ltpShort >= dynamicShortStopPrice && dynamicShortStopPrice > 0
+              ? Number(Math.min(ltpShort, dynamicShortStopPrice).toFixed(2))
+              : Number(ltpShort.toFixed(2));
           const finalGross = Number(((pos.buyPrice - exitPx) * qtyShort).toFixed(2));
           const finalNet = Number((finalGross - shortCharges.roundTripCharges).toFixed(2));
+
+          // CRITICAL: Stamp lastTradeExitTime & recentClosedStrikes so Option Selling exits also enforce the 3-minute cooldown & 30-minute loss re-entry ban!
+          lastTradeExitTime = Date.now();
+          if (pos.instrumentKey) {
+            recentClosedStrikes[pos.instrumentKey] = {
+              exitTime: Date.now(),
+              highestLTP: Math.max(pos.buyPrice, exitPx),
+              sellPrice: finalGross >= 0 ? pos.buyPrice * 1.01 : pos.buyPrice * 0.95,
+            };
+          }
+          const shortExitReason =
+            ltpShort <= shortTargetPrice
+              ? `[OPTION SELLING THETA TARGET HIT] ${pos.symbol} decayed from ₹${pos.buyPrice} to ₹${exitPx} -> Locked +₹${finalNet.toFixed(2)} Net Profit!`
+              : finalNet >= 0
+                ? `[OPTION SELLING TRAILING SL LOCKED] ${pos.symbol} exited at ₹${exitPx} -> Locked +₹${finalNet.toFixed(2)} Net Profit!`
+                : `[OPTION SELLING STOP-LOSS CAP] ${pos.symbol} rose to ₹${exitPx} (SL ₹${dynamicShortStopPrice}) -> Capped loss early!`;
+          botLogs.unshift({
+            id: Date.now().toString(),
+            time: new Date().toLocaleTimeString(),
+            message: shortExitReason,
+            type: finalGross >= 0 ? "SUCCESS" : "ERROR",
+          });
+          if (botLogs.length > 200) botLogs.length = 200;
+
           if (pos.mode === "PAPER_TRADING" || paperPositions.some((p) => p.id === pos.id)) {
             const closedShort = paperPositions.find((p) => p.id === pos.id);
             if (closedShort) {
@@ -1100,6 +1138,7 @@ setInterval(async () => {
               closedShort.realizedPnL = finalGross;
               closedShort.brokerageCharges = shortCharges.roundTripCharges;
               closedShort.netRealizedPnL = finalNet;
+              closedShort.exitReason = shortExitReason;
               closedShort.closeTime = new Date().toISOString();
               paperTradeHistory.unshift(closedShort);
             }
@@ -2398,7 +2437,16 @@ setInterval(async () => {
                     }
                     if (chainData?.data && Array.isArray(chainData.data)) {
                       const isBullish = signal.signalType === "BUY";
-                      const optType: "CE" | "PE" = isBullish ? "CE" : "PE";
+                      // For Option Buying: Bullish -> Buy CE, Bearish -> Buy PE.
+                      // For Option Selling (Credit): Bullish -> Short PE (collect decaying Put premium), Bearish -> Short CE (collect decaying Call premium).
+                      const optType: "CE" | "PE" =
+                        botConfig.optionStrategyMode === "OPTION_SELLING"
+                          ? isBullish
+                            ? "PE"
+                            : "CE"
+                          : isBullish
+                            ? "CE"
+                            : "PE";
                       const lotSz = liveIdxLotSize > 0 ? liveIdxLotSize : 1;
 
                       // Calculate overall Put-Call Ratio (PCR) + Highest Call OI Resistance Wall & Highest Put OI Support Wall
@@ -2736,13 +2784,22 @@ setInterval(async () => {
                               ? liveLtp > idxLastCandle.open && liveLtp >= idxPrevCandle.close
                               : liveLtp < idxLastCandle.open && liveLtp <= idxPrevCandle.close;
 
-                            // Strict Anti-Immediate-Drop Option Premium Breakout Requirements:
-                            // 1. Both current 1m candle AND previous 1m structure must show Higher-Lows & rising closes (liveOptLtp > optOpen0 && optClose1 >= optOpen1 * 0.997 && optLow0 >= optLow1 * 0.995)
-                            // 2. Option's live price must be strictly above 1m ago, 2m ago, AND above Option 3m VWAP (liveOptLtp > optClose1 && liveOptLtp > optClose2 && liveOptLtp > optShortVwap)
-                            // 3. Option must be breaking out at its 3-minute high without upper-wick rejection (liveOptLtp >= recentOpt3mHigh * 0.993 && optUpperWickRatio <= 0.25)
-                            // 4. Anti-Spike-Exhaustion Guard: Current 1m candle must not already be over-extended (> 6% single-minute spike) where buyers are exhausted and price immediately drops!
+                            // Strict Anti-Immediate-Drop Option Premium Breakout / Decay Requirements:
+                            // - For OPTION_BUYING: Option must show Higher-Lows, rising closes above 3m VWAP, and 3m high breakout without exhaustion (> 6% spike).
+                            // - For OPTION_SELLING: Option must be decaying below its open and 3m VWAP so shorting the option captures Theta decay safely.
                             const singleMinuteSpikePct = optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
-                            if (
+                            if (isOptionSellingMode) {
+                              if (
+                                isUnderlying1mConfirmingNow &&
+                                liveOptLtp <= optOpen0 &&
+                                liveOptLtp <= optClose1 &&
+                                liveOptLtp <= optShortVwap
+                              ) {
+                                optionMomentumConfirmed = true;
+                              } else {
+                                optionMomentumConfirmed = false;
+                              }
+                            } else if (
                               isUnderlying1mConfirmingNow &&
                               liveOptLtp > optOpen0 &&
                               optClose1 >= optOpen1 * 0.997 &&
@@ -3021,12 +3078,11 @@ setInterval(async () => {
               const totalRequiredCashWithBrokerage =
                 multiLotCharges.totalRequiredWithBrokerage;
 
+              // CRITICAL FIX: Never invert a rising Layer-2 Option Buying breakout into a Short Option Sell!
+              // Layer-2 explicitly selects an option strike whose premium is actively rising (3 green 1m candles + above 3m VWAP).
+              // Shorting a rising option contract guarantees an immediate loss! Only allow OPTION_SELLING when explicitly set to OPTION_SELLING mode AND we select the opposite decaying wing.
               const isOptionSellingEntry =
-                botConfig.optionStrategyMode === "OPTION_SELLING" ||
-                botConfig.optionStrategyMode === "MULTI_LEG_STRANGLE" ||
-                (botConfig.optionStrategyMode === "HYBRID_AUTO_REGIME" &&
-                  (signal.institutionalQuantAnalysis?.optionExecutionSide === "OPTION_SELLING" ||
-                    signal.institutionalQuantAnalysis?.optionExecutionSide === "MULTI_LEG_STRANGLE"));
+                botConfig.optionStrategyMode === "OPTION_SELLING";
               const execTransactionType = isOptionSellingEntry ? "SELL" : "BUY";
               const execOrderType = botConfig.limitOrderSlippageGuard ? "LIMIT" : "MARKET";
               const limitPriceWithSlippageGuard = isOptionSellingEntry
@@ -4458,21 +4514,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
     const userId = parsedLoc.searchParams.get("user_id") || "";
     const internalClientId = parsedLoc.searchParams.get("client_id") || "";
 
-    // Follow redirect once to collect any login.upstox.com cookies (non-fatal if login.upstox.com drops connection)
-    try {
-      const loginPageRes = await fetchUpstoxWithRetry(
-        loc,
-        {
-          method: "GET",
-          redirect: "manual",
-          headers: buildUpstoxBrowserHeaders(requestId, cookieJar),
-        },
-        2,
-      );
-      mergeSetCookies(cookieJar, loginPageRes);
-    } catch {}
-
-    // 2. Automatically request SMS OTP from Upstox (/login/open/v6/auth/1fa/otp/generate)
+    // 2. Immediately request SMS OTP from Upstox (/login/open/v6/auth/1fa/otp/generate) with zero intermediate redirect delay
     const otpGenRes = await fetchUpstoxWithRetry(
       "https://service.upstox.com/login/open/v6/auth/1fa/otp/generate",
       {

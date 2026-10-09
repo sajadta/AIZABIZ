@@ -1395,11 +1395,11 @@ export function analyzeTradingSignals(
       indiaVix: indiaVixVal,
       marketRegimeMode,
       optionExecutionSide:
-        marketRegimeMode === "LOW_VIX_RANGE_GUARD"
-          ? "MULTI_LEG_STRANGLE"
-          : signalType === "HOLD"
-            ? "OPTION_SELLING"
-            : "OPTION_BUYING",
+        signalType === "BUY" || signalType === "SELL"
+          ? "OPTION_BUYING"
+          : marketRegimeMode === "LOW_VIX_RANGE_GUARD"
+            ? "MULTI_LEG_STRANGLE"
+            : "OPTION_SELLING",
       multiLegDetails: {
         strategyType: adxValue < 16 ? "SHORT_STRANGLE" : "SHORT_STRADDLE",
         callStrike: chosenStrike + (adxValue < 16 ? strikeStep * 2 : 0),
