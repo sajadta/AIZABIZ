@@ -1,5 +1,14 @@
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
+import dns from "dns";
+import net from "net";
+import https from "https";
+try {
+  dns.setDefaultResultOrder("ipv4first");
+  if (typeof (net as any).setDefaultAutoSelectFamily === "function") {
+    (net as any).setDefaultAutoSelectFamily(false);
+  }
+} catch {}
 import { appState, tradeHistory } from "./src/db/schema";
 import { db, isPostgresConfigured } from "./src/db/index";
 import { desc, eq } from "drizzle-orm";
@@ -24,6 +33,15 @@ dotenv.config();
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
+});
 
 let postgresAvailable = isPostgresConfigured;
 
@@ -202,33 +220,33 @@ function runAutonomousSelfHealingEngine() {
     });
   }
 
-  // 3. Autonomous Minimum Confidence Threshold Healing (82% for high-conviction breakout priority)
-  const currentConf = Number(botConfig.minConfidence || 82);
-  if (currentConf < 80) {
-    botConfig.minConfidence = 82;
+  // 3. Autonomous Minimum Confidence Threshold Healing (80% for high-conviction breakout priority)
+  const currentConf = Number(botConfig.minConfidence || 80);
+  if (currentConf < 75 || currentConf > 88) {
+    botConfig.minConfidence = 80;
     healedAny = true;
     autoHealHistory.unshift({
       id: "HEAL_CONF_" + Date.now(),
       time: nowStr,
-      problemMl: `Min Confidence ${currentConf}% ആയിരുന്നത് ശരാശരി സിഗ്നലുകളിൽ എൻട്രി എടുക്കാൻ ഇടയാക്കും.`,
-      autoActionMl: "വലിയ ലാഭം നൽകുന്ന ഉയർന്ന കൃത്യതയുള്ള ട്രേഡുകൾ മാത്രം എടുക്കാൻ AI എഞ്ചിൻ തനിയെ Min Confidence 82% ആക്കി.",
+      problemMl: `Min Confidence ${currentConf}% ആയിരുന്നത് ട്രേഡ് എൻട്രികളെ ബാധിക്കാം.`,
+      autoActionMl: "വലിയ ലാഭം നൽകുന്ന ഉയർന്ന കൃത്യതയുള്ള ട്രേഡുകൾ കൃത്യസമയത്ത് എടുക്കാൻ AI എഞ്ചിൻ തനിയെ Min Confidence 80% ആക്കി.",
       beforeValue: `${currentConf}%`,
-      afterValue: "82% (Auto-Fixed)",
+      afterValue: "80% (Auto-Fixed)",
     });
   }
 
-  // 4. Autonomous Minimum Net Option Profit Guard Healing (₹650+ minimum net profit priority after brokerage)
-  const currentMinProfit = Number(botConfig.minOptionProfitAmount || 650);
-  if (currentMinProfit < 500) {
-    botConfig.minOptionProfitAmount = 650;
+  // 4. Autonomous Minimum Net Option Profit Guard Healing (₹450+ minimum net profit priority after brokerage)
+  const currentMinProfit = Number(botConfig.minOptionProfitAmount || 450);
+  if (currentMinProfit < 300 || currentMinProfit > 600) {
+    botConfig.minOptionProfitAmount = 450;
     healedAny = true;
     autoHealHistory.unshift({
       id: "HEAL_MINP_" + Date.now(),
       time: nowStr,
-      problemMl: `Min Option Profit ₹${currentMinProfit} ആയിരുന്നത് ചെറിയ ലാഭങ്ങളിൽ ട്രേഡ് ക്ലോസ് ചെയ്ത് ബ്രോക്കറേജ് കൂടാൻ ഇടയാക്കും.`,
-      autoActionMl: "ചെറിയ ലാഭങ്ങൾക്ക് പകരം വലിയ ലാഭങ്ങൾക്ക് (₹650–₹1,200+ Net Profit after Brokerage) മുൻഗണന നൽകാൻ AI തനിയെ ₹650 ആയി സെറ്റ് ചെയ്തു.",
+      problemMl: `Min Option Profit ₹${currentMinProfit} ആയിരുന്നത് ക്രമീകരിച്ചു.`,
+      autoActionMl: "ബ്രോക്കറേജും നികുതിയും കഴിഞ്ഞ് മികച്ച അറ്റ ലാഭം (₹450–₹1,500+ Net Profit) ഉറപ്പാക്കാൻ AI തനിയെ ₹450 ആയി സെറ്റ് ചെയ്തു.",
       beforeValue: `₹${currentMinProfit}`,
-      afterValue: "₹650 (Auto-Fixed)",
+      afterValue: "₹450 (Auto-Fixed)",
     });
   }
 
@@ -2505,12 +2523,18 @@ setInterval(async () => {
                         .slice(0, 12);
 
                       // Also find any liquid strikes across the chain that strictly fit effectiveCapital INCLUDING Brokerage & Taxes
-                      // Supports both Small-Capital Accounts (₹2,000 – ₹5,000 real cash incl. brokerage) AND Compact-Capital Big-Profit Setups (₹2,000 – ₹8,500 per lot yielding ₹700–₹1,500+ profit)
-                      const isSmallCapitalAccount = effectiveCapital > 0 && effectiveCapital <= 6000;
-                      const minDeltaForCap = isSmallCapitalAccount ? 0.14 : 0.22;
+                      // Supports both Small-Capital Accounts (₹2,000 – ₹6,500 real cash incl. brokerage) AND Standard Capital Accounts
+                      const isSmallCapitalAccount = effectiveCapital > 0 && effectiveCapital <= 6500;
+                      const minDeltaForCap = isSmallCapitalAccount ? 0.15 : 0.28;
                       const compactCapCeiling = isSmallCapitalAccount
                         ? effectiveCapital
-                        : Math.min(effectiveCapital, 8500);
+                        : Math.min(Math.max(effectiveCapital, 15000), 25000);
+                      const isBseIndex =
+                        idxKey.includes("BSE_INDEX") ||
+                        idx.symbol.includes("SENSEX") ||
+                        idx.symbol.includes("BANKEX");
+                      const maxAllowedBidAskSpreadPct = isBseIndex ? 5.0 : 3.8;
+
                       const affordableRows =
                         effectiveCapital > 0
                           ? allValidRows
@@ -2533,28 +2557,25 @@ setInterval(async () => {
                                   ltp >= 12 &&
                                   charges.totalRequiredWithBrokerage <= compactCapCeiling &&
                                   absDelta >= minDeltaForCap &&
-                                  expNet >= (isSmallCapitalAccount ? 500 : 650)
+                                  expNet >= (isSmallCapitalAccount ? 320 : 450)
                                 );
                               })
                               .sort((a: any, b: any) => {
-                                const optA = isBullish ? a.call_options : a.put_options;
-                                const optB = isBullish ? b.call_options : b.put_options;
                                 return (
-                                  Number(optB?.market_data?.ltp || 0) -
-                                  Number(optA?.market_data?.ltp || 0)
+                                  Math.abs(Number(a.strike_price) - liveLtp) -
+                                  Math.abs(Number(b.strike_price) - liveLtp)
                                 );
                               })
                               .slice(0, 8)
                           : [];
 
-                      // If small-capital account (<= ₹6,000), strictly evaluate ONLY affordable rows; otherwise evaluate both compact high-ROI rows and near-ATM rows so the highest-scoring compact-capital big-profit strike wins!
+                      // If small-capital account (<= ₹6,500), strictly evaluate ONLY affordable rows; otherwise evaluate near-ATM rows + affordable rows so liquid near-ATM strikes win!
                       const candidateRows =
                         isSmallCapitalAccount && affordableRows.length > 0
                           ? affordableRows
-                          : Array.from(new Set([...affordableRows, ...nearAtmRows]));
+                          : Array.from(new Set([...nearAtmRows, ...affordableRows]));
 
-                      let bestCandidate: any = null;
-                      let bestScore = -9999;
+                      const scoredCandidates: any[] = [];
 
                       for (const row of candidateRows) {
                         const optObj = isBullish ? row.call_options : row.put_options;
@@ -2581,11 +2602,13 @@ setInterval(async () => {
                         const askQty = Number(optObj?.market_data?.ask_qty || 1);
                         const bidAskRatio = askQty > 0 ? Number((bidQty / askQty).toFixed(2)) : 1.0;
                         const bidAskSpreadPct =
-                          ltp > 0 ? ((askPrice - bidPrice) / ltp) * 100 : 0;
+                          ltp > 0 && askPrice >= bidPrice && bidPrice > 0
+                            ? ((askPrice - bidPrice) / ltp) * 100
+                            : 0;
 
-                        // Skip illiquid strikes or strikes with wide bid-ask spreads (> 1.5%) where entry immediately loses to spread!
-                        if (volume < 2000 && oi < 10000) continue;
-                        if (bidAskSpreadPct > 1.5) continue;
+                        // Skip illiquid strikes or strikes with excessively wide bid-ask spreads
+                        if (volume < (isBseIndex ? 500 : 1500) && oi < (isBseIndex ? 2500 : 8000)) continue;
+                        if (bidAskSpreadPct > maxAllowedBidAskSpreadPct) continue;
 
                         // Anti-Whipsaw Peak Breakout Guard: If this exact option strike was closed in the last 10 minutes,
                         // NEVER re-buy it unless its price has broken out strictly above the previous trade's peak (highestLTP * 1.008)!
@@ -2622,134 +2645,98 @@ setInterval(async () => {
                             : effectiveCapital <= 0 ||
                               totalRequiredWithBrokerage <= effectiveCapital;
 
-                        // Score strike on Capital Efficiency (Big Profit from Compact Investment!) + Net Profitability after Brokerage + Delta sweet spot
+                        // Score strike on Capital Fit + Near-ATM Delta Sweet Spot (0.42–0.68) + Net Profitability after Brokerage
                         let score = 0;
-                         if (fitsCapital) {
-                          score += 350; // Strictly prioritize strikes where (Premium + Brokerage) fits real account cash!
-                          // High-ROI Compact-Capital Sweet Spot: Prioritize strikes costing ₹1,800 – ₹6,500 per lot (e.g. ₹25–₹85 premium)
-                          // where 1 lot requires small capital but delivers ₹700–₹1,500+ net profit on a Gamma surge!
-                          if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 6500 && absDelta >= 0.25) {
-                            score += 95;
-                          } else if (totalRequiredWithBrokerage > 6500 && totalRequiredWithBrokerage <= 12000 && absDelta >= 0.35) {
-                            score += 55;
-                          } else if (totalRequiredWithBrokerage > 18000) {
-                            // Penalize heavy ₹20,000+ lots when a compact ₹3,000–₹6,000 lot can deliver higher % ROI with lower rupee risk
-                            score -= 45;
+                        if (fitsCapital) {
+                          score += 350;
+                          if (isSmallCapitalAccount) {
+                            if (totalRequiredWithBrokerage >= 1500 && totalRequiredWithBrokerage <= 6500 && absDelta >= 0.20) {
+                              score += 95;
+                            }
+                          } else {
+                            if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 14000 && absDelta >= 0.38) {
+                              score += 90;
+                            } else if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 6500 && absDelta >= 0.28) {
+                              score += 65;
+                            } else if (totalRequiredWithBrokerage > 20000) {
+                              score -= 40;
+                            }
                           }
                         } else if (botConfig.mode === "UPSTOX_LIVE" && effectiveCapital <= 0) {
-                          // When Upstox Available Cash is ₹0 in UPSTOX_LIVE mode, still evaluate the best compact-capital strike (₹1,800–₹6,500)
-                          // so the signal passes Layer-2 and logs a clear [LIVE CAPITAL & BROKERAGE GUARD] message telling the user how much cash is needed!
-                          if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 6500 && absDelta >= 0.25) {
+                          if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 12000 && absDelta >= 0.30) {
                             score += 85;
-                          } else if (totalRequiredWithBrokerage > 6500 && totalRequiredWithBrokerage <= 12000) {
-                            score += 40;
                           }
                         } else {
                           score -= 500;
                         }
 
-                        if (expectedNetProfit >= 1000) {
-                          score += 85; // Priority #1: Big ₹1,000+ net profit runway after brokerage!
-                        } else if (expectedNetProfit >= 650) {
-                          score += 55; // Strong ₹650–₹1,000 net profit after brokerage
-                        } else if (expectedNetProfit < 450) {
-                          score -= 120; // Strictly reject small-profit setups where brokerage eats the gain!
+                        if (expectedNetProfit >= 900) {
+                          score += 85;
+                        } else if (expectedNetProfit >= 500) {
+                          score += 55;
+                        } else if (expectedNetProfit < 320) {
+                          score -= 120;
                         }
 
                         // 0DTE Expiry Day Theta Crush Shield: On Expiry Day (expiryDate === toDate), NEVER buy deep OTM options that decay to ₹0!
                         const isExpiryDay0DTE = String(expiryDate || "") === toDate;
-                        if (isExpiryDay0DTE && absDelta < (isSmallCapitalAccount ? 0.25 : 0.45)) {
+                        if (isExpiryDay0DTE && absDelta < (isSmallCapitalAccount ? 0.25 : 0.42)) {
                           continue;
                         }
-                        if (absDelta >= 0.45 && absDelta <= 0.72) score += 55;
-                        else if (absDelta >= 0.30 && absDelta < 0.45) score += 45; // High-momentum affordable slightly OTM
-                        else if (absDelta >= 0.16 && absDelta < 0.30) score += 30; // High-Gamma affordable momentum strike for ₹3,000 small accounts
-                        else if (absDelta < 0.14) score -= 60; // Avoid deep OTM Theta traps
+                        if (absDelta >= 0.44 && absDelta <= 0.68) score += 75; // Best ATM/Near-ATM institutional delta sweet spot!
+                        else if (absDelta >= 0.32 && absDelta < 0.44) score += 45;
+                        else if (absDelta >= 0.18 && absDelta < 0.32) score += 25;
+                        else if (absDelta < 0.15) score -= 80;
 
+                        if (bidAskSpreadPct <= 1.2) score += 20;
                         if (iv > 8 && iv <= 35) score += 15;
                         else if (iv > 45) score -= 20;
 
                         if (volume > 10000 || oi > 50000) score += 15;
-                        // Bonus for option contract whose premium is actively rising above its previous close / intraday momentum
                         if (closePrice > 0 && ltp > closePrice) score += 25;
 
                         const distRatio =
                           Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1);
-                        score -= distRatio * 600; // Prefer closer to ATM among affordable strikes
+                        score -= distRatio * 1200; // Strongly prefer ATM / closest strikes to spot
 
-                        if (score > bestScore) {
-                          bestScore = score;
-                          bestCandidate = {
-                            strikePrice: Number(row.strike_price),
-                            ltp,
-                            delta,
-                            gamma,
-                            theta,
-                            iv,
-                            oi,
-                            oiChange,
-                            bidAskRatio,
-                            volume,
-                            instrumentKey: optObj?.instrument_key,
-                            oneLotCost,
-                            estimatedBrokerage,
-                            totalRequiredWithBrokerage,
-                            expectedNetProfit,
-                            fitsCapital,
-                          };
-                        }
+                        scoredCandidates.push({
+                          score,
+                          strikePrice: Number(row.strike_price),
+                          ltp,
+                          delta,
+                          gamma,
+                          theta,
+                          iv,
+                          oi,
+                          oiChange,
+                          bidAskRatio,
+                          volume,
+                          instrumentKey: optObj?.instrument_key,
+                          oneLotCost,
+                          estimatedBrokerage,
+                          totalRequiredWithBrokerage,
+                          expectedNetProfit,
+                          fitsCapital,
+                        });
                       }
 
-                      if (bestCandidate && bestCandidate.instrumentKey) {
+                      scoredCandidates.sort((a, b) => b.score - a.score);
+                      const topCandidates = scoredCandidates.slice(0, 4);
+                      let bestCandidate: any = topCandidates[0] || null;
+
+                      if (topCandidates.length > 0) {
                         // CRITICAL LAYER-2 LIVE OPTION CANDLE & REAL-TIME QUOTE VERIFICATION:
-                        // Never trust a cached optionChain LTP! Fetch the option strike's real-time quote AND its own 1-minute candles
-                        // to prove that the Option Premium itself is actively rising and breaking out right now!
-                        let liveOptLtp = Number(
-                          globalLiveQuotes[bestCandidate.instrumentKey]?.last_price ||
-                            bestCandidate.ltp,
-                        );
-                        try {
-                          const optQRes = await fetch(
-                            `https://api.upstox.com/v2/market-quote/ltp?instrument_key=${encodeURIComponent(bestCandidate.instrumentKey)}`,
-                            {
-                              headers: {
-                                Authorization: `Bearer ${token}`,
-                                Accept: "application/json",
-                                "Api-Version": "2.0",
-                              },
-                            },
-                          );
-                          const optQJson = await optQRes.json();
-                          const qItem =
-                            optQJson?.data?.[bestCandidate.instrumentKey] ||
-                            Object.values(optQJson?.data || {})[0];
-                          if ((qItem as any)?.last_price > 0) {
-                            liveOptLtp = Number((qItem as any).last_price);
-                            globalLiveQuotes[bestCandidate.instrumentKey] = {
-                              ...(globalLiveQuotes[bestCandidate.instrumentKey] || {}),
-                              ...(qItem as any),
-                            };
-                          }
-                        } catch {}
-
-                        const chainSnapshotLtp = Number(bestCandidate.ltp || liveOptLtp);
-                        bestCandidate.ltp = liveOptLtp;
-
-                        // Check the Option Contract's own 1-minute intraday candles to verify option premium momentum
-                        // optionMomentumConfirmed starts FALSE and only turns TRUE when verified by 3+ real 1-minute option candles during live trading hours!
+                        // Check the top near-ATM candidate strikes so if #1 has a momentary 1-tick pause, #2 (e.g. ATM vs 1-step ITM) can confirm!
                         let optionMomentumConfirmed = false;
-                        try {
-                          let optRawCandles: any[] = [];
-                          const cachedOptC =
-                            optionIntradayCandleCache[bestCandidate.instrumentKey];
-                          if (
-                            cachedOptC &&
-                            Date.now() - cachedOptC.timestamp < 5000
-                          ) {
-                            optRawCandles = cachedOptC.raw;
-                          } else {
-                            const optCRes = await fetch(
-                              `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(bestCandidate.instrumentKey)}/1minute`,
+
+                        for (const cand of topCandidates) {
+                          if (!cand?.instrumentKey) continue;
+                          let liveOptLtp = Number(
+                            globalLiveQuotes[cand.instrumentKey]?.last_price || cand.ltp,
+                          );
+                          try {
+                            const optQRes = await fetch(
+                              `https://api.upstox.com/v2/market-quote/ltp?instrument_key=${encodeURIComponent(cand.instrumentKey)}`,
                               {
                                 headers: {
                                   Authorization: `Bearer ${token}`,
@@ -2758,114 +2745,183 @@ setInterval(async () => {
                                 },
                               },
                             );
-                            const optCJson = await optCRes.json();
-                            if (
-                              optCJson?.status === "success" &&
-                              Array.isArray(optCJson?.data?.candles) &&
-                              optCJson.data.candles.length > 0
-                            ) {
-                              optRawCandles = optCJson.data.candles;
-                              optionIntradayCandleCache[bestCandidate.instrumentKey] = {
-                                timestamp: Date.now(),
-                                raw: optRawCandles,
+                            const optQJson = await optQRes.json();
+                            const qItem =
+                              optQJson?.data?.[cand.instrumentKey] ||
+                              Object.values(optQJson?.data || {})[0];
+                            if ((qItem as any)?.last_price > 0) {
+                              liveOptLtp = Number((qItem as any).last_price);
+                              globalLiveQuotes[cand.instrumentKey] = {
+                                ...(globalLiveQuotes[cand.instrumentKey] || {}),
+                                ...(qItem as any),
                               };
                             }
-                          }
+                          } catch {}
 
-                          if (optRawCandles.length >= 3) {
-                            // Upstox returns newest candle first at index 0
-                            const c0 = optRawCandles[0]; // current 1m candle: [time, open, high, low, close, vol]
-                            const c1 = optRawCandles[1]; // 1m ago
-                            const c2 = optRawCandles[2]; // 2m ago
-                            const optOpen0 = Number(c0[1] || liveOptLtp);
-                            const optHigh0 = Math.max(Number(c0[2] || liveOptLtp), liveOptLtp);
-                            const optLow0 = Math.min(Number(c0[3] || liveOptLtp), liveOptLtp);
-                            const optOpen1 = Number(c1[1] || liveOptLtp);
-                            const optClose1 = Number(c1[4] || liveOptLtp);
-                            const optLow1 = Number(c1[3] || liveOptLtp);
-                            const optClose2 = Number(c2[4] || liveOptLtp);
-                            const optLow2 = Number(c2[3] || liveOptLtp);
-                            const recentOpt3mHigh = Math.max(
-                              optHigh0,
-                              Number(c1[2] || 0),
-                              Number(c2[2] || 0),
-                            );
-                            const optCandleRange = Math.max(0.05, optHigh0 - optLow0);
-                            const optClosePos = (liveOptLtp - optLow0) / optCandleRange;
-                            const optUpperWickRatio = (optHigh0 - liveOptLtp) / optCandleRange;
+                          const chainSnapshotLtp = Number(cand.ltp || liveOptLtp);
+                          cand.ltp = liveOptLtp;
 
-                            // Compute Option 3-minute VWAP / Typical Price Floor so we never buy below Option VWAP
-                            const tp0 = (optHigh0 + optLow0 + liveOptLtp) / 3;
-                            const tp1 = (Number(c1[2] || liveOptLtp) + optLow1 + optClose1) / 3;
-                            const tp2 = (Number(c2[2] || liveOptLtp) + optLow2 + optClose2) / 3;
-                            const v0 = Math.max(1, Number(c0[5] || 1));
-                            const v1 = Math.max(1, Number(c1[5] || 1));
-                            const v2 = Math.max(1, Number(c2[5] || 1));
-                            const optShortVwap = (tp0 * v0 + tp1 * v1 + tp2 * v2) / (v0 + v1 + v2);
-
-                            // Also verify Underlying Index's current 1m candle is simultaneously moving in the trade direction right now!
-                            const idxLastCandle = enriched[enriched.length - 1];
-                            const idxPrevCandle = enriched[enriched.length - 2] || idxLastCandle;
-                            const isUnderlying1mConfirmingNow = isBullish
-                              ? liveLtp > idxLastCandle.open && liveLtp >= idxPrevCandle.close
-                              : liveLtp < idxLastCandle.open && liveLtp <= idxPrevCandle.close;
-
-                            // Strict Anti-Immediate-Drop Option Premium Breakout / Decay Requirements:
-                            // - For OPTION_BUYING: Option must show rising momentum above 3m VWAP, strong close position (>= 0.58), controlled upper wick (<= 0.38), and either a fresh 3m high breakout or strong 2-bar continuation without climax exhaustion (> 14% 1m spike).
-                            // - For OPTION_SELLING: Option must be decaying below its open and 3m VWAP so shorting the option captures Theta decay safely.
-                            const singleMinuteSpikePct = optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
-                            if (isOptionSellingMode) {
-                              if (
-                                isUnderlying1mConfirmingNow &&
-                                liveOptLtp <= optOpen0 &&
-                                liveOptLtp <= optClose1 &&
-                                liveOptLtp <= optShortVwap
-                              ) {
-                                optionMomentumConfirmed = true;
-                              } else {
-                                optionMomentumConfirmed = false;
-                              }
-                            } else if (
-                              isUnderlying1mConfirmingNow &&
-                              liveOptLtp > optOpen0 &&
-                              optClose1 >= optOpen1 * 0.985 &&
-                              optLow0 >= optLow1 * 0.988 &&
-                              liveOptLtp > optClose1 &&
-                              liveOptLtp >= optClose2 * 0.995 &&
-                              liveOptLtp > optShortVwap &&
-                              liveOptLtp >= recentOpt3mHigh * 0.982 &&
-                              optClosePos >= 0.58 &&
-                              optUpperWickRatio <= 0.38 &&
-                              singleMinuteSpikePct <= 14.0
+                          let candMomentumOk = false;
+                          try {
+                            let optRawCandles: any[] = [];
+                            const cachedOptC =
+                              optionIntradayCandleCache[cand.instrumentKey];
+                            if (
+                              cachedOptC &&
+                              Date.now() - cachedOptC.timestamp < 5000
                             ) {
-                              optionMomentumConfirmed = true;
+                              optRawCandles = cachedOptC.raw;
                             } else {
-                              optionMomentumConfirmed = false;
+                              const optCRes = await fetch(
+                                `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(cand.instrumentKey)}/1minute`,
+                                {
+                                  headers: {
+                                    Authorization: `Bearer ${token}`,
+                                    Accept: "application/json",
+                                    "Api-Version": "2.0",
+                                  },
+                                },
+                              );
+                              const optCJson = await optCRes.json();
+                              if (
+                                optCJson?.status === "success" &&
+                                Array.isArray(optCJson?.data?.candles) &&
+                                optCJson.data.candles.length > 0
+                              ) {
+                                optRawCandles = optCJson.data.candles;
+                                optionIntradayCandleCache[cand.instrumentKey] = {
+                                  timestamp: Date.now(),
+                                  raw: optRawCandles,
+                                };
+                              }
+                            }
+
+                            if (optRawCandles.length >= 2) {
+                              // Upstox returns newest candle first at index 0
+                              const c0 = optRawCandles[0]; // current 1m candle: [time, open, high, low, close, vol]
+                              const c1 = optRawCandles[1]; // 1m ago
+                              const c2 = optRawCandles[2] || c1; // 2m ago
+                              const optOpen0 = Number(c0[1] || liveOptLtp);
+                              const optHigh0 = Math.max(Number(c0[2] || liveOptLtp), liveOptLtp);
+                              const optLow0 = Math.min(Number(c0[3] || liveOptLtp), liveOptLtp);
+                              const optOpen1 = Number(c1[1] || liveOptLtp);
+                              const optClose1 = Number(c1[4] || liveOptLtp);
+                              const optLow1 = Number(c1[3] || liveOptLtp);
+                              const optClose2 = Number(c2[4] || liveOptLtp);
+                              const optLow2 = Number(c2[3] || liveOptLtp);
+                              const recentOpt3mHigh = Math.max(
+                                optHigh0,
+                                Number(c1[2] || 0),
+                                Number(c2[2] || 0),
+                              );
+                              const optCandleRange = Math.max(0.05, optHigh0 - optLow0);
+                              const optClosePos = (liveOptLtp - optLow0) / optCandleRange;
+                              const optUpperWickRatio = (optHigh0 - liveOptLtp) / optCandleRange;
+
+                              // Compute Option 3-minute VWAP / Typical Price Floor
+                              const tp0 = (optHigh0 + optLow0 + liveOptLtp) / 3;
+                              const tp1 = (Number(c1[2] || liveOptLtp) + optLow1 + optClose1) / 3;
+                              const tp2 = (Number(c2[2] || liveOptLtp) + optLow2 + optClose2) / 3;
+                              const v0 = Math.max(1, Number(c0[5] || 1));
+                              const v1 = Math.max(1, Number(c1[5] || 1));
+                              const v2 = Math.max(1, Number(c2[5] || 1));
+                              const optShortVwap = (tp0 * v0 + tp1 * v1 + tp2 * v2) / (v0 + v1 + v2);
+
+                              // Verify Underlying Index's current 1m/2m trend is moving in the trade direction
+                              const idxLastCandle = enriched[enriched.length - 1];
+                              const idxPrevCandle = enriched[enriched.length - 2] || idxLastCandle;
+                              const isUnderlying1mConfirmingNow = isBullish
+                                ? liveLtp >= idxLastCandle.open || liveLtp >= idxPrevCandle.close
+                                : liveLtp <= idxLastCandle.open || liveLtp <= idxPrevCandle.close;
+
+                              const singleMinuteSpikePct =
+                                optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
+                              // Allow either current 1m candle rising OR brand-new 1m candle holding right at a strong green c1 close
+                              const isOptionRisingNow =
+                                (liveOptLtp > optOpen0 && liveOptLtp >= optClose1 * 0.994) ||
+                                (liveOptLtp >= optOpen0 * 0.996 &&
+                                  optClose1 > optOpen1 &&
+                                  liveOptLtp >= optClose1 * 0.996);
+
+                              if (isOptionSellingMode) {
+                                if (
+                                  isUnderlying1mConfirmingNow &&
+                                  liveOptLtp <= optOpen0 * 1.003 &&
+                                  liveOptLtp <= optClose1 * 1.003 &&
+                                  liveOptLtp <= optShortVwap * 1.005
+                                ) {
+                                  candMomentumOk = true;
+                                }
+                              } else if (
+                                isUnderlying1mConfirmingNow &&
+                                isOptionRisingNow &&
+                                (liveOptLtp >= optClose2 * 0.99 || liveOptLtp > optClose1) &&
+                                liveOptLtp >= optShortVwap * 0.992 &&
+                                liveOptLtp >= recentOpt3mHigh * 0.965 &&
+                                optClosePos >= 0.42 &&
+                                optUpperWickRatio <= 0.55 &&
+                                singleMinuteSpikePct <= 18.0
+                              ) {
+                                candMomentumOk = true;
+                              }
+                            }
+                          } catch {}
+
+                          // Check recentClosedStrikes cooldown/breakout guard
+                          const recentClosed = recentClosedStrikes[cand.instrumentKey];
+                          if (recentClosed) {
+                            const wasLossExit =
+                              recentClosed.sellPrice < recentClosed.highestLTP * 0.995;
+                            const banWindowMs = wasLossExit ? 30 * 60 * 1000 : 10 * 60 * 1000;
+                            const reqBreakoutMult = wasLossExit ? 1.02 : 1.008;
+                            if (
+                              Date.now() - recentClosed.exitTime < banWindowMs &&
+                              liveOptLtp < recentClosed.highestLTP * reqBreakoutMult
+                            ) {
+                              candMomentumOk = false;
                             }
                           }
-                        } catch {}
+                          if (liveOptLtp < chainSnapshotLtp * 0.988) {
+                            candMomentumOk = false;
+                          }
 
-                        // Also re-check recentClosedStrikes with the fresh liveOptLtp:
-                        // - If the previous trade on this strike ended in a LOSS (sellPrice < highestLTP or sellPrice <= buyPrice), ban re-entry for 30 minutes unless it breaks +2% above highestLTP!
-                        // - Otherwise require 10-minute cooldown or breakout above highestLTP * 1.008
-                        const recentClosed =
-                          recentClosedStrikes[bestCandidate.instrumentKey];
-                        if (recentClosed) {
-                          const wasLossExit = recentClosed.sellPrice < recentClosed.highestLTP * 0.995;
-                          const banWindowMs = wasLossExit ? 30 * 60 * 1000 : 10 * 60 * 1000;
-                          const reqBreakoutMult = wasLossExit ? 1.02 : 1.008;
-                          if (
-                            Date.now() - recentClosed.exitTime < banWindowMs &&
-                            liveOptLtp < recentClosed.highestLTP * reqBreakoutMult
-                          ) {
-                            optionMomentumConfirmed = false;
+                          const freshTargetMult =
+                            liveOptLtp <= 65 ? 1.45 : liveOptLtp <= 120 ? 1.35 : 1.28;
+                          const freshCharges = calculateTradeCharges(
+                            liveOptLtp,
+                            lotSz,
+                            true,
+                            liveOptLtp * freshTargetMult,
+                          );
+                          cand.oneLotCost = freshCharges.tradeValue;
+                          cand.estimatedBrokerage = freshCharges.roundTripCharges;
+                          cand.totalRequiredWithBrokerage =
+                            freshCharges.totalRequiredWithBrokerage;
+                          cand.expectedNetProfit = Number(
+                            (
+                              liveOptLtp * (freshTargetMult - 1) * lotSz -
+                              freshCharges.roundTripCharges
+                            ).toFixed(2),
+                          );
+
+                          const minReqNetProfit = isSmallCapitalAccount
+                            ? Math.max(300, cand.estimatedBrokerage * 3.5)
+                            : Math.max(
+                                Math.min(450, Number(botConfig.minOptionProfitAmount || 450)),
+                                cand.estimatedBrokerage * 4.5,
+                              );
+                          if (cand.expectedNetProfit < minReqNetProfit) {
+                            candMomentumOk = false;
+                          }
+
+                          if (candMomentumOk) {
+                            bestCandidate = cand;
+                            optionMomentumConfirmed = true;
+                            break;
                           }
                         }
-                        // Never enter if live quote is already dropping below the option chain snapshot price!
-                        if (liveOptLtp < chainSnapshotLtp * 0.995) {
-                          optionMomentumConfirmed = false;
-                        }
 
+                        const liveOptLtp = Number(bestCandidate.ltp || 0);
                         const symUpper = idx.symbol.toUpperCase();
                         let indexPrefix = symUpper;
                         if (symUpper.includes("BANKEX")) indexPrefix = "BANKEX";
@@ -2877,32 +2933,6 @@ setInterval(async () => {
                         else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
 
                         const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
-                        const freshTargetMult = liveOptLtp <= 65 ? 1.45 : liveOptLtp <= 120 ? 1.35 : 1.28;
-                        const freshCharges = calculateTradeCharges(
-                          liveOptLtp,
-                          lotSz,
-                          true,
-                          liveOptLtp * freshTargetMult,
-                        );
-                        bestCandidate.oneLotCost = freshCharges.tradeValue;
-                        bestCandidate.estimatedBrokerage = freshCharges.roundTripCharges;
-                        bestCandidate.totalRequiredWithBrokerage =
-                          freshCharges.totalRequiredWithBrokerage;
-                        bestCandidate.expectedNetProfit = Number(
-                          (liveOptLtp * (freshTargetMult - 1) * lotSz - freshCharges.roundTripCharges).toFixed(2),
-                        );
-
-                        // Big-Profit Priority & Anti-Brokerage-Loss Guard:
-                        // Expected Net Profit (after deducting full round-trip brokerage & taxes) must be at least ₹650 (₹500 for small ₹3,000 accounts) AND at least 6x the round-trip brokerage!
-                        const minReqNetProfit = isSmallCapitalAccount
-                          ? Math.max(500, bestCandidate.estimatedBrokerage * 6)
-                          : Math.max(
-                              botConfig.minOptionProfitAmount || 650,
-                              bestCandidate.estimatedBrokerage * 6,
-                            );
-                        if (bestCandidate.expectedNetProfit < minReqNetProfit) {
-                          optionMomentumConfirmed = false;
-                        }
 
                         const lotAffordability = calculateAffordableLotsWithBrokerage(
                           liveOptLtp,
@@ -4265,9 +4295,7 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
         upstoxConfig.userClientCode = data.user_id || "5VCABX";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        if (!botConfig.userExplicitlySelectedMode) {
-          botConfig.mode = "UPSTOX_LIVE";
-        }
+        // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
         invalidTokens.delete(data.access_token);
         await savePostgresDb().catch(() => {});
         publishTokenToCloudRelay(data.access_token).catch(() => {});
@@ -4334,9 +4362,7 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
       }
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-      if (!botConfig.userExplicitlySelectedMode) {
-        botConfig.mode = "UPSTOX_LIVE";
-      }
+      // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
       invalidTokens.delete(cleanToken);
       await savePostgresDb().catch(() => {});
       botLogs.unshift({
@@ -4418,16 +4444,63 @@ interface UpstoxAutoOtpSession {
 }
 
 let activeAutoOtpSession: UpstoxAutoOtpSession | null = null;
+let recentAutoOtpSessions: UpstoxAutoOtpSession[] = [
+  {
+    requestId: "WPRO-3egkrksx7b",
+    userId: "6SZtij90Hccr5G8TIq2krA",
+    internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
+    validateOtpToken: "ll1FA-e042cf74c757dee57f73f245b4e515124ad09b8f3a6f373cebfc7eea7fb6fe8c",
+    cookies: {
+      udapi_api_key: "3ab5711d-8891-480b-b0c1-29662852de49",
+      __cf_bm: "APVkIakoA8oIMlCKmWEcXAZn5HmSbtmwhB1n97fxVyw-1791776470.3146067-1.0.1.1-r36ZZnzG5Mh_XG24aA2ZQuD_neKhSGk12jPVmtN.G9UJBvh92k.SxQv8OGjAYlTVg.ptYo_t16tVoFU_RQqTqebtNli3c2.tHsUmagrEPaRjaSj73w9nAWyoEk8QHCwX",
+      _cfuvid: "rTkD8jVRZSZqyebeUSkiZbwedOz4rQh4Quu3MOjY.Nw-1791776470.3146067-1.0.1.1-vVKj9E88ywztg1mGTEvFeWcUG_mowUXfkFdJ6oEZ0CY",
+    },
+    apiKey: "3ab5711d-8891-480b-b0c1-29662852de49",
+    apiSecret: "jl5s7qy9r0",
+    redirectUri: "https://sajad-trading-view.onrender.com",
+    mobile: "9847989434",
+    pin: "984798",
+    createdAt: Date.now(),
+  },
+  {
+    requestId: "WPRO-frrwujndfv",
+    userId: "6SZtij90Hccr5G8TIq2krA",
+    internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
+    validateOtpToken: "ll1FA-612b975394378b452a29c9862f5f48390ca8e08c68410c6e889624109a3960cf",
+    cookies: {
+      udapi_api_key: "3ab5711d-8891-480b-b0c1-29662852de49",
+      __cf_bm: "bXngocYZYkTkF3di1lN4AHP2XuwpwLQOZPoFEYHhxvA-1791776468.5745695-1.0.1.1-AIdlHk1ILWcRSOkKhQr07EAzIKKtzzchmg.DvO.Cf0E6p.GUHVa3hVLrlyLkg8Mhos7DPDARNOkg0FDNzZBr.n3sXzw3CPgYZ_6vSJuljyijkioGs8vF6q7FHPT28BIP",
+      _cfuvid: "MWR3OKJABaFLrUmS4l1aaTtT2ULpIKz.k_UQh9FKwm0-1791776468.5745695-1.0.1.1-eM9hdukfcQCeHmZOLwzUrFfGTCXxF4ey7OoHOil82A0",
+    },
+    apiKey: "3ab5711d-8891-480b-b0c1-29662852de49",
+    apiSecret: "jl5s7qy9r0",
+    redirectUri: "https://sajad-trading-view.onrender.com",
+    mobile: "9847989434",
+    pin: "984798",
+    createdAt: Date.now() - 1000,
+  },
+];
+activeAutoOtpSession = recentAutoOtpSessions[0];
 
-function mergeSetCookies(cookieJar: Record<string, string>, res: globalThis.Response) {
+const ipv4HttpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 32,
+  timeout: 12000,
+  family: 4,
+});
+
+function mergeSetCookies(cookieJar: Record<string, string>, res: any) {
   const rawList: string[] =
-    typeof (res.headers as any).getSetCookie === "function"
-      ? (res.headers as any).getSetCookie()
-      : res.headers.get("set-cookie")
-        ? [res.headers.get("set-cookie") as string]
-        : [];
+    typeof res?.headers?.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : Array.isArray(res?.rawSetCookies)
+        ? res.rawSetCookies
+        : res?.headers?.get?.("set-cookie")
+          ? [res.headers.get("set-cookie") as string]
+          : [];
   for (const raw of rawList) {
-    const firstPart = raw.split(";")[0];
+    if (!raw) continue;
+    const firstPart = String(raw).split(";")[0];
     const eqIdx = firstPart.indexOf("=");
     if (eqIdx > 0) {
       const k = firstPart.slice(0, eqIdx).trim();
@@ -4468,23 +4541,112 @@ function buildUpstoxBrowserHeaders(requestId: string, cookieJar: Record<string, 
   };
 }
 
+function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, timeoutMs = 12000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(urlStr);
+    const method = (options.method || "GET").toUpperCase();
+    const rawHeaders: Record<string, string> = {};
+    if (options.headers) {
+      for (const [k, v] of Object.entries(options.headers as Record<string, string>)) {
+        if (v !== undefined && v !== null) rawHeaders[k] = String(v);
+      }
+    }
+    const bodyStr = typeof options.body === "string" ? options.body : "";
+    if (bodyStr && !rawHeaders["content-length"] && !rawHeaders["Content-Length"]) {
+      rawHeaders["content-length"] = String(Buffer.byteLength(bodyStr, "utf-8"));
+    }
+
+    const req = https.request(
+      {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        method,
+        headers: rawHeaders,
+        agent: ipv4HttpsAgent,
+        family: 4,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on("end", () => {
+          let buffer = Buffer.concat(chunks);
+          const enc = String(res.headers["content-encoding"] || "").toLowerCase();
+          try {
+            if (enc === "gzip") buffer = zlib.gunzipSync(buffer);
+            else if (enc === "deflate") buffer = zlib.inflateSync(buffer);
+            else if (enc === "br") buffer = zlib.brotliDecompressSync(buffer);
+          } catch {}
+          const textBody = buffer.toString("utf-8");
+          const status = res.statusCode || 200;
+          const setCookies: string[] = Array.isArray(res.headers["set-cookie"])
+            ? (res.headers["set-cookie"] as string[])
+            : res.headers["set-cookie"]
+              ? [String(res.headers["set-cookie"])]
+              : [];
+
+          resolve({
+            status,
+            ok: status >= 200 && status < 300,
+            rawSetCookies: setCookies,
+            headers: {
+              get: (name: string) => {
+                const val = res.headers[name.toLowerCase()];
+                return Array.isArray(val) ? val.join(", ") : val ? String(val) : null;
+              },
+              getSetCookie: () => setCookies,
+            },
+            text: async () => textBody,
+            json: async () => {
+              try {
+                return JSON.parse(textBody);
+              } catch {
+                return {};
+              }
+            },
+          });
+        });
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("IPv4 request timed out"));
+    });
+    req.on("error", (err) => {
+      reject(err);
+    });
+
+    if (bodyStr) {
+      req.write(bodyStr);
+    }
+    req.end();
+  });
+}
+
 async function fetchUpstoxWithRetry(
   url: string,
   options: RequestInit,
   retries = 3,
-): Promise<globalThis.Response> {
+): Promise<any> {
   let lastErr: any;
   for (let i = 0; i < retries; i++) {
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 10000);
-      const res = await fetch(url, { ...options, signal: ctrl.signal });
-      clearTimeout(timer);
-      return res;
+      return await httpsRequestIPv4(url, options, 10000);
     } catch (err: any) {
       lastErr = err;
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(url, { ...options, signal: ctrl.signal });
+        clearTimeout(timer);
+        return res;
+      } catch (fetchErr: any) {
+        lastErr = fetchErr;
+      }
       if (i < retries - 1) {
-        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+        await new Promise((r) => setTimeout(r, 350 * (i + 1)));
       }
     }
   }
@@ -4568,7 +4730,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
     const otpGenData = await otpGenRes.json();
 
     if (otpGenData.success && otpGenData.data?.validateOTPToken) {
-      activeAutoOtpSession = {
+      const newSess: UpstoxAutoOtpSession = {
         requestId,
         userId,
         internalClientId,
@@ -4581,6 +4743,11 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         pin: cleanPin,
         createdAt: Date.now(),
       };
+      activeAutoOtpSession = newSess;
+      recentAutoOtpSessions = [
+        newSess,
+        ...recentAutoOtpSessions.filter((s) => s.validateOtpToken !== newSess.validateOtpToken),
+      ].slice(0, 10);
       await savePostgresDb().catch(() => {});
 
       return res.json({
@@ -4638,37 +4805,36 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
   }
 
   // Restore session from client backup if Render restarted between sending OTP and entering OTP
-  if (!activeAutoOtpSession && sessionBackup && sessionBackup.validateOtpToken) {
+  if (sessionBackup && sessionBackup.validateOtpToken) {
     activeAutoOtpSession = sessionBackup;
+    recentAutoOtpSessions = [
+      sessionBackup,
+      ...recentAutoOtpSessions.filter((s) => s.validateOtpToken !== sessionBackup.validateOtpToken),
+    ].slice(0, 10);
+  } else if (!activeAutoOtpSession && recentAutoOtpSessions.length > 0) {
+    activeAutoOtpSession = recentAutoOtpSessions[0];
   }
 
   // PATH A: If we have an active Automated SMS OTP session, complete Steps 3, 4, 5 automatically!
-  if (activeAutoOtpSession && Date.now() - activeAutoOtpSession.createdAt < 15 * 60 * 1000) {
+  const candidateSessions = [
+    ...(activeAutoOtpSession ? [activeAutoOtpSession] : []),
+    ...recentAutoOtpSessions.filter(
+      (s) =>
+        s.validateOtpToken !== activeAutoOtpSession?.validateOtpToken &&
+        Date.now() - (s.createdAt || Date.now()) < 20 * 60 * 1000,
+    ),
+  ];
+
+  if (candidateSessions.length > 0) {
     try {
-      const sess = activeAutoOtpSession;
-      const pinToUse = cleanPin || sess.pin || "984798";
-      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret || "jl5s7qy9r0";
+      let sess = candidateSessions[0];
+      let verifyData: any = null;
 
-      // Step 3: Verify the 6-digit SMS OTP (/login/open/v5/auth/1fa/otp-totp/verify)
-      let verifyRes = await fetch(
-        "https://service.upstox.com/login/open/v5/auth/1fa/otp-totp/verify",
-        {
-          method: "POST",
-          headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies),
-          body: JSON.stringify({
-            data: {
-              otp: cleanTotp,
-              validateOtpToken: sess.validateOtpToken,
-            },
-          }),
-        },
-      );
-      mergeSetCookies(sess.cookies, verifyRes);
-      let verifyData = await verifyRes.json();
-
-      if (!verifyData.success && verifyRes.status === 404) {
-        verifyRes = await fetch(
-          "https://service.upstox.com/login/open/v4/auth/1fa/otp-totp/verify",
+      for (const candidate of candidateSessions) {
+        sess = candidate;
+        // Step 3: Verify the 6-digit SMS OTP (/login/open/v5/auth/1fa/otp-totp/verify)
+        let verifyRes = await fetchUpstoxWithRetry(
+          "https://service.upstox.com/login/open/v5/auth/1fa/otp-totp/verify",
           {
             method: "POST",
             headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies),
@@ -4679,16 +4845,43 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
               },
             }),
           },
+          2,
         );
         mergeSetCookies(sess.cookies, verifyRes);
         verifyData = await verifyRes.json();
+
+        if (!verifyData.success && verifyRes.status === 404) {
+          verifyRes = await fetchUpstoxWithRetry(
+            "https://service.upstox.com/login/open/v4/auth/1fa/otp-totp/verify",
+            {
+              method: "POST",
+              headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies),
+              body: JSON.stringify({
+                data: {
+                  otp: cleanTotp,
+                  validateOtpToken: sess.validateOtpToken,
+                },
+              }),
+            },
+            2,
+          );
+          mergeSetCookies(sess.cookies, verifyRes);
+          verifyData = await verifyRes.json();
+        }
+
+        if (verifyData?.success) {
+          break;
+        }
       }
 
-      if (!verifyData.success) {
+      const pinToUse = cleanPin || sess.pin || "984798";
+      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret || "jl5s7qy9r0";
+
+      if (!verifyData?.success) {
         return res.status(400).json({
           success: false,
           error:
-            verifyData.error?.message ||
+            verifyData?.error?.message ||
             "നൽകിയ OTP തെറ്റാണ് അല്ലെങ്കിൽ സമയം കഴിഞ്ഞു. വീണ്ടും ശ്രമിക്കുക.",
         });
       }
@@ -4714,7 +4907,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       const upstoxInternalRedirect = "https://api-v2.upstox.com/login/authorization/redirect";
       const twoFaUrl = `https://service.upstox.com/login/open/v3/auth/2fa?client_id=${encodeURIComponent(sess.internalClientId)}&redirect_uri=${encodeURIComponent(upstoxInternalRedirect)}`;
 
-      const twoFaRes = await fetch(twoFaUrl, {
+      const twoFaRes = await fetchUpstoxWithRetry(twoFaUrl, {
         method: "POST",
         headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies, pinHeaders),
         body: JSON.stringify({
@@ -4742,7 +4935,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       // Step 5: If redirectUri not yet returned, automatically call /login/v2/oauth/authorize
       if (!finalRedirectUri || !finalRedirectUri.includes("code=")) {
         const oauthUrl = `https://service.upstox.com/login/v2/oauth/authorize?client_id=${encodeURIComponent(sess.internalClientId)}&redirect_uri=${encodeURIComponent(upstoxInternalRedirect)}&requestId=${encodeURIComponent(sess.requestId)}&response_type=code`;
-        const oauthRes = await fetch(oauthUrl, {
+        const oauthRes = await fetchUpstoxWithRetry(oauthUrl, {
           method: "POST",
           headers: buildUpstoxBrowserHeaders(sess.requestId, sess.cookies, pinHeaders),
           body: JSON.stringify({
@@ -4785,7 +4978,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       tokenParams.append("redirect_uri", sess.redirectUri);
       tokenParams.append("grant_type", "authorization_code");
 
-      const tokenRes = await fetch("https://api.upstox.com/v2/login/authorization/token", {
+      const tokenRes = await fetchUpstoxWithRetry("https://api.upstox.com/v2/login/authorization/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -4805,9 +4998,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         upstoxConfig.userClientCode = tokenData.user_id || "5VCABX";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        if (!botConfig.userExplicitlySelectedMode) {
-          botConfig.mode = "UPSTOX_LIVE";
-        }
+        // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
         invalidTokens.delete(tokenData.access_token);
         await savePostgresDb().catch(() => {});
         publishTokenToCloudRelay(tokenData.access_token).catch(() => {});
@@ -6784,8 +6975,8 @@ async function loadPostgresDb() {
       2.8,
       Math.max(2.0, Number(botConfig.stopLossPercent || 2.5)),
     );
-    botConfig.minConfidence = Math.max(82, Number(botConfig.minConfidence || 82));
-    botConfig.minOptionProfitAmount = Math.max(650, Number(botConfig.minOptionProfitAmount || 650));
+    botConfig.minConfidence = Math.min(85, Math.max(75, Number(botConfig.minConfidence || 80)));
+    botConfig.minOptionProfitAmount = Math.min(600, Math.max(300, Number(botConfig.minOptionProfitAmount || 450)));
     if (botConfig.dailyLossLocked) {
       botConfig.dailyLossLocked = false;
       botConfig.enabled = true;

@@ -2055,14 +2055,6 @@ export const App: React.FC = () => {
         onSaveConfig={async (cfg) => {
           setApiConfig(prev => ({ ...prev, ...cfg }));
           if (cfg.isConnected) {
-            let savedPref: string | null = null;
-            try {
-              savedPref = localStorage.getItem('aizabiz_preferred_trading_mode');
-            } catch {}
-            // Only auto-switch to UPSTOX_LIVE if user hasn't explicitly chosen PAPER_TRADING
-            if (savedPref !== 'PAPER_TRADING') {
-              setMode('UPSTOX_LIVE');
-            }
             setTimeout(() => {
               fetchHoldings();
               fetchLivePositions();

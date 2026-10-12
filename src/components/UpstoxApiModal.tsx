@@ -361,6 +361,102 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     }
   };
 
+  // Resilient POST helper: retries local endpoint and automatically falls back to high-speed Cloud Relay if ETIMEDOUT occurs
+  const postWithAutoRetryAndRelay = async (endpoint: string, payload: any) => {
+    const origins = [
+      '',
+      '',
+      'https://ais-pre-2kuhbzz5qyj5zbysxk6da3-173711515136.asia-southeast1.run.app',
+      'https://aizabiz.onrender.com',
+    ];
+    let lastError = 'Connection failed';
+    let lastJson: any = null;
+
+    for (let i = 0; i < origins.length; i++) {
+      const base = origins[i];
+      if (base && typeof window !== 'undefined' && window.location.origin === base) continue;
+      try {
+        const res = await fetch(`${base}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        lastJson = data;
+        if (res.ok && (data.success || data.accessToken)) {
+          // If token was obtained via backup relay origin, sync it to local server too
+          if (base && data.accessToken) {
+            fetch('/api/market/daily-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accessToken: data.accessToken }),
+            }).catch(() => {});
+          }
+          return { ok: true, data };
+        }
+        const errStr = String(data.error || '');
+        lastError = errStr || lastError;
+        // Only fail over to next origin if it was a network/timeout error (ETIMEDOUT / fetch failed / 500)
+        const isTimeoutOr500 =
+          res.status >= 500 ||
+          errStr.includes('ETIMEDOUT') ||
+          errStr.includes('fetch failed') ||
+          errStr.includes('തടസ്സപ്പെട്ടു');
+        if (!isTimeoutOr500) {
+          return { ok: false, data };
+        }
+      } catch (err: any) {
+        lastError = err.message || lastError;
+      }
+    }
+    return { ok: false, data: lastJson || { success: false, error: lastError } };
+  };
+
+  // Dedicated 1-click SMS OTP sender (works even if OTP box has text)
+  const handleForceSendSmsOtp = async () => {
+    setLoading(true);
+    setStatusMsg(null);
+    const cleanKey = (apiKey || DEFAULT_API_KEY).trim();
+    const cleanUri = (redirectUri || DEFAULT_REDIRECT_URI).trim();
+    const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
+
+    try {
+      const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
+        mobile: cleanSavedMobile,
+        apiKey: cleanKey,
+        apiSecret: apiSecret || DEFAULT_API_SECRET,
+        redirectUri: cleanUri,
+        pin: '984798',
+      });
+      if (ok && otpData.success) {
+        setOtpInput('');
+        setOtpRequested(true);
+        if (otpData.sessionBackup) {
+          setOtpSessionBackup(otpData.sessionBackup);
+          try {
+            localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
+          } catch {}
+        }
+        setStatusMsg({
+          type: 'success',
+          text:
+            language === 'ml'
+              ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) പുതിയ 6-അക്ക Upstox SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP താഴെ നൽകി പച്ച ബട്ടൺ അമർത്തുക!`
+              : '📲 Fresh 6-digit SMS OTP sent to your phone! Enter the OTP below and tap the green button!',
+        });
+      } else {
+        throw new Error(otpData?.error || 'Failed to send SMS OTP');
+      }
+    } catch (err: any) {
+      setStatusMsg({
+        type: 'error',
+        text: err.message || 'Connection failed',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Tab 2: Single Automatic Handler for:
   // 1) Auto-sending SMS OTP using saved mobile number
   // 2) Verifying 6-digit SMS OTP -> Auto-submitting PIN (984798) -> Auto-generating Token!
@@ -382,19 +478,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           localStorage.setItem('upstox_saved_mobile', digitsOnly);
         } catch {}
 
-        const otpRes = await fetch('/api/market/send-sms-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mobile: digitsOnly,
-            apiKey: cleanKey,
-            apiSecret,
-            redirectUri: cleanUri,
-            pin: '984798',
-          }),
+        const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
+          mobile: digitsOnly,
+          apiKey: cleanKey,
+          apiSecret,
+          redirectUri: cleanUri,
+          pin: '984798',
         });
-        const otpData = await otpRes.json();
-        if (otpRes.ok && otpData.success) {
+        if (ok && otpData.success) {
           setOtpInput('');
           setOtpRequested(true);
           if (otpData.sessionBackup) {
@@ -412,7 +503,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                 : '📲 Mobile saved! 6-digit SMS OTP sent to your phone — enter the OTP below and tap Save & Connect!'),
           });
         } else {
-          throw new Error(otpData.error || 'Failed to send SMS OTP');
+          throw new Error(otpData?.error || 'Failed to send SMS OTP');
         }
         setLoading(false);
         return;
@@ -427,20 +518,15 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             if (raw) backupToUse = JSON.parse(raw);
           } catch {}
         }
-        const res = await fetch('/api/market/totp-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            totp: digitsOnly,
-            pin: '984798',
-            mobile: savedMobile || DEFAULT_MOBILE,
-            apiKey: cleanKey,
-            apiSecret: apiSecret || DEFAULT_API_SECRET,
-            sessionBackup: backupToUse,
-          }),
+        const { ok, data } = await postWithAutoRetryAndRelay('/api/market/totp-login', {
+          totp: digitsOnly,
+          pin: '984798',
+          mobile: savedMobile || DEFAULT_MOBILE,
+          apiKey: cleanKey,
+          apiSecret: apiSecret || DEFAULT_API_SECRET,
+          sessionBackup: backupToUse,
         });
-        const data = await res.json();
-        if (data.success && data.accessToken) {
+        if (ok && data.success && data.accessToken) {
           setAccessToken(data.accessToken);
           setOtpInput('');
           setOtpRequested(false);
@@ -469,24 +555,19 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setLoading(false);
           return;
         } else {
-          throw new Error(data.error || 'OTP verification failed');
+          throw new Error(data?.error || 'OTP verification failed');
         }
       }
 
       // CASE C: User pasted a redirected URL or Auth Code or JWT token
       if (trimmedInput.length > 6) {
-        const res = await fetch('/api/market/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code: trimmedInput,
-            apiKey: cleanKey,
-            apiSecret: apiSecret || DEFAULT_API_SECRET,
-            redirectUri: cleanUri,
-          }),
+        const { ok, data } = await postWithAutoRetryAndRelay('/api/market/token', {
+          code: trimmedInput,
+          apiKey: cleanKey,
+          apiSecret: apiSecret || DEFAULT_API_SECRET,
+          redirectUri: cleanUri,
         });
-        const data = await res.json();
-        if (data.accessToken) {
+        if (ok && data.accessToken) {
           setAccessToken(data.accessToken);
           setOtpInput('');
           try {
@@ -511,26 +592,21 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setLoading(false);
           return;
         } else {
-          throw new Error(data.error || 'Invalid code');
+          throw new Error(data?.error || 'Invalid code');
         }
       }
 
-      // CASE D: OTP box is empty -> User clicked "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" to request SMS OTP automatically!
+      // CASE D: OTP box is empty -> User clicked "ഫോണിലേക്ക് SMS OTP അയക്കുക (Auto)" to request SMS OTP automatically!
       const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
       if (cleanSavedMobile.length === 10) {
-        const otpRes = await fetch('/api/market/send-sms-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mobile: cleanSavedMobile,
-            apiKey: cleanKey,
-            apiSecret: apiSecret || DEFAULT_API_SECRET,
-            redirectUri: cleanUri,
-            pin: '984798',
-          }),
+        const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
+          mobile: cleanSavedMobile,
+          apiKey: cleanKey,
+          apiSecret: apiSecret || DEFAULT_API_SECRET,
+          redirectUri: cleanUri,
+          pin: '984798',
         });
-        const otpData = await otpRes.json();
-        if (otpRes.ok && otpData.success) {
+        if (ok && otpData.success) {
           setOtpRequested(true);
           if (otpData.sessionBackup) {
             setOtpSessionBackup(otpData.sessionBackup);
@@ -541,15 +617,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setStatusMsg({
             type: 'success',
             text:
-              otpData.message ||
-              (language === 'ml'
+              language === 'ml'
                 ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകി വീണ്ടും ബട്ടൺ അമർത്തുക — PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`
-                : '📲 6-digit SMS OTP sent to your phone! Enter the OTP below and tap Save & Connect!'),
+                : '📲 6-digit SMS OTP sent to your phone! Enter the OTP below and tap Save & Connect!',
           });
           setLoading(false);
           return;
         } else {
-          throw new Error(otpData.error || 'Failed to send SMS OTP');
+          throw new Error(otpData?.error || 'Failed to send SMS OTP');
         }
       } else {
         setStatusMsg({
@@ -889,7 +964,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                         : 'Enter 10-Digit Mobile (Once) or 6-Digit OTP'}
                     </span>
                   </label>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {savedMobile.length === 10 && (
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
                         📱 {savedMobile.slice(0, 2)}******{savedMobile.slice(-2)} Auto
@@ -898,6 +973,17 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                       PIN: 984798 Auto
                     </span>
+                    {savedMobile.length === 10 && (
+                      <button
+                        type="button"
+                        onClick={handleForceSendSmsOtp}
+                        disabled={loading}
+                        className="text-[10px] font-bold px-2.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-500/40 transition flex items-center gap-1 active:scale-95"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                        <span>{language === 'ml' ? '📲 പുതിയ OTP അയക്കുക' : '📲 Send OTP'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
