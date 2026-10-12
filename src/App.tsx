@@ -327,6 +327,31 @@ export const App: React.FC = () => {
       }
     };
     fetchInitData();
+    const configSyncInterval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/market/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          if (cfg && typeof cfg.isConnected === 'boolean') {
+            if (cfg.isConnected && cfg.accessToken) {
+              try {
+                localStorage.setItem('upstox_daily_token', cfg.accessToken);
+              } catch {}
+            }
+            setApiConfig(prev => ({
+              ...prev,
+              isConnected: cfg.isConnected,
+              accessToken: cfg.accessToken || prev.accessToken,
+              availableMargin: Number(cfg.availableMargin ?? prev.availableMargin),
+              usedMargin: Number(cfg.usedMargin ?? prev.usedMargin),
+              userName: cfg.userName || prev.userName,
+              userClientCode: cfg.userClientCode || prev.userClientCode,
+            }));
+          }
+        }
+      } catch {}
+    }, 4000);
+    return () => clearInterval(configSyncInterval);
   }, []);
 
   // Fetch real Upstox live quotes periodically

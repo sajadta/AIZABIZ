@@ -1083,19 +1083,31 @@ export function analyzeTradingSignals(
   const recent3Low = Math.min(last.low, prev.low, prev2.low);
 
   const currentRange = Math.max(0.01, last.high - last.low);
+  const prevCandleRange = Math.max(0.01, prev.high - prev.low);
   const bullCloseStrength = (currentLtp - last.low) / currentRange;
   const bearCloseStrength = (last.high - currentLtp) / currentRange;
+  const prevBullCloseStrength = (prev.close - prev.low) / prevCandleRange;
+  const prevBearCloseStrength = (prev.high - prev.close) / prevCandleRange;
   const pullbackFrom3mHigh = recent3High - currentLtp;
   const bounceFrom3mLow = currentLtp - recent3Low;
 
+  // Institutional Trend Alignment Gate: Never buy Calls against a Bearish SuperTrend below EMA21, or Puts against a Bullish SuperTrend above EMA21
+  const isTrendAlignedBull =
+    readings.supertrend.signal === "BUY" ||
+    (currentLtp > ema21 && ema9 >= ema21 && currentLtp > vwapVal);
+  const isTrendAlignedBear =
+    readings.supertrend.signal === "SELL" ||
+    (currentLtp < ema21 && ema9 <= ema21 && currentLtp < vwapVal);
+
   const isMultiCandleBullConfirmed =
+    isTrendAlignedBull &&
     ((currentLtp >= last.open && move1m >= 0) ||
-      (prev.close > prev.open && currentLtp >= prev.close) ||
-      (move2m > 0 && move3m > 0)) &&
+      (prev.close > prev.open && currentLtp >= prev.close * 0.9997) ||
+      (move2m > 0 && move3m > 0 && currentLtp >= prev.close * 0.9995)) &&
     (move2m > 0 || move3m > 0 || move5m > 0) &&
-    (currentLtp >= ema9 * 0.9997 || (currentLtp > prev.high && move1m > 0)) &&
-    (ema9 >= ema21 * 0.9992 || (readings.supertrend.signal === "BUY" && currentLtp >= ema21)) &&
-    bullCloseStrength >= 0.40 &&
+    (currentLtp >= ema9 * 0.9995 || (currentLtp > prev.high && move1m > 0)) &&
+    (ema9 >= ema21 * 0.999 || (readings.supertrend.signal === "BUY" && currentLtp >= ema21 * 0.9995)) &&
+    (bullCloseStrength >= 0.35 || (prev.close > prev.open && prevBullCloseStrength >= 0.55 && currentLtp >= prev.close * 0.9996)) &&
     !isClosedShootingStarResistance &&
     !isClosedBearishEngulfing &&
     !isBlockedByResistanceWall &&
@@ -1103,16 +1115,17 @@ export function analyzeTradingSignals(
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
     !isMacroAndHeavyweightVetoBull &&
-    pullbackFrom3mHigh <= Math.max(atr14 * 1.25, currentLtp * 0.0018);
+    pullbackFrom3mHigh <= Math.max(atr14 * 1.4, currentLtp * 0.002);
 
   const isMultiCandleBearConfirmed =
+    isTrendAlignedBear &&
     ((currentLtp <= last.open && move1m <= 0) ||
-      (prev.close < prev.open && currentLtp <= prev.close) ||
-      (move2m < 0 && move3m < 0)) &&
+      (prev.close < prev.open && currentLtp <= prev.close * 1.0003) ||
+      (move2m < 0 && move3m < 0 && currentLtp <= prev.close * 1.0005)) &&
     (move2m < 0 || move3m < 0 || move5m < 0) &&
-    (currentLtp <= ema9 * 1.0003 || (currentLtp < prev.low && move1m < 0)) &&
-    (ema9 <= ema21 * 1.0008 || (readings.supertrend.signal === "SELL" && currentLtp <= ema21)) &&
-    bearCloseStrength >= 0.40 &&
+    (currentLtp <= ema9 * 1.0005 || (currentLtp < prev.low && move1m < 0)) &&
+    (ema9 <= ema21 * 1.001 || (readings.supertrend.signal === "SELL" && currentLtp <= ema21 * 1.0005)) &&
+    (bearCloseStrength >= 0.35 || (prev.close < prev.open && prevBearCloseStrength >= 0.55 && currentLtp <= prev.close * 1.0004)) &&
     !isClosedHammerSupport &&
     !isClosedBullishEngulfing &&
     !isBlockedBySupportWall &&
@@ -1120,18 +1133,18 @@ export function analyzeTradingSignals(
     !isDeadSidewaysChop &&
     !isOpening3mWhipsaw &&
     !isMacroAndHeavyweightVetoBear &&
-    bounceFrom3mLow <= Math.max(atr14 * 1.25, currentLtp * 0.0018);
+    bounceFrom3mLow <= Math.max(atr14 * 1.4, currentLtp * 0.002);
 
-  // Anti-Climax / Over-Extension Guard: Only block extreme exhausted vertical spikes (RSI > 79 / < 21 or > 3.6x ATR from EMA9)
+  // Anti-Climax / Over-Extension Guard: Block buying Calls at RSI > 73 or buying Puts at RSI < 27 (wait for EMA9 pullback before next impulse)
   const distFromEma9 = Math.abs(currentLtp - ema9);
   const isOverExtendedBull =
-    readings.rsi.value > 79 ||
-    (atr14 > 0 && distFromEma9 > atr14 * 3.6 && currentLtp > ema9) ||
-    (atr14 > 0 && Math.abs(move3m) > atr14 * 4.8);
+    readings.rsi.value > 73 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 2.8 && currentLtp > ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 4.2);
   const isOverExtendedBear =
-    readings.rsi.value < 21 ||
-    (atr14 > 0 && distFromEma9 > atr14 * 3.6 && currentLtp < ema9) ||
-    (atr14 > 0 && Math.abs(move3m) > atr14 * 4.8);
+    readings.rsi.value < 27 ||
+    (atr14 > 0 && distFromEma9 > atr14 * 2.8 && currentLtp < ema9) ||
+    (atr14 > 0 && Math.abs(move3m) > atr14 * 4.2);
 
   if (isMultiCandleBullConfirmed && !isOverExtendedBull) {
     bullishPoints += 18;

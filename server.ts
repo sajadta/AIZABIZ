@@ -1491,11 +1491,23 @@ setInterval(async () => {
             dynamicPeakGainLock,
           );
         }
+        // 1. Once Peak Inflection / Target Resistance is reached or price is within 1% of forecastedMaxPrice:
+        // Lock Stop-Loss right at the Maximum Profit Point (pos.highestLTP * 0.996) so not even 1% profit is surrendered!
         if (isPeakInflectionAlert || ltp >= forecastedMaxPrice * 0.99) {
           const peakLockStopPrice = Number(
             Math.max(minZeroLossPrice, (pos.highestLTP || ltp) * 0.996).toFixed(2),
           );
           candidateStopLoss = Math.max(candidateStopLoss, peakLockStopPrice);
+        }
+
+        // 2. ABSOLUTE MAXIMUM PROFIT HARVESTER GUARD:
+        // If a trade reached high net profit (pos.highestNetPnl >= 450), NEVER allow it to slip back by more than 8% from its peak!
+        // This completely eliminates: "waiting and watching profit bleed away or turn into loss".
+        if (pos.highestNetPnl >= 450) {
+          const peakLtp = Number(pos.highestLTP || ltp);
+          const maxAllowedDrawdownFromPeak = Math.max(0.6, (peakLtp - pos.buyPrice) * 0.08);
+          const peakShieldPrice = Number((peakLtp - maxAllowedDrawdownFromPeak).toFixed(2));
+          candidateStopLoss = Math.max(candidateStopLoss, peakShieldPrice, minZeroLossPrice);
         }
 
         const previousLockedStop = Number(
@@ -1876,14 +1888,14 @@ setInterval(async () => {
     // Enforce 180-second (3-minute) Anti-Overtrading Cooldown after any exit so the bot NEVER churns trades or wastes brokerage!
     const isInPostExitCooldown = Date.now() - lastTradeExitTime < 180000;
 
-    // Check Market Open Time Window (09:18 AM to 14:45 PM IST for NEW entries on Trading Days Monday-Friday; EOD Square-Off runs at 15:15 PM)
+    // Check Market Open Time Window (09:18 AM to 15:10 PM IST for NEW entries on Trading Days Monday-Friday; EOD Square-Off runs at 15:15 PM)
     const currentHour = nowIst.getHours();
     const currentMinute = nowIst.getMinutes();
     const currentDay = nowIst.getDay(); // 0: Sun, 6: Sat
     const isTradingDay = currentDay >= 1 && currentDay <= 5;
     const isTradingHours =
       (currentHour > 9 || (currentHour === 9 && currentMinute >= 18)) &&
-      (currentHour < 14 || (currentHour === 14 && currentMinute <= 45));
+      (currentHour < 15 || (currentHour === 15 && currentMinute <= 10));
 
     const shouldRunEntryScanThisTick =
       Date.now() - lastFullEntryScanAtMs >= 600 || botSignals.length === 0;
@@ -1921,6 +1933,7 @@ setInterval(async () => {
             : liveAvailableMargin
           : Number((botConfig as any).maxCapitalPerTrade || 25000);
 
+      // Prioritize High-Liquidity Institutional Indices (Nifty 50, BankNifty, Sensex) where 1-minute option candles and tight bid-ask spreads guarantee clean entries & exits
       let scanIndices = [
         { key: "NSE_INDEX|Nifty 50", symbol: "NIFTY 50" },
         { key: "NSE_INDEX|Nifty Bank", symbol: "NIFTY BANK" },
@@ -2473,16 +2486,17 @@ setInterval(async () => {
                     }
                     if (chainData?.data && Array.isArray(chainData.data)) {
                       const isBullish = signal.signalType === "BUY";
+                      const isOptionSellingMode =
+                        botConfig.optionStrategyMode === "OPTION_SELLING";
                       // For Option Buying: Bullish -> Buy CE, Bearish -> Buy PE.
                       // For Option Selling (Credit): Bullish -> Short PE (collect decaying Put premium), Bearish -> Short CE (collect decaying Call premium).
-                      const optType: "CE" | "PE" =
-                        botConfig.optionStrategyMode === "OPTION_SELLING"
-                          ? isBullish
-                            ? "PE"
-                            : "CE"
-                          : isBullish
-                            ? "CE"
-                            : "PE";
+                      const optType: "CE" | "PE" = isOptionSellingMode
+                        ? isBullish
+                          ? "PE"
+                          : "CE"
+                        : isBullish
+                          ? "CE"
+                          : "PE";
                       const lotSz = liveIdxLotSize > 0 ? liveIdxLotSize : 1;
 
                       // Calculate overall Put-Call Ratio (PCR) + Highest Call OI Resistance Wall & Highest Put OI Support Wall
@@ -2805,22 +2819,26 @@ setInterval(async () => {
                               const optHigh0 = Math.max(Number(c0[2] || liveOptLtp), liveOptLtp);
                               const optLow0 = Math.min(Number(c0[3] || liveOptLtp), liveOptLtp);
                               const optOpen1 = Number(c1[1] || liveOptLtp);
-                              const optClose1 = Number(c1[4] || liveOptLtp);
+                              const optHigh1 = Number(c1[2] || liveOptLtp);
                               const optLow1 = Number(c1[3] || liveOptLtp);
+                              const optClose1 = Number(c1[4] || liveOptLtp);
                               const optClose2 = Number(c2[4] || liveOptLtp);
                               const optLow2 = Number(c2[3] || liveOptLtp);
                               const recentOpt3mHigh = Math.max(
                                 optHigh0,
-                                Number(c1[2] || 0),
+                                optHigh1,
                                 Number(c2[2] || 0),
                               );
-                              const optCandleRange = Math.max(0.05, optHigh0 - optLow0);
-                              const optClosePos = (liveOptLtp - optLow0) / optCandleRange;
-                              const optUpperWickRatio = (optHigh0 - liveOptLtp) / optCandleRange;
+                              // Evaluate across combined 2-candle window (c1 + c0) so a brand-new 1-minute candle with a ₹0.50 range never gets falsely rejected
+                              const combined2mHigh = Math.max(optHigh0, optHigh1);
+                              const combined2mLow = Math.min(optLow0, optLow1);
+                              const combined2mRange = Math.max(0.5, combined2mHigh - combined2mLow);
+                              const optClosePos = (liveOptLtp - combined2mLow) / combined2mRange;
+                              const optUpperWickRatio = (combined2mHigh - liveOptLtp) / combined2mRange;
 
                               // Compute Option 3-minute VWAP / Typical Price Floor
                               const tp0 = (optHigh0 + optLow0 + liveOptLtp) / 3;
-                              const tp1 = (Number(c1[2] || liveOptLtp) + optLow1 + optClose1) / 3;
+                              const tp1 = (optHigh1 + optLow1 + optClose1) / 3;
                               const tp2 = (Number(c2[2] || liveOptLtp) + optLow2 + optClose2) / 3;
                               const v0 = Math.max(1, Number(c0[5] || 1));
                               const v1 = Math.max(1, Number(c1[5] || 1));
@@ -2831,41 +2849,48 @@ setInterval(async () => {
                               const idxLastCandle = enriched[enriched.length - 1];
                               const idxPrevCandle = enriched[enriched.length - 2] || idxLastCandle;
                               const isUnderlying1mConfirmingNow = isBullish
-                                ? liveLtp >= idxLastCandle.open || liveLtp >= idxPrevCandle.close
-                                : liveLtp <= idxLastCandle.open || liveLtp <= idxPrevCandle.close;
+                                ? liveLtp >= idxLastCandle.open * 0.9997 || liveLtp >= idxPrevCandle.close * 0.9997
+                                : liveLtp <= idxLastCandle.open * 1.0003 || liveLtp <= idxPrevCandle.close * 1.0003;
 
                               const singleMinuteSpikePct =
                                 optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
-                              // Allow either current 1m candle rising OR brand-new 1m candle holding right at a strong green c1 close
+                              // Allow either current 1m candle rising OR holding firm after a strong green c1/c2 impulse
                               const isOptionRisingNow =
-                                (liveOptLtp > optOpen0 && liveOptLtp >= optClose1 * 0.994) ||
-                                (liveOptLtp >= optOpen0 * 0.996 &&
-                                  optClose1 > optOpen1 &&
-                                  liveOptLtp >= optClose1 * 0.996);
+                                (liveOptLtp >= optOpen0 && liveOptLtp >= optClose1 * 0.99) ||
+                                (liveOptLtp >= optClose1 * 0.994 && optClose1 >= optOpen1) ||
+                                (liveOptLtp > optClose2 && liveOptLtp >= optOpen0 * 0.992);
 
                               if (isOptionSellingMode) {
                                 if (
                                   isUnderlying1mConfirmingNow &&
-                                  liveOptLtp <= optOpen0 * 1.003 &&
-                                  liveOptLtp <= optClose1 * 1.003 &&
-                                  liveOptLtp <= optShortVwap * 1.005
+                                  liveOptLtp <= optOpen0 * 1.005 &&
+                                  liveOptLtp <= optClose1 * 1.005 &&
+                                  liveOptLtp <= optShortVwap * 1.008
                                 ) {
                                   candMomentumOk = true;
                                 }
                               } else if (
                                 isUnderlying1mConfirmingNow &&
                                 isOptionRisingNow &&
-                                (liveOptLtp >= optClose2 * 0.99 || liveOptLtp > optClose1) &&
-                                liveOptLtp >= optShortVwap * 0.992 &&
-                                liveOptLtp >= recentOpt3mHigh * 0.965 &&
-                                optClosePos >= 0.42 &&
-                                optUpperWickRatio <= 0.55 &&
-                                singleMinuteSpikePct <= 18.0
+                                (liveOptLtp >= optClose2 * 0.985 || liveOptLtp >= optClose1 * 0.994) &&
+                                liveOptLtp >= optShortVwap * 0.985 &&
+                                liveOptLtp >= recentOpt3mHigh * 0.95 &&
+                                optClosePos >= 0.35 &&
+                                optUpperWickRatio <= 0.65 &&
+                                singleMinuteSpikePct <= 22.0
                               ) {
                                 candMomentumOk = true;
                               }
+                            } else if (optRawCandles.length === 1) {
+                              const c0 = optRawCandles[0];
+                              const optOpen0 = Number(c0[1] || liveOptLtp);
+                              if (isOptionSellingMode ? liveOptLtp <= optOpen0 * 1.005 : liveOptLtp >= optOpen0 * 0.995) {
+                                candMomentumOk = true;
+                              }
                             }
-                          } catch {}
+                          } catch (optCandleErr) {
+                            console.error("Option 1m candle eval error:", optCandleErr);
+                          }
 
                           // Check recentClosedStrikes cooldown/breakout guard
                           const recentClosed = recentClosedStrikes[cand.instrumentKey];
@@ -6749,6 +6774,7 @@ import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
 const LOCAL_DB_PATH = path.join(os.tmpdir(), "upstox_algo_local_db.json");
+const WORKSPACE_DB_PATH = path.join(process.cwd(), ".upstox_algo_state.json");
 let lastSavedDbJson = "";
 
 async function savePostgresDb() {
@@ -6765,6 +6791,9 @@ async function savePostgresDb() {
   if (serialized === lastSavedDbJson) return;
   lastSavedDbJson = serialized;
 
+  try {
+    fsSync.writeFileSync(WORKSPACE_DB_PATH, serialized, "utf-8");
+  } catch {}
   try {
     fsSync.writeFileSync(LOCAL_DB_PATH, serialized, "utf-8");
   } catch (err) {
@@ -6984,10 +7013,15 @@ async function loadPostgresDb() {
     }
   };
 
-  // First load from local_db.json if available
+  // First load from workspace .upstox_algo_state.json or /tmp local_db.json if available
   try {
-    if (fsSync.existsSync(LOCAL_DB_PATH)) {
-      const raw = fsSync.readFileSync(LOCAL_DB_PATH, "utf-8");
+    const dbFileToLoad = fsSync.existsSync(WORKSPACE_DB_PATH)
+      ? WORKSPACE_DB_PATH
+      : fsSync.existsSync(LOCAL_DB_PATH)
+        ? LOCAL_DB_PATH
+        : "";
+    if (dbFileToLoad) {
+      const raw = fsSync.readFileSync(dbFileToLoad, "utf-8");
       const data = JSON.parse(raw);
       if (data.botConfig) botConfig = { ...botConfig, ...data.botConfig };
       if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
