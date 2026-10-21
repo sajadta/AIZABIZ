@@ -43,6 +43,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// Bulletproof Security Firewall: Strictly block any direct HTTP access to dotfiles, state databases, tokens, or server files
+app.use((req, res, next) => {
+  const cleanPath = req.path.toLowerCase();
+  // Allow PWA .well-known assetlinks
+  if (cleanPath.startsWith('/.well-known/')) {
+    return next();
+  }
+  if (
+    cleanPath.startsWith('/.') ||
+    cleanPath.includes('.upstox') ||
+    cleanPath.includes('.json') && !cleanPath.startsWith('/api') && !cleanPath.includes('manifest') ||
+    cleanPath.endsWith('.ts') && cleanPath.includes('server') ||
+    cleanPath.includes('render.yaml')
+  ) {
+    return res.status(403).json({ error: "Access Denied: Protected Security Resource" });
+  }
+  next();
+});
+
 let postgresAvailable = isPostgresConfigured;
 
 app.get('/api/history', async (req, res) => {

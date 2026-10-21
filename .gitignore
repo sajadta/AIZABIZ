@@ -4,6 +4,7 @@ dist/
 dev-dist/
 local_db.json
 .upstox_token_backup.json
+.upstox_algo_state.json
 coverage/
 .DS_Store
 *.log
