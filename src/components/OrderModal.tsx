@@ -49,7 +49,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   defaultStopLoss,
   defaultTarget,
   availableMargin = 0,
-  maxCapitalPerTrade = 25000,
+  maxCapitalPerTrade = 2000,
   mode,
   onPlaceOrder,
   language,
@@ -167,7 +167,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const effectiveAvailableBalance =
     mode === 'UPSTOX_LIVE'
       ? availableMargin
-      : maxCapitalPerTrade || 25000;
+      : maxCapitalPerTrade || 2000;
   const lotAffordability = calculateAffordableLotsWithBrokerage(
     effectivePrice,
     lotStep,

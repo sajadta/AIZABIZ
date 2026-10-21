@@ -174,6 +174,7 @@ export interface TradingSignal {
     affordableLots?: number;
     availableCapital?: number;
     underlyingSpot?: number;
+    optionSymbol?: string;
   };
   timestamp: string;
   status: 'ACTIVE' | 'EXECUTED' | 'TARGET_HIT' | 'SL_HIT' | 'EXPIRED';
@@ -206,6 +207,9 @@ export interface Order {
 export interface Position {
   id: string;
   realizedPnL?: number;
+  netRealizedPnL?: number;
+  brokerageCharges?: number;
+  exitReason?: string;
   sellPrice?: number;
   closeTime?: string;
   symbol: string;
@@ -240,6 +244,7 @@ export interface Position {
   };
   mode: ExecutionMode;
   openedAt: string;
+  openedAtMs?: number;
   isOption?: boolean;
   type?: string;
   netPnl?: number;
@@ -345,7 +350,7 @@ export interface BotConfig {
   maxStockProfitCount: number;
   selectedStrategy: StrategyKey;
   minConfidence: number; // e.g., 85
-  maxCapitalPerTrade: number;
+  maxCapitalPerTrade?: number; // 0 = Auto Dynamic Funds (100% Available Balance Sizing), or manual limit in ₹
   maxTradesPerDay: number;
   riskPerTradePercent: number;
   stopLossPercent: number;
@@ -355,6 +360,17 @@ export interface BotConfig {
   dailyMaxLossLimit: number; // Daily loss protection (e.g. 1500)
   dailyMaxProfitTarget: number; // Daily target lock (e.g. 5000)
   dailyLossLocked?: boolean;
+  selectedIndexPriority?:
+    | 'FULL_AUTO_MULTI_INDEX'
+    | 'ALL_NIFTY_PRIORITY'
+    | 'NIFTY_50_ONLY'
+    | 'BANKNIFTY_ONLY'
+    | 'SENSEX_ONLY'
+    | 'FINNIFTY_ONLY'
+    | 'MIDCPNIFTY_ONLY'
+    | 'BANKEX_ONLY'
+    | 'ALL_EQUAL';
+  maxConcurrentTrades?: number; // 0 = Auto Dynamic Funds, or 1, 2, 3, 4, 5
   // Advanced Institutional Settings
   marketRegimeFilter?: boolean; // Sideways market detection
   dynamicPositionSizing?: boolean; // AI confidence based sizing
@@ -439,4 +455,32 @@ export interface PriceAlert {
   targetPrice: number;
   condition: 'GREATER_THAN' | 'LESS_THAN';
   isActive: boolean;
+}
+
+export interface MultiIndexAlphaItem {
+  key: string;
+  symbol: string;
+  displayName: string;
+  exchange: 'NSE' | 'BSE';
+  spotLtp: number;
+  trend15m: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  trend5m: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  signalType: 'BUY' | 'SELL' | 'HOLD';
+  confidenceScore: number;
+  corporateHeavyweightScore: number;
+  corporateHeavyweightSummary: string;
+  bestOptionSymbol?: string;
+  bestOptionLtp?: number;
+  lotSize?: number;
+  bestStrike?: number;
+  delta?: number;
+  gamma?: number;
+  expectedNetProfit?: number;
+  totalRequiredCashWithBrokerage?: number;
+  roiPotentialPct?: number;
+  alphaOpportunityScore?: number;
+  rank?: number;
+  isTopPick?: boolean;
+  statusTextMl: string;
+  statusTextEn: string;
 }

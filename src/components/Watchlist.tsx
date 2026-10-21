@@ -37,6 +37,11 @@ export const Watchlist: React.FC<WatchlistProps> = ({
     return matchesSearch && matchesSegment;
   });
 
+  // Ensure unique list items by instrumentKey / symbol
+  const uniqueFilteredQuotes = Array.from(
+    new Map(filteredQuotes.map((q, i) => [q.instrumentKey || `${q.symbol}-${i}`, q])).values()
+  );
+
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
       {/* Header & Search */}
@@ -88,7 +93,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 
       {/* Quote List */}
       <div className="flex-1 overflow-y-auto smooth-scroll divide-y divide-slate-800/40 mt-1 pr-0.5 pb-20 sm:pb-4">
-        {filteredQuotes.map((q) => {
+        {uniqueFilteredQuotes.map((q, idx) => {
           const isSelected = q.symbol === selectedSymbol;
           const isPositive = q.change >= 0;
           const highLowRange = q.high - q.low || 1;
@@ -96,7 +101,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 
           return (
             <div
-              key={q.instrumentKey || q.symbol}
+              key={`${q.instrumentKey || q.symbol}-${idx}`}
               onClick={() => onSelectSymbol(q.symbol, q.instrumentKey)}
               className={`py-3 px-2.5 my-1 rounded-xl transition-all cursor-pointer group border ${
                 isSelected

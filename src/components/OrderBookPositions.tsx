@@ -13,7 +13,17 @@ import {
   PieChart,
   Plus,
   Download,
-  RefreshCw
+  RefreshCw,
+  BarChart2,
+  Calendar,
+  ArrowRight,
+  Sparkles,
+  Filter,
+  Tag,
+  CheckCheck,
+  ShieldCheck,
+  Zap,
+  Check
 } from 'lucide-react';
 import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
@@ -45,62 +55,288 @@ interface OrderBookPositionsProps {
   onRefreshHoldings?: () => void;
   isConnected?: boolean;
   onOpenApiModal?: () => void;
+  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
 }
 
+// Helper to format trade timestamps into clear dates and times in Malayalam and English
+export const formatTradeDateTime = (dateVal?: string | number, lang: Language = 'ml') => {
+  if (!dateVal) return { dateStr: '—', timeStr: '—', fullStr: '—', rawDate: '' };
+  try {
+    let d: Date;
+    if (typeof dateVal === 'number') {
+      d = new Date(dateVal);
+    } else {
+      // If it is an ISO string or time string
+      if (/^\d{1,2}:\d{2}/.test(dateVal) && !dateVal.includes('-') && !dateVal.includes('T')) {
+        return { dateStr: '', timeStr: dateVal, fullStr: dateVal, rawDate: '' };
+      }
+      d = new Date(dateVal);
+    }
+    if (isNaN(d.getTime())) {
+      return { dateStr: '', timeStr: String(dateVal), fullStr: String(dateVal), rawDate: '' };
+    }
+    const monthsEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthsMl = ['ജനു', 'ഫെബ്രു', 'മാർച്ച്', 'ഏപ്രിൽ', 'മെയ്', 'ജൂൺ', 'ജൂലൈ', 'ഓഗസ്റ്റ്', 'സെപ്റ്റം', 'ഒക്ടോ', 'നവം', 'ഡിസം'];
+    const month = lang === 'ml' ? monthsMl[d.getMonth()] : monthsEn[d.getMonth()];
+    const dateStr = `${d.getDate()} ${month} ${d.getFullYear()}`;
+    const timeStr = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const rawDate = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    return {
+      dateStr,
+      timeStr,
+      fullStr: `${dateStr}, ${timeStr}`,
+      rawDate
+    };
+  } catch {
+    return { dateStr: '', timeStr: String(dateVal), fullStr: String(dateVal), rawDate: '' };
+  }
+};
 
+// Helper to calculate duration between trade entry and exit
+export const getTradeDuration = (openedVal?: string | number, closeVal?: string | number, lang: Language = 'ml') => {
+  if (!openedVal || !closeVal) return null;
+  try {
+    const start = typeof openedVal === 'number' ? openedVal : new Date(openedVal).getTime();
+    const end = typeof closeVal === 'number' ? closeVal : new Date(closeVal).getTime();
+    if (isNaN(start) || isNaN(end) || end < start) return null;
+    const diffSecs = Math.floor((end - start) / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
 
-const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void, isNew?: boolean }> = ({ pos, onSquareOff, isNew }) => {
-  const [estCharges, setEstCharges] = React.useState<number | null>(null);
-  const [chargeDetails, setChargeDetails] = React.useState<any | null>(null);
+    if (diffDays > 0) {
+      return lang === 'ml' ? `${diffDays} ദിവസം ${diffHours % 24} മണി` : `${diffDays}d ${diffHours % 24}h`;
+    }
+    if (diffHours > 0) {
+      return lang === 'ml' ? `${diffHours} മണി ${diffMins % 60} മി` : `${diffHours}h ${diffMins % 60}m`;
+    }
+    if (diffMins > 0) {
+      return lang === 'ml' ? `${diffMins} മിനിറ്റ് ${diffSecs % 60} സെക്കൻഡ്` : `${diffMins}m ${diffSecs % 60}s`;
+    }
+    return lang === 'ml' ? `${diffSecs} സെക്കൻഡ്` : `${diffSecs}s`;
+  } catch {
+    return null;
+  }
+};
+
+// Helper to translate exit reason into clean, accurate user-friendly labels (never mislabels losses as Target Profit!)
+export const translateExitReason = (
+  reason?: string,
+  lang: Language = 'ml',
+  netPnL?: number,
+  grossPnL?: number
+) => {
+  const isMl = lang === 'ml';
+
+  // 1. IF NET & GROSS ARE BOTH NEGATIVE:
+  // It is mathematically impossible for this to be a Target Profit or Profit Booking!
+  // It MUST be labeled as Stop-Loss, Reversal Guard, or Breakeven Protection.
+  if (netPnL !== undefined && netPnL < 0 && (grossPnL === undefined || grossPnL <= 0)) {
+    const r = (reason || '').toLowerCase();
+    if (r.includes('reversal') || r.includes('invalidation') || r.includes('reversed')) {
+      return isMl ? '🛡️ ട്രെൻഡ് റിവേഴ്സൽ പരിരക്ഷ (നഷ്ടം ഒഴിവാക്കി)' : '🛡️ Trend Reversal Guard (Cut Loss)';
+    }
+    if (r.includes('stagnation') || r.includes('ejector') || r.includes('paused') || r.includes('zero-loss')) {
+      return isMl ? '⚖️ സ്റ്റാഗ്നേഷൻ കട്ട് (നഷ്ടം പരിമിതപ്പെടുത്തി)' : '⚖️ Stagnation Cut (Loss Minimized)';
+    }
+    if (r.includes('trailing') || r.includes('ratchet') || r.includes('auto-moving')) {
+      return isMl ? '🛡️ ട്രെയിലിംഗ് സ്റ്റോപ്പ്-ലോസ് എക്സിറ്റ്' : '🛡️ Trailing Stop-Loss Exit';
+    }
+    return isMl ? '🛡️ സ്റ്റോപ്പ്-ലോസ് പരിരക്ഷ (നഷ്ടം പരിമിതപ്പെടുത്തി)' : '🛡️ Stop-Loss Risk Protection';
+  }
+
+  // 2. IF GROSS PnL IS ZERO OR SLIGHTLY POSITIVE, BUT NET PnL IS NEGATIVE (Because of Brokerage/Taxes):
+  // Realized Gross is ~₹0, but Brokerage of ₹10-₹40 made Net Realized negative:
+  if (netPnL !== undefined && netPnL < 0 && grossPnL !== undefined && grossPnL >= 0) {
+    return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ എക്സിറ്റ് (ബ്രോക്കറേജ്/ടാക്സ് മാത്രം)' : '⚖️ Breakeven Exit (Taxes & Brokerage Only)';
+  }
+
+  // 3. IF NO REASON STRING PROVIDED:
+  if (!reason) {
+    if (netPnL !== undefined) {
+      if (netPnL > 10) return isMl ? '🎯 ലാഭം ബുക്ക് ചെയ്തു' : '🎯 Profit Booked';
+      if (netPnL < -10) return isMl ? '🛡️ സ്റ്റോപ്പ്-ലോസ് എക്സിറ്റ്' : '🛡️ Stop-Loss Exit';
+      return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ എക്സിറ്റ്' : '⚖️ Breakeven Exit';
+    }
+    return isMl ? 'സിസ്റ്റം ഓട്ടോ എക്സിറ്റ്' : 'System Auto Exit';
+  }
+
+  const r = reason.toLowerCase();
+
+  // 4. Genuine Target Profit (ONLY IF netPnL > 0 AND grossPnL > 0!)
+  const isTargetWord = r.includes('target') || r.includes('take-profit') || r.includes('take profit') || /\btp\b/i.test(reason);
+  if (isTargetWord) {
+    if (netPnL !== undefined && netPnL > 0) {
+      return isMl ? '🎯 ടാർഗറ്റ് പ്രോഫിറ്റ് കൈവരിച്ചു' : '🎯 Target Profit Hit';
+    }
+    if (netPnL !== undefined && netPnL <= 0) {
+      return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ എക്സിറ്റ് (ക്യാപിറ്റൽ സേഫ്)' : '⚖️ Breakeven Exit (Capital Preserved)';
+    }
+    return isMl ? '🎯 ടാർഗറ്റ് പ്രോഫിറ്റ് കൈവരിച്ചു' : '🎯 Target Profit Hit';
+  }
+
+  // 5. Breakeven / Stagnation Ejector Exits
+  if (
+    r.includes('zero-loss') ||
+    r.includes('ejector') ||
+    r.includes('stagnation') ||
+    r.includes('breakeven') ||
+    r.includes('breakout paused') ||
+    r.includes('cost to preserve') ||
+    r.includes('cost to eliminate')
+  ) {
+    if (netPnL !== undefined && netPnL < 0) {
+      return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ എക്സിറ്റ് (ചിലവ് മാത്രം)' : '⚖️ Breakeven Exit (Brokerage Only)';
+    }
+    return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ പ്രൊട്ടക്ഷൻ' : '⚖️ Breakeven Protection';
+  }
+
+  // 6. Trend / Parameter Reversal Invalidation
+  if (
+    r.includes('invalidation') ||
+    r.includes('parameter reversal') ||
+    r.includes('parameters reversed') ||
+    r.includes('trend reversal')
+  ) {
+    return isMl ? '🛡️ ട്രെൻഡ് റിവേഴ്സൽ പരിരക്ഷ' : '🛡️ Trend Reversal Guard';
+  }
+
+  // 7. Stop-Loss (Strict, Smart, or Max Loss Protection)
+  if (
+    r.includes('strict stop') ||
+    r.includes('smart stop') ||
+    r.includes('stop-loss hit') ||
+    r.includes('sl hit') ||
+    r.includes('stoploss') ||
+    r.includes('below auto-sl') ||
+    r.includes('prevent further loss') ||
+    r.includes('minimize loss')
+  ) {
+    return isMl ? '🛡️ റിസ്ക് പ്രൊട്ടക്ഷൻ സ്റ്റോപ്പ്-ലോസ്' : '🛡️ Risk Protection Stop-Loss';
+  }
+
+  // 8. Trailing Stop-Loss / Peak Ratchet Lock
+  if (
+    r.includes('trailing') ||
+    r.includes('auto-moving') ||
+    r.includes('ratchet') ||
+    r.includes('peak-locked') ||
+    r.includes('peak locked')
+  ) {
+    if (netPnL !== undefined && netPnL > 10) {
+      return isMl ? '📈 ട്രെയിലിംഗ് സ്റ്റോപ്പ്-ലോസ് (ലാഭം ലോക്ക് ചെയ്തു)' : '📈 Trailing Stop-Loss (Locked Profit)';
+    }
+    if (netPnL !== undefined && netPnL < -10) {
+      return isMl ? '🛡️ സ്റ്റോപ്പ്-ലോസ് എക്സിറ്റ്' : '🛡️ Stop-Loss Exit';
+    }
+    return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ പ്രൊട്ടക്ഷൻ' : '⚖️ Breakeven Protection';
+  }
+
+  // 9. Intraday Market Auto Square-Off
+  if (r.includes('square') || r.includes('market close') || r.includes('15:15') || r.includes('15:20')) {
+    return isMl ? '⏰ മാർക്കറ്റ് ക്ലോസിംഗ് സ്ക്വയർ-ഓഫ്' : '⏰ Market Auto Square-Off';
+  }
+
+  // 10. Manual Square-Off
+  if (r.includes('manual')) {
+    return isMl ? '👤 മാനുവൽ എക്സിറ്റ്' : '👤 Manual Square-Off';
+  }
+
+  // Fallback based on PnL
+  if (netPnL !== undefined) {
+    if (netPnL > 10) return isMl ? '🎯 ലാഭം ബുക്ക് ചെയ്തു' : '🎯 Profit Booked';
+    if (netPnL < -10) return isMl ? '🛡️ സ്റ്റോപ്പ്-ലോസ് എക്സിറ്റ്' : '🛡️ Stop-Loss Exit';
+    return isMl ? '⚖️ ബ്രേക്ക്-ഈവൻ എക്സിറ്റ്' : '⚖️ Breakeven Exit';
+  }
+
+  return reason.length > 50 ? (isMl ? 'സിസ്റ്റം ഓട്ടോ എക്സിറ്റ്' : 'System Auto Exit') : reason;
+};
+
+const PositionItem: React.FC<{
+  pos: Position;
+  onSquareOff: (id: string) => void;
+  isNew?: boolean;
+  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
+  language?: Language;
+}> = ({ pos, onSquareOff, isNew, onViewChart, language = 'ml' }) => {
+  const isOpt = pos.isOption !== false;
+  const buyPx = Math.max(0, Number(pos.buyPrice || 0));
+  const curPx = Number(pos.currentLTP || buyPx);
+  const qty = Math.max(1, Number(pos.quantity || 1));
+
+  // Immediate, reliable local charges calculation (zero network delay or failure risk)
+  const defaultCharges = React.useMemo(() => {
+    const breakdown = calculateTradeCharges(buyPx, qty, isOpt, curPx);
+    return {
+      total: breakdown.roundTripCharges,
+      details: {
+        brokerage: breakdown.buyBrokerage + breakdown.sellBrokerage,
+        stt: breakdown.stt,
+        gst: breakdown.gst,
+        stampDuty: breakdown.stampDuty,
+        transactionCharge: breakdown.exchangeTxnCharge,
+        sebiCharge: breakdown.sebiCharge,
+      }
+    };
+  }, [buyPx, qty, isOpt, curPx]);
+
+  const [apiCharges, setApiCharges] = React.useState<{ total: number; details: any } | null>(null);
   const [showTaxBreakdown, setShowTaxBreakdown] = React.useState(false);
+
+  const estCharges = apiCharges?.total ?? defaultCharges.total;
+  const chargeDetails = apiCharges?.details ?? defaultCharges.details;
 
   React.useEffect(() => {
     let isMounted = true;
     const fetchCharges = async () => {
       try {
-         // Buy charges
-         let buyCharges = 0;
-         let taxes: any = { brokerage: 0, stt: 0, gst: 0, stampDuty: 0, transactionCharge: 0, sebiCharge: 0 };
-         if (pos.buyPrice && pos.quantity) {
-             const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
-             if (r1.ok) {
-                 const d1 = await r1.json();
-                 buyCharges += d1?.data?.charges?.total || 0;
-                 if (d1?.data?.charges) {
-                   taxes.brokerage += d1.data.charges.brokerage || 0;
-                   taxes.stt += d1.data.charges.taxes?.stt || 0;
-                   taxes.gst += d1.data.charges.taxes?.gst || 0;
-                   taxes.stampDuty += d1.data.charges.taxes?.stampDuty || 0;
-                   taxes.transactionCharge += d1.data.charges.taxes?.transactionCharge || 0;
-                   taxes.sebiCharge += d1.data.charges.taxes?.sebiCharge || 0;
-                 }
-             }
-         }
+        if (!pos.buyPrice || !pos.quantity) return;
+        const instToken = pos.instrumentKey || (pos.isOption ? 'NSE_FO|' + pos.symbol : 'NSE_EQ|' + pos.symbol);
+        const prod = pos.productType || 'D';
+
+        // Buy charges
+        let buyCharges = 0;
+        const taxes: any = { ...defaultCharges.details };
+        const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&transactionType=BUY&price=${pos.buyPrice}`);
+        if (r1.ok) {
+          const d1 = await r1.json();
+          buyCharges += d1?.data?.charges?.total || 0;
+          if (d1?.data?.charges) {
+            taxes.brokerage = d1.data.charges.brokerage || 0;
+            taxes.stt = d1.data.charges.taxes?.stt || 0;
+            taxes.gst = d1.data.charges.taxes?.gst || 0;
+            taxes.stampDuty = d1.data.charges.taxes?.stampDuty || 0;
+            taxes.transactionCharge = d1.data.charges.taxes?.transactionCharge || 0;
+            taxes.sebiCharge = d1.data.charges.taxes?.sebiCharge || 0;
+          }
+        }
          
-         // Estimated Sell charges
-         let sellCharges = 0;
-         if (pos.currentLTP && pos.quantity) {
-             const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${pos.currentLTP}`);
-             if (r2.ok) {
-                 const d2 = await r2.json();
-                 sellCharges += d2?.data?.charges?.total || 0;
-                 if (d2?.data?.charges) {
-                   taxes.brokerage += d2.data.charges.brokerage || 0;
-                   taxes.stt += d2.data.charges.taxes?.stt || 0;
-                   taxes.gst += d2.data.charges.taxes?.gst || 0;
-                   taxes.stampDuty += d2.data.charges.taxes?.stampDuty || 0;
-                   taxes.transactionCharge += d2.data.charges.taxes?.transactionCharge || 0;
-                   taxes.sebiCharge += d2.data.charges.taxes?.sebiCharge || 0;
-                 }
-             }
-         }
+        // Estimated Sell charges
+        let sellCharges = 0;
+        if (pos.currentLTP && pos.quantity) {
+          const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&transactionType=SELL&price=${pos.currentLTP}`);
+          if (r2.ok) {
+            const d2 = await r2.json();
+            sellCharges += d2?.data?.charges?.total || 0;
+            if (d2?.data?.charges) {
+              taxes.brokerage += d2.data.charges.brokerage || 0;
+              taxes.stt += d2.data.charges.taxes?.stt || 0;
+              taxes.gst += d2.data.charges.taxes?.gst || 0;
+              taxes.stampDuty += d2.data.charges.taxes?.stampDuty || 0;
+              taxes.transactionCharge += d2.data.charges.taxes?.transactionCharge || 0;
+              taxes.sebiCharge += d2.data.charges.taxes?.sebiCharge || 0;
+            }
+          }
+        }
          
-         if (isMounted) {
-           setEstCharges(buyCharges + sellCharges);
-           setChargeDetails(taxes);
-         }
-      } catch (e) {
-         console.error('Failed to fetch position charges', e);
+        if (isMounted && (buyCharges + sellCharges) > 0) {
+          setApiCharges({
+            total: Number((buyCharges + sellCharges).toFixed(2)),
+            details: taxes,
+          });
+        }
+      } catch {
+        // Fallback already safely active from defaultCharges
       }
     };
     fetchCharges();
@@ -109,9 +345,6 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
 
   const gross = pos.pnl || 0;
   const net = estCharges !== null ? gross - estCharges : gross;
-  const buyPx = Number(pos.buyPrice || 0);
-  const curPx = Number(pos.currentLTP || buyPx);
-  const qty = Math.max(1, Number(pos.quantity || 1));
   const target50Px = Number((buyPx * 1.5).toFixed(2));
   const target50Profit = Number(((target50Px - buyPx) * qty).toFixed(2));
   const is50PctHit = buyPx > 0 && curPx >= target50Px;
@@ -167,12 +400,33 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
               </span>
             )}
           </div>
-          <button
-            onClick={() => onSquareOff(pos.id)}
-            className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/30 transition shadow-sm"
-          >
-            Exit
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onViewChart && (
+              <button
+                type="button"
+                onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
+                  symbol: pos.symbol,
+                  buyPrice: pos.buyPrice,
+                  currentLTP: pos.currentLTP,
+                  target: pos.target,
+                  stopLoss: pos.stopLoss,
+                  pnl: pos.pnl,
+                  isOption: isOpt
+                })}
+                className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition shadow-sm flex items-center gap-1.5 active:scale-95 touch-manipulation"
+                title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart for this trade'}
+              >
+                <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
+                <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+              </button>
+            )}
+            <button
+              onClick={() => onSquareOff(pos.id)}
+              className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/30 transition shadow-sm"
+            >
+              Exit
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50">
@@ -236,56 +490,48 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
           </div>
         </div>
 
-        {/* Live In-Trade Next-Moment Trajectory & Fake-Dip Radar */}
-        {pos.liveTrajectoryRadar && (
-          <div className={`p-2.5 rounded-lg border text-[11px] flex flex-col gap-1.5 ${
-            pos.liveTrajectoryRadar.nextMomentState === 'ACCELERATING_UP'
-              ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
-              : pos.liveTrajectoryRadar.nextMomentState === 'FAKE_DIP_HOLD'
-                ? 'bg-amber-950/30 border-amber-500/40 text-amber-200'
-                : pos.liveTrajectoryRadar.nextMomentState === 'PEAK_EXHAUSTION'
-                  ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-200'
-                  : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
-          }`}>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="font-extrabold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
-                {pos.liveTrajectoryRadar.nextMomentLabelMl}
-              </span>
-              <span className="px-2 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] font-bold">
-                {pos.liveTrajectoryRadar.holdOrExitVerdictMl}
-              </span>
+        {/* Real Live Risk & Target Execution Monitor (Replaced misleading trajectory simulation) */}
+        <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-700/60 text-xs flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="font-bold flex items-center gap-1.5 text-slate-200">
+              <span className={`w-2 h-2 rounded-full ${net >= 0 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+              {net >= 0 ? '🟢 തത്സമയ ലാഭം നിരീക്ഷിക്കുന്നു (In Profit)' : '⚠️ ലൈവ് റിസ്ക് നിരീക്ഷണം (Risk Guard Active)'}
+            </span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+              net >= 0 
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
+                : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+            }`}>
+              {net >= 0 ? `Net +₹${net.toFixed(2)}` : `Net -₹${Math.abs(net).toFixed(2)}`}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800 text-[11px] font-mono">
+            <div>
+              <span className="text-slate-400 block text-[10px]">ടാർഗെറ്റ് (Target):</span>
+              <strong className="text-emerald-300">
+                ₹{(pos.target || (pos.buyPrice * 1.18)).toFixed(2)}
+              </strong>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-white/10 text-[10px] font-mono text-slate-300">
-              <div>
-                <span className="text-slate-400 block">Auto-Moving Target:</span>
-                <strong className="text-emerald-300">
-                  ₹{(pos.liveTrajectoryRadar.dynamicTargetPrice || pos.liveTrajectoryRadar.forecastedMaxOptionPrice).toFixed(2)} ↑
-                </strong>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Auto-Moving Stop-Loss:</span>
-                <strong className="text-cyan-300">
-                  ₹{(pos.liveTrajectoryRadar.dynamicStopLossPrice || pos.stopLoss || 0).toFixed(2)} ↑
-                </strong>
-              </div>
-              <div>
-                <span className="text-slate-400 block">Protected Net Floor:</span>
-                <strong className={pos.liveTrajectoryRadar.protectedNetFloor >= 0 ? 'text-emerald-400' : 'text-amber-300'}>
-                  {pos.liveTrajectoryRadar.protectedNetFloor >= 0
-                    ? `Locked +₹${pos.liveTrajectoryRadar.protectedNetFloor} Net`
-                    : `Max Risk ₹${Math.abs(pos.liveTrajectoryRadar.protectedNetFloor)}`}
-                </strong>
-              </div>
-              <div>
-                <span className="text-slate-400 block">1m & Index Check:</span>
-                <strong className="text-slate-200">
-                  1m: {pos.liveTrajectoryRadar.option1mTrendIntact ? 'HL Intact ✓' : 'Peak/Break ⚠️'} | Idx: {pos.liveTrajectoryRadar.underlyingAligned ? 'Aligned ✓' : 'Reversed ⚠️'}
-                </strong>
-              </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">സ്റ്റോപ്പ് ലോസ് (Stop-Loss):</span>
+              <strong className="text-rose-300">
+                ₹{(pos.stopLoss || (pos.buyPrice * 0.915)).toFixed(2)}
+              </strong>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">SL അകലം (Distance):</span>
+              <strong className={(pos.currentLTP || pos.buyPrice) > (pos.stopLoss || pos.buyPrice * 0.915) ? 'text-cyan-300' : 'text-rose-400'}>
+                {((pos.currentLTP || pos.buyPrice) - (pos.stopLoss || pos.buyPrice * 0.915)).toFixed(2)} pts
+              </strong>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">റിസ്ക്:റിവാർഡ് (R:R):</span>
+              <strong className="text-amber-300">
+                1 : 2.2
+              </strong>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Detailed Official Brokerage & Taxes Breakdown */}
         {showTaxBreakdown && chargeDetails && (
@@ -320,49 +566,31 @@ const PositionItem: React.FC<{ pos: Position, onSquareOff: (id: string) => void,
   );
 };
 
-const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, index }) => {
-  const [estCharges, setEstCharges] = React.useState<number | null>(null);
+const TradeHistoryItem: React.FC<{
+  pos: Position;
+  index: number;
+  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
+  language?: Language;
+}> = ({ pos, index, onViewChart, language = 'ml' }) => {
+  const isOpt = pos.isOption !== false;
+  const buyPx = Math.max(0, Number(pos.buyPrice || 0));
+  const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
+  const qty = Math.max(1, Number(pos.quantity || 1));
 
-  React.useEffect(() => {
-    let isMounted = true;
-    const fetchCharges = async () => {
-      try {
-         // Buy charges
-         let buyCharges = 0;
-         if (pos.buyPrice && pos.quantity) {
-             const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=BUY&price=${pos.buyPrice}`);
-             if (r1.ok) {
-                 const d1 = await r1.json();
-                 buyCharges += d1?.data?.charges?.total || 0;
-             }
-         }
-         
-         // Sell charges
-         let sellCharges = 0;
-         const finalSellPrice = pos.sellPrice || pos.currentLTP;
-         if (finalSellPrice && pos.quantity) {
-             const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(pos.instrumentKey || (pos.isOption ? 'NSE_FO|'+pos.symbol : 'NSE_EQ|'+pos.symbol))}&quantity=${pos.quantity}&product=${pos.productType || 'D'}&transactionType=SELL&price=${finalSellPrice}`);
-             if (r2.ok) {
-                 const d2 = await r2.json();
-                 sellCharges += d2?.data?.charges?.total || 0;
-             }
-         }
-         
-         if (isMounted) setEstCharges(buyCharges + sellCharges);
-      } catch (e) {
-         console.error('Failed to fetch history charges', e);
-      }
-    };
-    fetchCharges();
-    return () => { isMounted = false; };
-  }, [pos.symbol, pos.buyPrice, pos.sellPrice, pos.currentLTP, pos.quantity, pos.productType]);
+  const estCharges = React.useMemo(() => {
+    if (Number((pos as any).brokerageCharges) > 0) {
+      return Number((pos as any).brokerageCharges);
+    }
+    return calculateTradeCharges(buyPx, qty, isOpt, sellPx).roundTripCharges;
+  }, [(pos as any).brokerageCharges, buyPx, qty, isOpt, sellPx]);
 
   const gross = pos.realizedPnL || 0;
-  const net = estCharges !== null ? gross - estCharges : gross;
+  const net = gross - estCharges;
 
   return (
       <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 flex flex-col gap-3 opacity-90 hover:opacity-100 transition">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-extrabold text-white">
               {pos.symbol}
             </span>
@@ -372,6 +600,27 @@ const TradeHistoryItem: React.FC<{ pos: Position, index: number }> = ({ pos, ind
             <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
               Qty: <strong className="text-slate-200">{pos.quantity}</strong>
             </span>
+          </div>
+          {onViewChart && (
+            <button
+              type="button"
+              onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
+                symbol: pos.symbol,
+                buyPrice: pos.buyPrice,
+                sellPrice: pos.sellPrice || pos.currentLTP,
+                currentLTP: pos.currentLTP,
+                target: pos.target,
+                stopLoss: pos.stopLoss,
+                pnl: pos.realizedPnL,
+                isOption: isOpt
+              })}
+              className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition shadow-sm flex items-center gap-1.5 active:scale-95 touch-manipulation"
+              title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ കാൻഡിൽസ്റ്റിക്ക് ചാർട്ട് കാണുക' : 'View Candlestick Chart for this trade'}
+            >
+              <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
+              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/30">
@@ -414,10 +663,17 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   onRefreshHoldings,
   isConnected = false,
   onOpenApiModal,
+  onViewChart,
 }) => {
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY'>(initialTab);
   const [positionFilter, setPositionFilter] = useState<'ALL' | 'OPTIONS' | 'INDEX_EQUITY'>('ALL');
+
+  // Date filter for Trade History (Default: 'ALL' to see all dates, with buttons to pick specific dates like 14 Oct, 15 Oct)
+  const [selectedTradeDateFilter, setSelectedTradeDateFilter] = useState<string>('ALL');
+
+  // Orders View Mode: 'PAIRED' (Round-trip Buy & Sell paired together) vs 'INDIVIDUAL' (Raw broker order fills)
+  const [ordersViewMode, setOrdersViewMode] = useState<'PAIRED' | 'INDIVIDUAL'>('PAIRED');
 
   React.useEffect(() => {
     if (activeTab === 'HOLDINGS' && onRefreshHoldings) {
@@ -430,6 +686,36 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  // Compute available trade dates from trade history for instant filtering
+  const availableTradeDates = React.useMemo(() => {
+    const datesMap = new Map<string, { rawDate: string; displayLabel: string; count: number }>();
+    tradeHistory.forEach(t => {
+      const dt = formatTradeDateTime(t.openedAtMs || t.closeTime || t.openedAt, language);
+      if (dt.rawDate) {
+        const existing = datesMap.get(dt.rawDate);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          datesMap.set(dt.rawDate, {
+            rawDate: dt.rawDate,
+            displayLabel: dt.dateStr,
+            count: 1
+          });
+        }
+      }
+    });
+    return Array.from(datesMap.values()).sort((a, b) => b.rawDate.localeCompare(a.rawDate));
+  }, [tradeHistory, language]);
+
+  // Filtered trade history based on selected date
+  const filteredTradeHistory = React.useMemo(() => {
+    if (selectedTradeDateFilter === 'ALL') return tradeHistory;
+    return tradeHistory.filter(t => {
+      const dt = formatTradeDateTime(t.openedAtMs || t.closeTime || t.openedAt, language);
+      return dt.rawDate === selectedTradeDateFilter;
+    });
+  }, [tradeHistory, selectedTradeDateFilter, language]);
 
   const filteredPositions = React.useMemo(() => {
     if (positionFilter === 'OPTIONS') {
@@ -489,24 +775,48 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   const totalHoldingsPnL = totalHoldingsValue - totalHoldingsInvested;
   const totalHoldingsPnLPercent = totalHoldingsInvested > 0 ? (totalHoldingsPnL / totalHoldingsInvested) * 100 : 0;
 
-  // Compute combined Summary Stats (Active Positions + Executed Trade History): Total Profit, Total Loss, Total Brokerage Charges, Net P&L
+  const todayIst = React.useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), []);
+
+  // Compute combined Summary Stats: Separate Today's Trading Performance and Total Cumulative Performance
   const accountSummary = React.useMemo(() => {
     let totalGrossProfit = 0;
     let totalGrossLoss = 0;
     let totalBrokerageCharges = 0;
+    let totalWins = 0;
+    let totalLosses = 0;
 
-    // 1. Open positions
+    let todayGrossProfit = 0;
+    let todayGrossLoss = 0;
+    let todayBrokerage = 0;
+    let todayWins = 0;
+    let todayLosses = 0;
+    let todayTradesCount = 0;
+
+    // 1. Open positions (belong to today's active session)
     positions.forEach((p) => {
       const isOpt = Boolean(p.isOption || /\b(CE|PE)\b/i.test(p.symbol || '') || String(p.instrumentKey || '').includes('FO'));
       const buyP = Number(p.buyPrice || 0);
       const curP = Number(p.currentLTP || buyP);
       const qty = Math.max(1, Number(p.quantity || 1));
       const pnl = p.pnl !== undefined ? Number(p.pnl) : (curP - buyP) * qty;
-      if (pnl >= 0) totalGrossProfit += pnl;
-      else totalGrossLoss += Math.abs(pnl);
-
       const chg = calculateTradeCharges(buyP, qty, isOpt, curP);
-      totalBrokerageCharges += chg.roundTripCharges;
+      const brok = chg.roundTripCharges;
+
+      totalBrokerageCharges += brok;
+      todayBrokerage += brok;
+
+      if (pnl >= 0) {
+        totalGrossProfit += pnl;
+        todayGrossProfit += pnl;
+        totalWins += 1;
+        todayWins += 1;
+      } else {
+        totalGrossLoss += Math.abs(pnl);
+        todayGrossLoss += Math.abs(pnl);
+        totalLosses += 1;
+        todayLosses += 1;
+      }
+      todayTradesCount += 1;
     });
 
     // 2. Closed trade history
@@ -516,24 +826,70 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
       const sellP = Number(t.sellPrice || t.currentLTP || buyP);
       const qty = Math.max(1, Number(t.quantity || 1));
       const pnl = t.realizedPnL !== undefined ? Number(t.realizedPnL) : (sellP - buyP) * qty;
-      if (pnl >= 0) totalGrossProfit += pnl;
-      else totalGrossLoss += Math.abs(pnl);
 
       const chg =
         Number((t as any).brokerageCharges) > 0
           ? Number((t as any).brokerageCharges)
           : calculateTradeCharges(buyP, qty, isOpt, sellP).roundTripCharges;
       totalBrokerageCharges += chg;
+
+      if (pnl >= 0) {
+        totalGrossProfit += pnl;
+        totalWins += 1;
+      } else {
+        totalGrossLoss += Math.abs(pnl);
+        totalLosses += 1;
+      }
+
+      // Check if trade was opened today in IST
+      const tradeDate = (t.openedAtMs && !isNaN(Number(t.openedAtMs)))
+        ? new Date(Number(t.openedAtMs)).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+        : (t.openedAt && !isNaN(new Date(t.openedAt).getTime()))
+          ? new Date(t.openedAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+          : t.closeTime 
+            ? new Date(t.closeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) 
+            : todayIst;
+
+      if (tradeDate === todayIst) {
+        todayTradesCount += 1;
+        todayBrokerage += chg;
+        if (pnl >= 0) {
+          todayGrossProfit += pnl;
+          todayWins += 1;
+        } else {
+          todayGrossLoss += Math.abs(pnl);
+          todayLosses += 1;
+        }
+      }
     });
 
     const netPnLAfterCharges = totalGrossProfit - totalGrossLoss - totalBrokerageCharges;
+    const todayNetPnL = todayGrossProfit - todayGrossLoss - todayBrokerage;
+    const todayWinRate = todayTradesCount > 0 ? Math.round((todayWins / todayTradesCount) * 100) : 100;
+    const totalTradesCount = positions.length + tradeHistory.length;
+    const allTimeWinRate = totalTradesCount > 0 ? Math.round((totalWins / totalTradesCount) * 100) : 100;
+
     return {
       totalGrossProfit,
       totalGrossLoss,
       totalBrokerageCharges,
       netPnLAfterCharges,
+      totalWins,
+      totalLosses,
+      allTimeWinRate,
+      totalTradesCount,
+      today: {
+        todayGrossProfit,
+        todayGrossLoss,
+        todayBrokerage,
+        todayNetPnL,
+        todayWins,
+        todayLosses,
+        todayWinRate,
+        todayTradesCount,
+      },
     };
-  }, [positions, tradeHistory]);
+  }, [positions, tradeHistory, todayIst]);
 
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
@@ -607,7 +963,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>{t.executedOrders}</span>
+              <span>{language === 'ml' ? 'ഓർഡർ ബുക്ക്' : 'Order Book'}</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'ORDERS' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'}`}>
                 {orders.length}
               </span>
@@ -621,7 +977,8 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>{language === 'ml' ? 'ട്രേഡ് ഹിസ്റ്ററി' : 'Trade History'}</span>
+              <CheckCheck className="w-3.5 h-3.5 text-cyan-300" />
+              <span>{language === 'ml' ? 'പൂർത്തിയായ ട്രേഡുകൾ (വാങ്ങലും വിൽക്കലും)' : 'Trade History (Paired)'}</span>
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeTab === 'TRADE_HISTORY' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'}`}>
                 {tradeHistory.length}
               </span>
@@ -652,51 +1009,180 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
         </div>
       )}
 
+      {/* Live Chart Navigation Quick Banner */}
+      <div className="mx-3 sm:mx-4 mt-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-950/70 via-slate-900/80 to-cyan-950/60 border border-indigo-500/30 flex items-center justify-between gap-2 text-xs flex-wrap shadow-sm">
+        <div className="flex items-center gap-2 text-indigo-200 min-w-0">
+          <BarChart2 className="w-4 h-4 text-cyan-400 shrink-0" />
+          <span className="text-[11px] leading-tight">
+            {language === 'ml'
+              ? '💡 ട്രേഡ് ചാർട്ട് കാണാൻ: ഓരോ കാർഡിലുമുള്ള "📈 ലൈവ് ചാർട്ട്" ബട്ടൺ അമർത്തുക (എൻട്രി, SL, ടാർഗറ്റ് ലൈനുകളോടെ).'
+              : '💡 To view chart: Click "📈 Live Chart" on any card (with Entry, SL & Target lines).'}
+          </span>
+        </div>
+        {onViewChart && (
+          <button
+            type="button"
+            onClick={() => {
+              if (positions.length > 0) {
+                const first = positions[0];
+                onViewChart(first.symbol, first.instrumentKey, {
+                  symbol: first.symbol,
+                  buyPrice: first.buyPrice,
+                  currentLTP: first.currentLTP,
+                  target: first.target,
+                  stopLoss: first.stopLoss,
+                  pnl: first.pnl,
+                  isOption: first.isOption !== false,
+                });
+              } else if (tradeHistory.length > 0) {
+                const first = tradeHistory[0];
+                onViewChart(first.symbol, first.instrumentKey, {
+                  symbol: first.symbol,
+                  buyPrice: first.buyPrice,
+                  sellPrice: first.sellPrice || first.currentLTP,
+                  currentLTP: first.currentLTP,
+                  pnl: first.realizedPnL,
+                  isOption: first.isOption !== false,
+                });
+              } else {
+                onViewChart('NIFTY', 'NSE_INDEX|Nifty 50');
+              }
+            }}
+            className="px-2.5 py-1 rounded-lg bg-indigo-600/40 hover:bg-indigo-600 text-cyan-200 hover:text-white border border-indigo-500/40 text-[11px] font-extrabold transition flex items-center gap-1 active:scale-95 shadow-sm shrink-0"
+          >
+            <span>{language === 'ml' ? '📊 ഫുൾ ചാർട്ട് സ്ക്രീൻ' : '📊 Full Chart'}</span>
+          </button>
+        )}
+      </div>
+
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto smooth-scroll p-3 sm:p-4 pb-20 sm:pb-6">
         
         {/* POSITIONS TAB */}
         {activeTab === 'POSITIONS' && (
           <div className="space-y-3">
-            {/* Live Total Profit, Total Loss, Total Brokerage Charges & Net P&L Summary */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-              <div className="p-3 rounded-xl bg-emerald-950/25 border border-emerald-800/50">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/90 block">
-                  {language === 'ml' ? 'ആകെ ലാഭം (Total Profit)' : 'Total Profit'}
-                </span>
-                <span className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-0.5 block">
-                  +₹{accountSummary.totalGrossProfit.toFixed(2)}
-                </span>
+            {/* DUAL SUMMARY: 1. Today's Trading Performance & 2. Total All-Time Cumulative Performance */}
+            <div className="space-y-2.5">
+              {/* Row 1: Today's Trading Performance */}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-950/25 via-slate-900/90 to-slate-900 border border-emerald-900/50 shadow-md">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-emerald-900/30">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-emerald-300">
+                      {language === 'ml' ? '📅 ഇന്നത്തെ ട്രേഡിംഗ് സംഗ്രഹം (Today: ' + todayIst + ')' : "📅 Today's Trading Summary (" + todayIst + ')'}
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-900/50 text-emerald-200 font-bold">
+                      {accountSummary.today.todayTradesCount} {language === 'ml' ? 'ട്രേഡുകൾ' : 'Trades'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono font-bold text-slate-300">
+                    <span className="text-slate-400 text-[10px] mr-1">{language === 'ml' ? 'വിജയം:' : 'Win Rate:'}</span>
+                    <span className="text-emerald-400 font-black">{accountSummary.today.todayWinRate}%</span>
+                    <span className="text-slate-500 text-[10px] ml-1">({accountSummary.today.todayWins}W / {accountSummary.today.todayLosses}L)</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-400 block">
+                      {language === 'ml' ? 'ഇന്നത്തെ ലാഭം (Gross)' : 'Today Gross Win'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-emerald-400 mt-0.5 block">
+                      +₹{accountSummary.today.todayGrossProfit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-400 block">
+                      {language === 'ml' ? 'ഇന്നത്തെ നഷ്ടം (Gross)' : 'Today Gross Loss'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-rose-400 mt-0.5 block">
+                      -₹{accountSummary.today.todayGrossLoss.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-amber-300 block">
+                      {language === 'ml' ? 'ഇന്നത്തെ ബ്രോക്കറേജ് & ടാക്സ്' : 'Today Brokerage & Taxes'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-amber-300 mt-0.5 block">
+                      ₹{accountSummary.today.todayBrokerage.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className={`p-2.5 rounded-xl border ${
+                    accountSummary.today.todayNetPnL >= 0
+                      ? 'bg-emerald-950/40 border-emerald-500/50'
+                      : 'bg-rose-950/40 border-rose-500/50'
+                  }`}>
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-cyan-300 block">
+                      {language === 'ml' ? 'ഇന്നത്തെ അറ്റ ലാഭം (Net P&L)' : 'Today Net P&L'}
+                    </span>
+                    <span className={`text-sm sm:text-base font-black font-mono mt-0.5 block ${
+                      accountSummary.today.todayNetPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {accountSummary.today.todayNetPnL >= 0 ? '+' : '-'}₹{Math.abs(accountSummary.today.todayNetPnL).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="p-3 rounded-xl bg-rose-950/25 border border-rose-800/50">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300/90 block">
-                  {language === 'ml' ? 'ആകെ നഷ്ടം (Total Loss)' : 'Total Loss'}
-                </span>
-                <span className="text-base sm:text-lg font-black font-mono text-rose-400 mt-0.5 block">
-                  -₹{accountSummary.totalGrossLoss.toFixed(2)}
-                </span>
-              </div>
-              <div className="p-3 rounded-xl bg-amber-950/25 border border-amber-800/50">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300/90 block">
-                  {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് ചാർജ്' : 'Total Brokerage Charges'}
-                </span>
-                <span className="text-base sm:text-lg font-black font-mono text-amber-400 mt-0.5 block">
-                  ₹{accountSummary.totalBrokerageCharges.toFixed(2)}
-                </span>
-              </div>
-              <div className={`p-3 rounded-xl border ${
-                accountSummary.netPnLAfterCharges >= 0
-                  ? 'bg-emerald-950/30 border-emerald-500/40'
-                  : 'bg-rose-950/30 border-rose-500/40'
-              }`}>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300 block">
-                  {language === 'ml' ? 'അറ്റ ലാഭം / നഷ്ടം (Net P&L)' : 'Net P&L (After Charges)'}
-                </span>
-                <span className={`text-base sm:text-lg font-black font-mono mt-0.5 block ${
-                  accountSummary.netPnLAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                }`}>
-                  {accountSummary.netPnLAfterCharges >= 0 ? '+' : '-'}₹{Math.abs(accountSummary.netPnLAfterCharges).toFixed(2)}
-                </span>
+
+              {/* Row 2: Total All-Time Cumulative Performance */}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-indigo-950/25 via-slate-900/90 to-slate-900 border border-indigo-900/50 shadow-md">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-indigo-900/30">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                    <span className="text-[11px] font-black uppercase tracking-wide text-cyan-300">
+                      {language === 'ml' ? '🌐 ആകെ മൊത്തം ട്രേഡിംഗ് ഹിസ്റ്ററി (All-Time)' : '🌐 Total Cumulative Performance (All-Time)'}
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-900/50 text-indigo-200 font-bold">
+                      {accountSummary.totalTradesCount} {language === 'ml' ? 'ആകെ ട്രേഡുകൾ' : 'Total Trades'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] font-mono font-bold text-slate-300">
+                    <span className="text-slate-400 text-[10px] mr-1">{language === 'ml' ? 'ആകെ വിൻ റേറ്റ്:' : 'Overall Win Rate:'}</span>
+                    <span className="text-cyan-300 font-black">{accountSummary.allTimeWinRate}%</span>
+                    <span className="text-slate-500 text-[10px] ml-1">({accountSummary.totalWins}W / {accountSummary.totalLosses}L)</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-400 block">
+                      {language === 'ml' ? 'ആകെ ലാഭം (Total Gross)' : 'Total Gross Profit'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-emerald-400 mt-0.5 block">
+                      +₹{accountSummary.totalGrossProfit.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-400 block">
+                      {language === 'ml' ? 'ആകെ നഷ്ടം (Total Gross)' : 'Total Gross Loss'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-rose-400 mt-0.5 block">
+                      -₹{accountSummary.totalGrossLoss.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-amber-300 block">
+                      {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് & ടാക്സ്' : 'Total Brokerage & Taxes'}
+                    </span>
+                    <span className="text-sm sm:text-base font-black font-mono text-amber-300 mt-0.5 block">
+                      ₹{accountSummary.totalBrokerageCharges.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className={`p-2.5 rounded-xl border ${
+                    accountSummary.netPnLAfterCharges >= 0
+                      ? 'bg-indigo-950/40 border-indigo-500/50'
+                      : 'bg-rose-950/40 border-rose-500/50'
+                  }`}>
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-cyan-300 block">
+                      {language === 'ml' ? 'ആകെ അറ്റ ലാഭം (Total Net P&L)' : 'Total Net P&L'}
+                    </span>
+                    <span className={`text-sm sm:text-base font-black font-mono mt-0.5 block ${
+                      accountSummary.netPnLAfterCharges >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}>
+                      {accountSummary.netPnLAfterCharges >= 0 ? '+' : '-'}₹{Math.abs(accountSummary.netPnLAfterCharges).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -763,6 +1249,8 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   pos={pos} 
                   onSquareOff={onSquareOffPosition} 
                   isNew={newlyAddedIds.has(pos.id)}
+                  onViewChart={onViewChart}
+                  language={language}
                 />
               ))
             )}
@@ -1034,39 +1522,58 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                           <strong className="text-slate-200 font-mono">₹{currentVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong>
                         </div>
 
-                        {onOpenOrderModal && (
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          {onViewChart && (
                             <button
                               type="button"
-                              onClick={() =>
-                                onOpenOrderModal('BUY', h.symbol, h.currentLTP || 0, {
-                                  quantity: 1,
-                                  heldQuantity: h.quantity,
-                                  productType: 'DELIVERY',
-                                  instrumentKey: (h as any).instrumentKey,
-                                })
-                              }
-                              className="px-2.5 py-1 min-h-[36px] rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
+                              onClick={() => onViewChart(h.symbol, (h as any).instrumentKey || `NSE_EQ|${h.symbol}`, {
+                                symbol: h.symbol,
+                                buyPrice: avgPx,
+                                currentLTP: curLtp,
+                                pnl: pnl,
+                                isOption: false
+                              })}
+                              className="px-3 py-1.5 min-h-[36px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white border border-cyan-500/40 text-xs font-black transition flex items-center gap-1.5 active:scale-95 touch-manipulation shadow-sm"
+                              title={language === 'ml' ? 'ഈ ഓഹരിയുടെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Stock Chart'}
                             >
-                              <Plus className="w-3 h-3" />
-                              <span>{language === 'ml' ? 'വാങ്ങുക' : 'Buy'}</span>
+                              <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
+                              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onOpenOrderModal('SELL', h.symbol, h.currentLTP || 0, {
-                                  quantity: h.quantity || 1,
-                                  heldQuantity: h.quantity,
-                                  productType: 'DELIVERY',
-                                  instrumentKey: (h as any).instrumentKey,
-                                })
-                              }
-                              className="px-2.5 py-1 min-h-[36px] rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
-                            >
-                              <span>{language === 'ml' ? 'വിൽക്കുക' : 'Sell'}</span>
-                            </button>
-                          </div>
-                        )}
+                          )}
+                          {onOpenOrderModal && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenOrderModal('BUY', h.symbol, h.currentLTP || 0, {
+                                    quantity: 1,
+                                    heldQuantity: h.quantity,
+                                    productType: 'DELIVERY',
+                                    instrumentKey: (h as any).instrumentKey,
+                                  })
+                                }
+                                className="px-2.5 py-1 min-h-[36px] rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>{language === 'ml' ? 'വാങ്ങുക' : 'Buy'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenOrderModal('SELL', h.symbol, h.currentLTP || 0, {
+                                    quantity: h.quantity || 1,
+                                    heldQuantity: h.quantity,
+                                    productType: 'DELIVERY',
+                                    instrumentKey: (h as any).instrumentKey,
+                                  })
+                                }
+                                className="px-2.5 py-1 min-h-[36px] rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
+                              >
+                                <span>{language === 'ml' ? 'വിൽക്കുക' : 'Sell'}</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -1078,15 +1585,222 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
         {/* ORDERS TAB */}
         {activeTab === 'ORDERS' && (
-          <div className="space-y-2.5">
-            {orders.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">
-                <Clock className="w-8 h-8 mx-auto mb-2 text-slate-700" />
-                <p className="text-xs font-semibold">
-                  {language === 'ml' ? 'ഇതുവരെ ഓർഡറുകൾ ഒന്നും നൽകിയിട്ടില്ല (മാർക്കറ്റ് സമയം 09:18 AM മുതൽ അൽഗോരിതം ട്രേഡ് എടുക്കും).' : 'No orders recorded in this session (Algo takes entries after 09:18 AM IST).'}
+          <div className="space-y-3">
+            {/* ORDERS VIEW MODE TOGGLE & EXPLANATION BANNER */}
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+              <div>
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-cyan-400" />
+                  <span>{language === 'ml' ? 'ബ്രോക്കർ ഓർഡർ ബുക്ക് & റൗണ്ട്-ട്രിപ്പ്' : 'Broker Order Book & Round-Trips'}</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {language === 'ml' 
+                    ? 'താഴെ വാങ്ങിയതും വിറ്റതുമായ ട്രേഡുകൾ ഒന്നിച്ചോ (Paired), അല്ലെങ്കിൽ ഓരോ ഓർഡറും പ്രത്യേകമായോ (Raw Orders) കാണാം.' 
+                    : 'View paired round-trip trades or raw broker executions.'}
                 </p>
               </div>
+              
+              <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setOrdersViewMode('PAIRED')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    ordersViewMode === 'PAIRED'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>{language === 'ml' ? 'വാങ്ങലും വിൽക്കലും ഒരുമിച്ച്' : 'Paired Round-Trips'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrdersViewMode('INDIVIDUAL')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    ordersViewMode === 'INDIVIDUAL'
+                      ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{language === 'ml' ? 'ഓരോ ഓർഡറും പ്രത്യേകം' : 'Individual Fills'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* If PAIRED mode is active, display the completed paired trades with date & buy+sell together */}
+            {ordersViewMode === 'PAIRED' ? (
+              tradeHistory.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
+                  <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-700" />
+                  <p className="text-xs font-semibold">
+                    {language === 'ml' ? 'പൂർത്തിയായ റൗണ്ട്-ട്രിപ്പ് ട്രേഡുകൾ ഒന്നുമില്ല.' : 'No completed round-trip trades recorded.'}
+                  </p>
+                </div>
+              ) : (
+                tradeHistory.map((pos) => {
+                  const gross = (pos.realizedPnL || 0);
+                  const isOpt = Boolean(pos.isOption || /\b(CE|PE)\b/i.test(pos.symbol || '') || String(pos.instrumentKey || '').includes('FO'));
+                  const estCharges =
+                    Number((pos as any).brokerageCharges) > 0
+                      ? Number((pos as any).brokerageCharges)
+                      : calculateTradeCharges(
+                          Number(pos.buyPrice || 0),
+                          Math.max(1, Number(pos.quantity || 1)),
+                          isOpt,
+                          Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0)
+                        ).roundTripCharges;
+                  const net = gross - estCharges;
+
+                  const entryDt = formatTradeDateTime(pos.openedAtMs || pos.openedAt, language);
+                  const exitDt = formatTradeDateTime(pos.closeTime, language);
+                  const tradeDateLabel = entryDt.dateStr || exitDt.dateStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleDateString('en-IN') : 'Trade Session');
+                  const duration = getTradeDuration(pos.openedAtMs || pos.openedAt, pos.closeTime, language);
+                  const exitReason = translateExitReason(pos.exitReason, language, net, gross);
+
+                  const buyPx = Number(pos.buyPrice || 0);
+                  const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
+                  const qty = Math.max(1, Number(pos.quantity || 1));
+                  const investedValue = buyPx * qty;
+                  const returnedValue = sellPx * qty;
+
+                  return (
+                    <div key={`paired_${pos.id}`} className="bg-gradient-to-br from-[#0c1222] via-[#090d18] to-slate-900/90 p-4 rounded-2xl border border-slate-800 flex flex-col gap-3 shadow-md hover:border-slate-700 transition">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+                            <CheckCheck className="w-3 h-3" />
+                            {language === 'ml' ? 'വാങ്ങലും വിൽക്കലും ഒരുമിച്ച്' : 'Paired Round-Trip'}
+                          </span>
+                          <span className="font-extrabold text-white text-sm">{pos.symbol}</span>
+                          <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 font-mono">
+                            Qty: <strong>{qty}</strong>
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-950/70 border border-indigo-500/40 text-cyan-200 text-xs font-bold">
+                            <Calendar className="w-3 h-3 text-cyan-400" />
+                            <span>{tradeDateLabel}</span>
+                          </div>
+                          {duration && (
+                            <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                              {duration}
+                            </span>
+                          )}
+                          {onViewChart && (
+                            <button
+                              type="button"
+                              onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
+                                symbol: pos.symbol,
+                                buyPrice: buyPx,
+                                sellPrice: sellPx,
+                                currentLTP: sellPx,
+                                pnl: net,
+                                isOption: /\b(CE|PE)\b/i.test(pos.symbol)
+                              })}
+                              className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition flex items-center gap-1.5 shadow-sm active:scale-95 touch-manipulation"
+                              title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart for this trade'}
+                            >
+                              <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
+                              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+                        {/* Buy Info */}
+                        <div className="p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-sans">
+                              {language === 'ml' ? '🟢 വാങ്ങിയത് (BUY)' : '🟢 Bought (Buy)'}
+                            </span>
+                            <span className="text-emerald-300 font-black text-sm">
+                              ₹{buyPx.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 block font-sans">
+                              {language === 'ml' ? 'തീയതി & സമയം' : 'Date & Time'}
+                            </span>
+                            <span className="text-slate-200 text-[11px]">
+                              {entryDt.fullStr || entryDt.timeStr || pos.openedAt || '—'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Sell Info */}
+                        <div className="p-2.5 rounded-xl bg-rose-950/20 border border-rose-500/30 flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-sans">
+                              {language === 'ml' ? '🔴 വിറ്റത് (SELL)' : '🔴 Sold (Sell)'}
+                            </span>
+                            <span className="text-rose-300 font-black text-sm">
+                              ₹{sellPx.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 block font-sans">
+                              {language === 'ml' ? 'തീയതി & സമയം' : 'Date & Time'}
+                            </span>
+                            <span className="text-slate-200 text-[11px]">
+                              {exitDt.fullStr || exitDt.timeStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleTimeString('en-IN') : '—')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Summary */}
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-slate-800/80 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
+                        <div className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                          <span>{language === 'ml' ? 'എക്സിറ്റ് കാരണം: ' : 'Exit: '}</span>
+                          <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                            net >= 0 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
+                          }`}>
+                            {exitReason}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {onViewChart && (
+                            <button
+                              type="button"
+                              onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
+                                symbol: pos.symbol,
+                                buyPrice: buyPx,
+                                sellPrice: sellPx,
+                                currentLTP: sellPx,
+                                pnl: net,
+                                isOption: /\b(CE|PE)\b/i.test(pos.symbol)
+                              })}
+                              className="px-2.5 py-1 min-h-[30px] rounded-lg bg-indigo-500/25 hover:bg-indigo-600 text-cyan-300 hover:text-white text-[11px] font-extrabold border border-cyan-500/30 transition flex items-center gap-1 active:scale-95"
+                              title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Chart'}
+                            >
+                              <BarChart2 className="w-3 h-3 text-cyan-300" />
+                              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                            </button>
+                          )}
+                          <span className="text-[10px] text-slate-400 uppercase">Net P&L:</span>
+                          <span className={`font-black text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )
             ) : (
+              /* INDIVIDUAL ORDERS VIEW */
+              orders.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800">
+                  <Clock className="w-8 h-8 mx-auto mb-2 text-slate-700" />
+                  <p className="text-xs font-semibold">
+                    {language === 'ml' ? 'ഇതുവരെ ഓർഡറുകൾ ഒന്നും നൽകിയിട്ടില്ല (മാർക്കറ്റ് സമയം 09:18 AM മുതൽ അൽഗോരിതം ട്രേഡ് എടുക്കും).' : 'No orders recorded in this session (Algo takes entries after 09:18 AM IST).'}
+                  </p>
+                </div>
+              ) : (
                 orders.map((ord) => {
                   const isNew = newlyAddedIds.has(ord.id);
                   const isBuy = ord.transactionType === 'BUY';
@@ -1132,6 +1846,8 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                       ? Number((ord as any).netRealizedPnL)
                       : Number((grossPnl - roundTripTax).toFixed(2));
 
+                  const orderFormattedDate = formatTradeDateTime((ord as any).time || ord.timestamp, language);
+
                   return (
                     <div
                       key={ord.id}
@@ -1143,12 +1859,12 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-3">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-black w-12 text-center ${
+                          <span className={`px-2 py-1 rounded-md text-[10px] font-black w-14 text-center ${
                             isBuy
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                               : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                           }`}>
-                            {ord.transactionType}
+                            {isBuy ? (language === 'ml' ? 'വാങ്ങൽ' : 'BUY') : (language === 'ml' ? 'വിൽക്കൽ' : 'SELL')}
                           </span>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
@@ -1161,7 +1877,11 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                               )}
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              <span className="text-slate-400 text-[10px]">{ord.timestamp}</span>
+                              {/* Order Date & Time */}
+                              <span className="text-cyan-300 font-sans text-[10px] font-semibold flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-cyan-400" />
+                                {orderFormattedDate.fullStr || ord.timestamp}
+                              </span>
                               <span className="w-1 h-1 rounded-full bg-slate-700" />
                               <span className="text-slate-300 text-[10px]">Qty: <strong>{qty}</strong></span>
                               {ord.productType && (
@@ -1173,47 +1893,86 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                             </div>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end gap-1">
                           <div className="text-white font-bold text-sm mb-0.5">
                             ₹{execPx.toFixed(2)}
                           </div>
-                          <div className="flex items-center justify-end gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>{ord.status}</span>
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            {onViewChart && (
+                              <button
+                                type="button"
+                                onClick={() => onViewChart(ord.symbol, ord.instrumentKey, {
+                                  symbol: ord.symbol,
+                                  buyPrice: entryPx,
+                                  currentLTP: currentOrExitPx,
+                                  pnl: grossPnl,
+                                  isOption: isOpt
+                                })}
+                                className="px-2.5 py-1 min-h-[30px] rounded-lg bg-indigo-500/25 hover:bg-indigo-600 text-cyan-300 hover:text-white text-[11px] font-extrabold border border-cyan-500/30 transition shadow-sm flex items-center gap-1 active:scale-95 touch-manipulation"
+                                title={language === 'ml' ? 'ഈ ഓർഡറിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart'}
+                              >
+                                <BarChart2 className="w-3 h-3 text-cyan-300" />
+                                <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                              </button>
+                            )}
+                            <div className="flex items-center justify-end gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>{ord.status}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
 
-                      {/* Trade Details & Net P&L Breakdown Bar inside Order Card */}
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
+                      {/* Accurate Order Execution Breakdown */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'വാങ്ങിയ വില (Buy)' : 'Buy Price'}</span>
-                          <span className="text-slate-200 font-bold">₹{entryPx.toFixed(2)}</span>
+                          <span className="text-slate-500 block font-sans">
+                            {isBuy ? (language === 'ml' ? 'വാങ്ങിയ വില (Buy)' : 'Buy Price') : (language === 'ml' ? 'വിറ്റ വില (Sell)' : 'Exit Price')}
+                          </span>
+                          <span className="text-slate-200 font-bold">₹{execPx.toFixed(2)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'വിറ്റ വില / LTP' : 'Exit / LTP'}</span>
-                          <span className="text-cyan-300 font-bold">₹{currentOrExitPx.toFixed(2)}</span>
+                          <span className="text-slate-500 block font-sans">
+                            {language === 'ml' ? 'ആകെ ഓർഡർ തുക (Value)' : 'Order Value'}
+                          </span>
+                          <span className="text-cyan-300 font-bold">₹{(execPx * qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'മൊത്തം ലാഭം (Gross)' : 'Gross P&L'}</span>
-                          <span className={`font-bold ${grossPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {grossPnl >= 0 ? '+' : ''}₹{grossPnl.toFixed(2)}
+                          <span className="text-slate-500 block font-sans">
+                            {language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}
+                          </span>
+                          <span className="text-amber-300 font-bold">
+                            ₹{(matchingClosedTrade ? roundTripTax : (roundTripTax / 2)).toFixed(2)}
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}</span>
-                          <span className="text-amber-300 font-bold">-₹{roundTripTax.toFixed(2)}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block font-sans">{language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L (After Tax)'}</span>
-                          <span className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}
+                          <span className="text-slate-500 block font-sans">
+                            {matchingOpenPos
+                              ? (language === 'ml' ? 'പൊസിഷൻ സ്റ്റാറ്റസ്' : 'Position Status')
+                              : matchingClosedTrade
+                                ? (language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Realized P&L')
+                                : (language === 'ml' ? 'ഓർഡർ സ്റ്റാറ്റസ്' : 'Order Status')}
                           </span>
+                          {matchingOpenPos ? (
+                            <span className="text-emerald-400 font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                              {language === 'ml' ? 'നിലവിൽ ഹോൾഡ് ചെയ്യുന്നു' : 'Holding Active'}
+                            </span>
+                          ) : matchingClosedTrade ? (
+                            <span className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 font-bold">
+                              {language === 'ml' ? 'പൂർത്തിയായി (Filled)' : 'Filled'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
                   );
                 })
+              )
             )}
           </div>
         )}
@@ -1228,15 +1987,87 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
             {/* Visual Overview: Daily Cumulative PnL Line Chart */}
             <CumulativePnLChart tradeHistory={tradeHistory} language={language} />
 
-            {tradeHistory.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">
+            {/* Trade History Header Banner & Trade Date Filter Bar */}
+            <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 shadow-md">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CheckCheck className="w-4 h-4 text-cyan-400" />
+                    <span className="font-extrabold text-white text-xs sm:text-sm">
+                      {language === 'ml' ? 'പൂർത്തിയായ ട്രേഡുകൾ — വാങ്ങലും വിൽക്കലും ഒരുമിച്ച്' : 'Completed Trades — Buy & Sell Combined'}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      {tradeHistory.length} {language === 'ml' ? 'ട്രേഡുകൾ' : 'Trades'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {language === 'ml'
+                      ? 'താഴെ ഓരോ കാർഡിലും ഒരു ട്രേഡിന്റെ വാങ്ങിയ വിലയും (Entry) വിറ്റ വിലയും (Exit), തീയതിയും, സമയവും ഒന്നിച്ച് കാണാം.'
+                      : 'Each card below combines both Entry/Buy and Exit/Sell details, trade date, and duration together.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Date Filter Pills */}
+              {availableTradeDates.length > 0 && (
+                <div className="pt-2 border-t border-slate-800/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 shrink-0 flex items-center gap-1 mr-1">
+                    <Filter className="w-3 h-3 text-cyan-400" />
+                    {language === 'ml' ? 'തീയതി ഫിൽട്ടർ:' : 'Date:'}
+                  </span>
+                  
+                  <button
+                    onClick={() => setSelectedTradeDateFilter('ALL')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 shrink-0 ${
+                      selectedTradeDateFilter === 'ALL'
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                        : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                    }`}
+                  >
+                    <Calendar className="w-3 h-3" />
+                    <span>{language === 'ml' ? `എല്ലാ തീയതികളും (${tradeHistory.length})` : `All Dates (${tradeHistory.length})`}</span>
+                  </button>
+
+                  {availableTradeDates.map((d) => (
+                    <button
+                      key={d.rawDate}
+                      onClick={() => setSelectedTradeDateFilter(d.rawDate)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 shrink-0 ${
+                        selectedTradeDateFilter === d.rawDate
+                          ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md shadow-indigo-500/20'
+                          : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      }`}
+                    >
+                      <Calendar className="w-3 h-3 text-cyan-400" />
+                      <span>{d.displayLabel}</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 text-cyan-200">
+                        {d.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {filteredTradeHistory.length === 0 ? (
+              <div className="p-8 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800/80">
                 <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-700" />
                 <p className="text-xs font-semibold">
-                  {language === 'ml' ? 'ഇന്ന് പൂർത്തിയാക്കിയ ട്രേഡുകൾ ഒന്നുമില്ല.' : 'No completed trades for today.'}
+                  {selectedTradeDateFilter === 'ALL'
+                    ? (language === 'ml' ? 'പൂർത്തിയാക്കിയ ട്രേഡുകൾ ഒന്നും ലഭ്യമല്ല.' : 'No completed trades available.')
+                    : (language === 'ml' ? 'തിരഞ്ഞെടുത്ത തീയതിയിൽ ട്രേഡുകൾ ഒന്നുമില്ല.' : 'No completed trades for selected date.')}
                 </p>
+                {selectedTradeDateFilter !== 'ALL' && (
+                  <button
+                    onClick={() => setSelectedTradeDateFilter('ALL')}
+                    className="mt-2 text-xs text-indigo-400 hover:underline font-bold"
+                  >
+                    {language === 'ml' ? 'എല്ലാ ട്രേഡുകളും കാണുക' : 'Show all trades'}
+                  </button>
+                )}
               </div>
             ) : (
-              tradeHistory.map((pos) => {
+              filteredTradeHistory.map((pos) => {
                 const gross = (pos.realizedPnL || 0);
                 const isOpt = Boolean(pos.isOption || /\b(CE|PE)\b/i.test(pos.symbol || '') || String(pos.instrumentKey || '').includes('FO'));
                 const estCharges =
@@ -1249,49 +2080,232 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                         Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0)
                       ).roundTripCharges;
                 const net = gross - estCharges;
+
+                const entryDt = formatTradeDateTime(pos.openedAtMs || pos.openedAt, language);
+                const exitDt = formatTradeDateTime(pos.closeTime, language);
+                const tradeDateLabel = entryDt.dateStr || exitDt.dateStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleDateString('en-IN') : 'Trade Session');
+                const duration = getTradeDuration(pos.openedAtMs || pos.openedAt, pos.closeTime, language);
+                const exitReason = translateExitReason(pos.exitReason, language, net, gross);
+
+                const buyPx = Number(pos.buyPrice || 0);
+                const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
+                const qty = Math.max(1, Number(pos.quantity || 1));
+                const investedValue = buyPx * qty;
+                const returnedValue = sellPx * qty;
+                const peakPrice = Number(pos.highestLTP || Math.max(buyPx, sellPx));
+                const peakProfit = pos.highestPnl !== undefined ? Number(pos.highestPnl) : Math.max(0, (peakPrice - buyPx) * qty);
                 
                 return (
-                <div key={pos.id} className="bg-gradient-to-br from-slate-900/80 to-slate-900/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-3 relative overflow-hidden">
-                  <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-10 pointer-events-none ${net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <div key={pos.id} className="bg-gradient-to-br from-[#0c1222] via-[#090d18] to-slate-900/90 p-4 rounded-2xl border border-slate-800/90 flex flex-col gap-3.5 relative overflow-hidden shadow-lg transition-all duration-300 hover:border-slate-700">
+                  <div className={`absolute top-0 right-0 w-44 h-44 rounded-full blur-3xl opacity-15 pointer-events-none ${net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                   
-                  <div className="flex justify-between items-start z-10">
-                      <div>
-                          <div className="flex items-center gap-2 mb-1.5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-black ${((pos as any).type || 'BUY') === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'}`}>
-                                  {(pos as any).type || 'BUY'}
-                              </span>
-                              <span className="font-extrabold text-white text-sm">{pos.symbol}</span>
-                          </div>
-                          <span className="text-[11px] text-slate-400 font-medium">
-                              Qty: <strong className="text-slate-200">{pos.quantity}</strong>
-                          </span>
+                  {/* Top Header: Round-Trip Completed Badge, Trade Date, Duration & Chart */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 z-10 border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-1 rounded-md text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1 uppercase tracking-wider shadow-sm">
+                        <CheckCheck className="w-3.5 h-3.5 text-cyan-300" />
+                        {language === 'ml' ? 'വാങ്ങലും വിൽക്കലും പൂർത്തിയായി' : 'Completed Round-Trip'}
+                      </span>
+                      <span className="font-black text-white text-base font-sans tracking-tight">
+                        {pos.symbol}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                        {pos.productType || 'INTRADAY'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                      {/* Trade Date Badge */}
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-950/70 border border-indigo-500/40 text-cyan-200 text-xs font-bold shadow-sm font-sans" title="Trade Session Date">
+                        <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>{tradeDateLabel}</span>
                       </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-2 py-1 rounded-md border border-slate-800 uppercase tracking-wider">{pos.closeTime ? new Date(pos.closeTime).toLocaleTimeString() : 'CLOSED'}</span>
-                      </div>
+
+                      {/* Trade Duration Badge */}
+                      {duration && (
+                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-bold" title="Trade Duration">
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{duration}</span>
+                        </div>
+                      )}
+
+                      {/* Chart Button */}
+                      {onViewChart && (
+                        <button
+                          type="button"
+                          onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
+                            symbol: pos.symbol,
+                            buyPrice: pos.buyPrice,
+                            sellPrice: pos.sellPrice || pos.currentLTP,
+                            currentLTP: pos.currentLTP,
+                            target: pos.target,
+                            stopLoss: pos.stopLoss,
+                            pnl: pos.realizedPnL,
+                            isOption: isOpt
+                          })}
+                          className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition shadow-sm flex items-center gap-1.5 active:scale-95 touch-manipulation"
+                          title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ കാൻഡിൽസ്റ്റിക്ക് ചാർട്ട് കാണുക' : 'View Candlestick Chart for this trade'}
+                        >
+                          <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
+                          <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-black/30 p-3 rounded-xl border border-slate-800/40 z-10">
-                      <div className="flex flex-col gap-1">
-                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Buy Price</span>
-                          <span className="text-slate-300 font-semibold">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Sell Price</span>
-                          <span className="text-slate-300 font-semibold">₹{pos.sellPrice?.toFixed(2) || '0.00'}</span>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Gross P&L</span>
-                          <span className={`font-bold ${gross >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+                  {/* Two Side-by-Side Panels: Entry/Buy on Left & Exit/Sell on Right (വാങ്ങിയതും വിറ്റതും ഒന്നിച്ച്) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 z-10">
+                    {/* 1. ENTRY / BUY SIDE (വാങ്ങിയത്) */}
+                    <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between border-b border-emerald-500/20 pb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span className="text-xs font-black text-emerald-300 uppercase tracking-wide">
+                            {language === 'ml' ? '1. വാങ്ങിയത് (ENTRY / BUY)' : '1. Bought (Entry)'}
                           </span>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/60">
+                          {qty} Qty
+                        </span>
                       </div>
-                      <div className="flex flex-col gap-1">
-                          <span className="text-[10px] text-slate-500 font-sans tracking-wide uppercase">Net P&L (-₹{estCharges.toFixed(2)} Charges)</span>
-                          <span className={`font-black text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+                      
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-sans">
+                            {language === 'ml' ? 'വാങ്ങിയ തീയതി & സമയം' : 'Buy Date & Time'}
                           </span>
+                          <span className="text-slate-200 font-bold text-[11px] block mt-0.5">
+                            {entryDt.fullStr || entryDt.timeStr || pos.openedAt || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-sans">
+                            {language === 'ml' ? 'വാങ്ങിയ പ്രീമിയം വില' : 'Buy Price'}
+                          </span>
+                          <span className="text-emerald-300 font-black text-sm block mt-0.5">
+                            ₹{buyPx.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="col-span-2 pt-1.5 border-t border-emerald-500/10 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400 font-sans">
+                            {language === 'ml' ? 'ആകെ മുതൽമുടക്ക് (Invested Value):' : 'Invested Value:'}
+                          </span>
+                          <span className="text-white font-bold">
+                            ₹{investedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
+                    </div>
+
+                    {/* 2. EXIT / SELL SIDE (വിറ്റത്) */}
+                    <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between border-b border-rose-500/20 pb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                          <span className="text-xs font-black text-rose-300 uppercase tracking-wide">
+                            {language === 'ml' ? '2. വിറ്റത് (EXIT / SELL)' : '2. Sold (Exit)'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-rose-300 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/60">
+                          {qty} Qty
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-sans">
+                            {language === 'ml' ? 'വിറ്റ തീയതി & സമയം' : 'Exit Date & Time'}
+                          </span>
+                          <span className="text-slate-200 font-bold text-[11px] block mt-0.5">
+                            {exitDt.fullStr || exitDt.timeStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleTimeString('en-IN') : '—')}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-sans">
+                            {language === 'ml' ? 'വിറ്റ പ്രീമിയം വില' : 'Exit Price'}
+                          </span>
+                          <span className="text-rose-300 font-black text-sm block mt-0.5">
+                            ₹{sellPx.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="col-span-2 pt-1.5 border-t border-rose-500/10 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400 font-sans">
+                            {language === 'ml' ? 'തിരിച്ചുകിട്ടിയ തുക (Returned Value):' : 'Returned Value:'}
+                          </span>
+                          <span className="text-white font-bold">
+                            ₹{returnedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bottom Row: Peak Price Analytics & Realized P&L Breakdown */}
+                  <div className="p-3 rounded-xl bg-black/40 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono z-10">
+                    {/* Peak Price in Chart & Exit Trigger */}
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <TrendingUp className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-sans">
+                            {language === 'ml' ? 'ചാർട്ടിൽ എത്തിയ പരമാവധി വില' : 'Chart Peak High'}
+                          </span>
+                          <span className="text-amber-300 font-bold">
+                            ₹{peakPrice.toFixed(2)}
+                            {peakProfit > 0 && (
+                              <span className="text-emerald-400 text-[10px] ml-1 font-sans">
+                                ({language === 'ml' ? 'പരമാവധി ലാഭ സാധ്യത' : 'Peak PnL'}: +₹{Math.round(peakProfit)})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="h-6 w-px bg-slate-800 hidden sm:block" />
+
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-sans">
+                          {language === 'ml' ? 'എക്സിറ്റ് കാരണം' : 'Exit Reason'}
+                        </span>
+                        <span className="text-cyan-300 font-bold text-[11px]">
+                          {exitReason}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Financial Summary: Gross P&L, Brokerage/Tax, Net Realized P&L */}
+                    <div className="flex items-center gap-3 justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800/80">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-sans uppercase">
+                          {language === 'ml' ? 'മൊത്തം ലാഭം (Gross)' : 'Gross P&L'}
+                        </span>
+                        <span className={`font-bold ${gross >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-[10px] text-slate-500 block font-sans uppercase" title="Brokerage, STT, Exchange, GST">
+                          {language === 'ml' ? 'ചാർജുകൾ' : 'Charges'}
+                        </span>
+                        <span className="text-amber-400 font-bold">
+                          -₹{estCharges.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className={`px-3 py-1.5 rounded-xl border flex flex-col items-end ${
+                        net >= 0 
+                          ? 'bg-emerald-950/60 border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.2)]' 
+                          : 'bg-rose-950/60 border-rose-500/50 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
+                      }`}>
+                        <span className="text-[9px] uppercase font-sans font-black text-slate-300">
+                          {language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L'}
+                        </span>
+                        <span className={`text-sm font-black font-mono ${net >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                          {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )})

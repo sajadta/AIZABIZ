@@ -98,6 +98,7 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
                                 dataKey="cumulative" 
                                 stroke={cumulative >= 0 ? "#4ade80" : "#f87171"} 
                                 strokeWidth={2}
+                                isAnimationActive={false}
                                 fillOpacity={1} 
                                 fill="url(#colorPnL)" 
                                 name="Cumulative PnL"

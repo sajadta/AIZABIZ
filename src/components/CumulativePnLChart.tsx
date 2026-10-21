@@ -279,6 +279,7 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                   dataKey="cumulative"
                   stroke={strokeColor}
                   strokeWidth={3}
+                  isAnimationActive={false}
                   dot={{
                     r: 4,
                     fill: '#090d16',

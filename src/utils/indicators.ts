@@ -851,28 +851,57 @@ export function analyzeTradingSignals(
     bearishPoints += 14;
   }
 
-  // B. 5-Minute & 15-Minute Multi-Timeframe (MTF) Structure Aggregation
+  // B. 5-Minute & 15-Minute Multi-Timeframe (MTF) Corporate Quant Structure Aggregation
   const buildMtfTrend = (groupSize: number): "BULLISH" | "BEARISH" | "NEUTRAL" => {
-    if (candles.length < groupSize * 3) return "NEUTRAL";
-    const bars: number[] = [];
-    for (let i = candles.length - groupSize * 4; i < candles.length; i += groupSize) {
-      const slice = candles.slice(Math.max(0, i), Math.min(candles.length, i + groupSize));
-      if (slice.length > 0) bars.push(slice[slice.length - 1].close);
+    if (candles.length < groupSize * 2) return "NEUTRAL";
+    // Aggregate synthetic MTF candles (Open, High, Low, Close, Volume)
+    const mtfCandles: { open: number; high: number; low: number; close: number; volume: number }[] = [];
+    for (let i = candles.length - groupSize * 8; i < candles.length; i += groupSize) {
+      if (i < 0) continue;
+      const slice = candles.slice(i, Math.min(candles.length, i + groupSize));
+      if (slice.length > 0) {
+        mtfCandles.push({
+          open: slice[0].open,
+          high: Math.max(...slice.map((c) => c.high)),
+          low: Math.min(...slice.map((c) => c.low)),
+          close: slice[slice.length - 1].close,
+          volume: slice.reduce((a, c) => a + Number(c.volume || 0), 0),
+        });
+      }
     }
-    if (bars.length < 2) return "NEUTRAL";
-    const latestClose = currentLtp;
-    const prevBarClose = bars[bars.length - 2];
-    const avgClose = bars.reduce((a, b) => a + b, 0) / bars.length;
-    if (latestClose > prevBarClose && latestClose >= avgClose) return "BULLISH";
-    if (latestClose < prevBarClose && latestClose <= avgClose) return "BEARISH";
+    if (mtfCandles.length < 2) return "NEUTRAL";
+    const lastBar = mtfCandles[mtfCandles.length - 1];
+    const prevBar = mtfCandles[mtfCandles.length - 2];
+    const prev2Bar = mtfCandles[mtfCandles.length - 3] || prevBar;
+
+    const closes = mtfCandles.map((c) => c.close);
+    const avgClose = closes.reduce((a, b) => a + b, 0) / closes.length;
+
+    const isHigherHigh = lastBar.high > prevBar.high && prevBar.high >= prev2Bar.high;
+    const isHigherLow = lastBar.low > prevBar.low && prevBar.low >= prev2Bar.low;
+    const isLowerHigh = lastBar.high < prevBar.high && prevBar.high <= prev2Bar.high;
+    const isLowerLow = lastBar.low < prevBar.low && prevBar.low <= prev2Bar.low;
+
+    if (
+      (isHigherHigh || isHigherLow || currentLtp > prevBar.close) &&
+      currentLtp >= avgClose * 0.9995
+    ) {
+      return "BULLISH";
+    }
+    if (
+      (isLowerLow || isLowerHigh || currentLtp < prevBar.close) &&
+      currentLtp <= avgClose * 1.0005
+    ) {
+      return "BEARISH";
+    }
     return "NEUTRAL";
   };
   const tf5m = buildMtfTrend(5);
   const tf15m = buildMtfTrend(15);
-  if (tf5m === "BULLISH" && tf15m === "BULLISH") bullishPoints += 12;
-  else if (tf5m === "BEARISH" && tf15m === "BEARISH") bearishPoints += 12;
-  else if (tf5m === "BULLISH") bullishPoints += 6;
-  else if (tf5m === "BEARISH") bearishPoints += 6;
+  if (tf5m === "BULLISH" && tf15m === "BULLISH") bullishPoints += 18;
+  else if (tf5m === "BEARISH" && tf15m === "BEARISH") bearishPoints += 18;
+  else if (tf5m === "BULLISH" && tf15m !== "BEARISH") bullishPoints += 8;
+  else if (tf5m === "BEARISH" && tf15m !== "BULLISH") bearishPoints += 8;
 
   // C. Historical Chart Structure (60-Candle Major Swing Highs/Lows, HH-HL / LH-LL, Double Bottom/Top & S/R Runway)
   const historySlice = candles.slice(-Math.min(60, candles.length));
@@ -1160,6 +1189,42 @@ export function analyzeTradingSignals(
     bearishPoints = Math.min(bearishPoints, corpScore >= 35 ? 48 : 64);
   }
 
+  // CORPORATE HEDGE FUND / PROP DESK MULTI-TIMEFRAME STRICT TREND VETO
+  // Anti-Whipsaw & Trend Alignment Constitution:
+  // 1. If 15-Minute MTF is BEARISH -> CALL (CE) buying is 100% blocked.
+  // 2. If Spot is below Intraday VWAP -> CALL (CE) buying is 100% blocked.
+  // 3. If Corporate Heavyweights are dumping (corpScore <= -20) -> CALL (CE) blocked.
+  // 4. If 15-Minute MTF is BULLISH -> PUT (PE) buying is 100% blocked.
+  // 5. If Spot is above Intraday VWAP -> PUT (PE) buying is 100% blocked.
+  // 6. If Corporate Heavyweights are surging (corpScore >= 20) -> PUT (PE) blocked.
+  // 7. If Market is Sideways Chop (ADX < 18 and RVOL < 1.15) -> Both blocked, stay in HOLD.
+  const isCorporateMtfBullBlocked =
+    tf15m === "BEARISH" ||
+    (tf5m === "BEARISH" && tf15m === "NEUTRAL") ||
+    currentLtp < vwapVal ||
+    corpScore <= -20 ||
+    readings.supertrend.signal === "SELL";
+
+  const isCorporateMtfBearBlocked =
+    tf15m === "BULLISH" ||
+    (tf5m === "BULLISH" && tf15m === "NEUTRAL") ||
+    currentLtp > vwapVal ||
+    corpScore >= 20 ||
+    readings.supertrend.signal === "BUY";
+
+  if (isCorporateMtfBullBlocked) {
+    bullishPoints = Math.min(bullishPoints, 35);
+  }
+  if (isCorporateMtfBearBlocked) {
+    bearishPoints = Math.min(bearishPoints, 35);
+  }
+
+  const isSidewaysChopRegime = adxVal < 18 && rvol < 1.15;
+  if (isSidewaysChopRegime) {
+    bullishPoints = Math.min(bullishPoints, 45);
+    bearishPoints = Math.min(bearishPoints, 45);
+  }
+
   // India VIX & Market Regime Selection (Trending Option Buying vs High-VIX Breakout vs Low-VIX Range Guard)
   const indiaVixVal = Number(optionMetrics?.indiaVix || 13.8);
   const marketRegimeMode: "TRENDING_OPTION_BUYING" | "HIGH_VIX_BREAKOUT" | "LOW_VIX_RANGE_GUARD" =
@@ -1274,7 +1339,7 @@ export function analyzeTradingSignals(
     strikeStep = 50;
   }
 
-  if (totalBullishConfidence >= 60) {
+  if (totalBullishConfidence >= 60 && !isCorporateMtfBullBlocked && !isSidewaysChopRegime) {
     signalType = "BUY";
     confidence = totalBullishConfidence;
     stopLoss = Number(Math.min(supertrendVal, currentLtp * 0.985).toFixed(2));
@@ -1282,9 +1347,9 @@ export function analyzeTradingSignals(
     target1 = Number((currentLtp + risk * 1.5).toFixed(2));
     target2 = Number((currentLtp + risk * 2.5).toFixed(2));
     target3 = Number((currentLtp + risk * 4.0).toFixed(2));
-    rationale = `[Layer-1 Index + Layer-2 Option Premium Confluence] ${symbol} Spot (₹${currentLtp}) is bullish: SuperTrend BUY, EMA9 (${ema9}) > EMA21 (${ema21}), RSI ${rsi}.`;
-    rationaleMalayalam = `[ഇൻഡക്സ് + ഓപ്ഷൻ പ്രീമിയം അനാലിസിസ്] ${symbol} സ്പോട്ട് (₹${currentLtp}) ശക്തമായ ബുള്ളിഷ് ട്രെൻഡിൽ: സൂപ്പർട്രെൻഡ് ബൈ മോഡിൽ, EMA9 > EMA21, RSI ${rsi}.`;
-  } else if (totalBearishConfidence >= 60) {
+    rationale = `[Corporate Quant Engine] 15m Trend Bullish, 5m Structure Confirmed, Spot (₹${currentLtp}) Above VWAP (₹${vwapVal}), RVOL ${rvol}x. High-Conviction CALL setup!`;
+    rationaleMalayalam = `[കോർപ്പറേറ്റ് ക്വാണ്ട് അനാലിസിസ്] 15m ട്രെൻഡ് ബുള്ളിഷ്, 5m സ്ട്രക്ചർ ഉറപ്പിച്ചു, സ്പോട്ട് (₹${currentLtp}) VWAP-ക്ക് മുകളിൽ, RVOL ${rvol}x. ഉയർന്ന വിജയസാധ്യതയുള്ള CALL ട്രേഡ് ഉറപ്പിച്ചു.`;
+  } else if (totalBearishConfidence >= 60 && !isCorporateMtfBearBlocked && !isSidewaysChopRegime) {
     signalType = "SELL";
     confidence = totalBearishConfidence;
     stopLoss = Number(Math.max(supertrendVal, currentLtp * 1.015).toFixed(2));
@@ -1292,13 +1357,27 @@ export function analyzeTradingSignals(
     target1 = Number((currentLtp - risk * 1.5).toFixed(2));
     target2 = Number((currentLtp - risk * 2.5).toFixed(2));
     target3 = Number((currentLtp - risk * 4.0).toFixed(2));
-    rationale = `[Layer-1 Index + Layer-2 Option Premium Confluence] ${symbol} Spot (₹${currentLtp}) is bearish: SuperTrend SELL, EMA9 (${ema9}) < EMA21 (${ema21}), RSI ${rsi} -> Buying PUT (PE) Option.`;
-    rationaleMalayalam = `[ഇൻഡക്സ് + ഓപ്ഷൻ പ്രീമിയം അനാലിസിസ്] ${symbol} സ്പോട്ട് (₹${currentLtp}) ബെയറിഷ് ട്രെൻഡിൽ: സൂപ്പർട്രെൻഡ് സെൽ, EMA താഴേക്ക് -> ലാഭകരമായ PUT (PE) ഓപ്ഷൻ വാങ്ങുന്നു.`;
+    rationale = `[Corporate Quant Engine] 15m Trend Bearish, 5m Breakdown Confirmed, Spot (₹${currentLtp}) Below VWAP (₹${vwapVal}), RVOL ${rvol}x. High-Conviction PUT setup!`;
+    rationaleMalayalam = `[കോർപ്പറേറ്റ് ക്വാണ്ട് അനാലിസിസ്] 15m ട്രെൻഡ് ബെയറിഷ്, 5m ബ്രേക്ക്ഡൗൺ ഉറപ്പിച്ചു, സ്പോട്ട് (₹${currentLtp}) VWAP-ക്ക് താഴെ, RVOL ${rvol}x. ഉയർന്ന വിജയസാധ്യതയുള്ള PUT ട്രേഡ് ഉറപ്പിച്ചു.`;
   } else {
     signalType = "HOLD";
     confidence = 50;
-    rationale = `Neutral / Consolidation: Market is hovering near key moving averages without definitive breakout confirmation.`;
-    rationaleMalayalam = `വിപണി സന്തുലിത അവസ്ഥയിൽ (HOLD). കൃത്യമായ ബ്രേക്ക്ഔട്ട് വരുന്നതുവരെ കാത്തിരിക്കുക.`;
+    const holdReasonEn = isSidewaysChopRegime
+      ? `Sideways Consolidation (ADX ${adxVal}, RVOL ${rvol}x). Corporate Quant Engine preserving capital in HOLD mode until clear breakout occurs.`
+      : isCorporateMtfBullBlocked
+        ? `15m/5m Trend Bearish or below VWAP (₹${vwapVal}). Calls strictly vetoed to prevent buying in a downtrend.`
+        : isCorporateMtfBearBlocked
+          ? `15m/5m Trend Bullish or above VWAP (₹${vwapVal}). Puts strictly vetoed to prevent shorting an uptrend.`
+          : `Market consolidating near key moving averages. Waiting for institutional A+ breakout confluence.`;
+    const holdReasonMl = isSidewaysChopRegime
+      ? `വിപണി റേഞ്ച്-ബൗണ്ട് അവസ്ഥയിൽ (ADX ${adxVal}). കൃത്യമായ ഇൻസ്റ്റിറ്റ്യൂഷണൽ ബ്രേക്ക്ഔട്ട് ഉണ്ടാകുന്നതുവരെ പണം നഷ്ടപ്പെടാതെ HOLD ചെയ്യുന്നു.`
+      : isCorporateMtfBullBlocked
+        ? `15m/5m ഹയർ ടൈംഫ്രെയിം ഡൗൺട്രെൻഡിൽ ആയതിനാലും VWAP-ക്ക് താഴെയായതിനാലും കാൾ (CE) ഒഴിവാക്കി ക്യാപിറ്റൽ സുരക്ഷിതമാക്കി.`
+        : isCorporateMtfBearBlocked
+          ? `15m/5m ഹയർ ടൈംഫ്രെയിം അപ്‌ട്രെൻഡിൽ ആയതിനാലും VWAP-ക്ക് മുകളിലായതിനാലും പുട്ട് (PE) ഒഴിവാക്കി ക്യാപിറ്റൽ സുരക്ഷിതമാക്കി.`
+          : `വിപണി സന്തുലിത അവസ്ഥയിൽ (HOLD). വ്യക്തമായ കോർപ്പറേറ്റ് ട്രെൻഡ് ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു.`;
+    rationale = holdReasonEn;
+    rationaleMalayalam = holdReasonMl;
   }
 
   const riskDiff = Math.abs(currentLtp - stopLoss);

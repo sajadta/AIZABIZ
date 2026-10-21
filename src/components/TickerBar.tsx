@@ -13,16 +13,20 @@ export const TickerBar: React.FC<TickerBarProps> = ({
   selectedSymbol,
   onSelectSymbol,
 }) => {
+  const uniqueQuotes = Array.from(
+    new Map(quotes.map((q, idx) => [q.instrumentKey || `${q.symbol}-${idx}`, q])).values()
+  );
+
   return (
     <div className="w-full max-w-full min-w-0 bg-black/30 border-b border-slate-800/60 overflow-x-auto no-scrollbar py-1 px-2 shrink-0">
       <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-max">
-        {quotes.map((q) => {
+        {uniqueQuotes.map((q, idx) => {
           const isSelected = q.symbol === selectedSymbol;
           const isPositive = q.change >= 0;
 
           return (
             <button
-              key={q.instrumentKey || q.symbol}
+              key={`${q.instrumentKey || q.symbol}-${idx}`}
               onClick={() => onSelectSymbol && onSelectSymbol(q.symbol, q.instrumentKey)}
               className={`flex items-center gap-1.5 sm:gap-2 px-2.5 py-1 min-h-[44px] rounded-lg border text-left transition-all font-mono touch-manipulation select-none active:scale-95 ${
                 isSelected

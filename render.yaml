@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: aizabiz-trading-terminal
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: UPSTOX_REDIRECT_URI
+        value: https://sajad-trading-view.onrender.com
