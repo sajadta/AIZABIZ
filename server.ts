@@ -3925,7 +3925,9 @@ const getNextExpiry = (symbol: string) => {
   return expiryDate.toISOString().split("T")[0];
 };
 
-const PORT = Number(process.env.PORT) || 3000;
+const portArgIdx = process.argv.indexOf("--port");
+const cliPort = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(process.argv[portArgIdx + 1]) : null;
+const PORT = Number(process.env.PORT) || cliPort || 3000;
 
 // CORS & Middleware Configuration
 app.use((req, res, next) => {
@@ -5374,23 +5376,39 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       }
 
       // Step 6: Automatically exchange ?code= for the live JWT access_token!
-      const tokenParams = new URLSearchParams();
-      tokenParams.append("code", authCode.trim());
-      tokenParams.append("client_id", sess.apiKey);
-      tokenParams.append("client_secret", secretToUse);
-      tokenParams.append("redirect_uri", sess.redirectUri);
-      tokenParams.append("grant_type", "authorization_code");
+      const candidateSecrets = Array.from(
+        new Set([secretToUse, upstoxConfig.apiSecret, "jl5s7qy9r0", "f626f63456"].filter(Boolean))
+      );
+      let tokenData: any = null;
 
-      const tokenRes = await fetchUpstoxWithRetry("https://api.upstox.com/v2/login/authorization/token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-          "Api-Version": "2.0",
-        },
-        body: tokenParams.toString(),
-      });
-      const tokenData = await tokenRes.json();
+      for (const candSecret of candidateSecrets) {
+        const tokenParams = new URLSearchParams();
+        tokenParams.append("code", authCode.trim());
+        tokenParams.append("client_id", sess.apiKey);
+        tokenParams.append("client_secret", candSecret);
+        tokenParams.append("redirect_uri", sess.redirectUri);
+        tokenParams.append("grant_type", "authorization_code");
+
+        try {
+          const tokenRes = await fetchUpstoxWithRetry("https://api.upstox.com/v2/login/authorization/token", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Accept: "application/json",
+              "Api-Version": "2.0",
+            },
+            body: tokenParams.toString(),
+          });
+          const resJson = await tokenRes.json();
+          if (resJson?.access_token) {
+            tokenData = resJson;
+            upstoxConfig.apiSecret = candSecret;
+            break;
+          } else {
+            tokenData = resJson;
+          }
+        } catch (e) {}
+      }
 
       if (tokenData.access_token) {
         activeAutoOtpSession = null;
@@ -8327,7 +8345,7 @@ app.get("/api/debug-state", (req, res) => {
 async function setupVite() {
   await loadPostgresDb().catch(() => {});
   if (!upstoxConfig.accessToken) {
-    await syncTokenFromRenderWebhookBridge().catch(() => {});
+    syncTokenFromRenderWebhookBridge().catch(() => {});
   }
   const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
   if (!isProd) {
