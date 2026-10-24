@@ -27,7 +27,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icon.svg', 'launchericon-192x192.png', 'launchericon-512x512.png'],
       manifest: {
-        id: '/',
+        id: 'com.aizabiz.trading.terminal',
         name: 'AIZABIZ PRO Trading Terminal',
         short_name: 'AIZABIZ',
         description: 'Professional Live Algorithmic Trading & Analysis Terminal for Android & Web',
@@ -35,7 +35,7 @@ export default defineConfig({
         background_color: '#090d16',
         display: 'standalone',
         orientation: 'portrait-primary',
-        start_url: '/',
+        start_url: '/?source=pwa',
         scope: '/',
         icons: [
           {

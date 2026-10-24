@@ -1,0 +1,43 @@
+{
+  "name": "AIZABIZ PRO Trading Terminal",
+  "short_name": "AIZABIZ",
+  "start_url": "/?source=pwa",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "lang": "en",
+  "scope": "/",
+  "id": "com.aizabiz.trading.terminal",
+  "description": "Professional Live Algorithmic Trading & Analysis Terminal for Android & Web",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "business"],
+  "icons": [
+    {
+      "src": "/launchericon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/launchericon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/launchericon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/launchericon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "AIZABIZ Mobile Dashboard"
+    }
+  ]
+}

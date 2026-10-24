@@ -54,6 +54,7 @@ import { UpstoxApiModal } from './components/UpstoxApiModal';
 import { AlertsModal } from './components/AlertsModal';
 import { AndroidInstallModal } from './components/AndroidInstallModal';
 import { OnboardingSetupModal } from './components/OnboardingSetupModal';
+import { MasterPinLockModal } from './components/MasterPinLockModal';
 import {
   enrichCandlesWithIndicators,
   analyzeTradingSignals,
@@ -253,6 +254,9 @@ export const App: React.FC = () => {
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isTerminalLocked, setIsTerminalLocked] = useState(() => {
+    return localStorage.getItem('aizabiz_master_unlocked') !== 'true';
+  });
 
   // 0. 24x7 Render Anti-Sleep Wakeup Heartbeat (keeps Render server awake continuously)
   useEffect(() => {
@@ -2322,6 +2326,12 @@ export const App: React.FC = () => {
           setApiConfig(prev => ({ ...prev, ...cfg }));
           setIsOnboardingOpen(false);
         }}
+      />
+
+      <MasterPinLockModal
+        isLocked={isTerminalLocked}
+        onUnlock={() => setIsTerminalLocked(false)}
+        language={language}
       />
     </div>
   );

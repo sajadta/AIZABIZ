@@ -302,12 +302,12 @@ export const Header: React.FC<HeaderProps> = ({
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
-          {/* Android Mobile App / PWA modal button (hidden on mobile, shown on tablet/desktop) */}
+          {/* Android Mobile App / Desktop PWA install button */}
           <button
             id="btn-android-modal"
             onClick={onOpenAndroidModal}
-            className="hidden sm:flex w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 active:scale-95 transition touch-manipulation"
-            title={language === 'ml' ? 'ആൻഡ്രോയിഡ് ആപ്പ് / ഇൻസ്റ്റാൾ' : 'Android App / Install'}
+            className="flex w-10 sm:w-11 h-10 sm:h-11 min-w-[40px] min-h-[40px] shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 active:scale-95 transition touch-manipulation"
+            title={language === 'ml' ? 'ആപ്പ് ഇൻസ്റ്റാൾ ചെയ്യുക' : 'Install App'}
           >
             <Smartphone className="w-4 h-4" />
           </button>

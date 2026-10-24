@@ -29,9 +29,12 @@ import zlib from "zlib";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 
+import compression from "compression";
+
 dotenv.config();
 
 const app = express();
+app.use(compression({ level: 6, threshold: 512 }));
 app.use(express.json({ limit: '10mb' }));
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -60,6 +63,79 @@ app.use((req, res, next) => {
     return res.status(403).json({ error: "Access Denied: Protected Security Resource" });
   }
   next();
+});
+
+// Dedicated PWA Manifest & Service Worker Endpoints for Android Native Installability
+app.get(['/manifest.webmanifest', '/manifest.json'], (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  const p = path.join(process.cwd(), 'public', 'manifest.webmanifest');
+  if (fsSync.existsSync(p)) {
+    return res.sendFile(p);
+  }
+  res.json({
+    name: "AIZABIZ PRO Trading Terminal",
+    short_name: "AIZABIZ",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#090d16",
+    theme_color: "#0f172a",
+    orientation: "portrait-primary",
+    icons: [
+      { src: "/launchericon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/launchericon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/launchericon-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+    ]
+  });
+});
+
+app.get('/sw.js', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  const p = path.join(process.cwd(), 'public', 'sw.js');
+  if (fsSync.existsSync(p)) {
+    return res.sendFile(p);
+  }
+  res.send('self.addEventListener("install",e=>self.skipWaiting());self.addEventListener("activate",e=>event.waitUntil(self.clients.claim()));');
+});
+
+// 1-Click Mobile App Launcher Download (Works on all Android phones without store restrictions)
+app.get('/api/download/launcher', (req: Request, res: Response) => {
+  res.setHeader('Content-Disposition', 'attachment; filename="AIZABIZ-Trading-Terminal.html"');
+  res.setHeader('Content-Type', 'text/html');
+  const rawHost = req.get('x-forwarded-host') || req.get('host') || '';
+  const isLocal = !rawHost || rawHost.includes('localhost') || rawHost.includes('127.0.0.1');
+  const cleanHost = isLocal ? 'ais-dev-2kuhbzz5qyj5zbysxk6da3-173711515136.asia-southeast1.run.app' : rawHost;
+  const target = `https://${cleanHost}/?source=mobile_launcher`;
+  const launcherHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AIZABIZ PRO Trading Terminal</title>
+  <style>
+    body { margin: 0; background: #070a12; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; text-align: center; }
+    .loader { width: 44px; height: 44px; border: 4px solid #10b981; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="loader"></div>
+  <h2>AIZABIZ PRO</h2>
+  <p>Loading Live Trading Terminal...</p>
+  <script>
+    window.location.replace("${target}");
+  </script>
+</body>
+</html>`;
+  res.send(launcherHtml);
+});
+
+// Direct download for high-res 512x512 app icon
+app.get('/api/download/icon', (req: Request, res: Response) => {
+  const p = path.join(process.cwd(), 'public', 'launchericon-512x512.png');
+  res.download(p, 'aizabiz-icon-512.png');
 });
 
 let postgresAvailable = isPostgresConfigured;
@@ -8356,7 +8432,7 @@ async function setupVite() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath, { dotfiles: "allow" }));
+    app.use(express.static(distPath, { maxAge: "30d", dotfiles: "allow" }));
     app.get("*", (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
