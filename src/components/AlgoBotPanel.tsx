@@ -96,6 +96,16 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
   const hudTickerStepsMl = [
     {
+      title: 'ആന്റി-ചേൺ & ബ്രോക്കറേജ് ഷീൽഡ്',
+      badge: '30-Min Lockout & Max 1 Trade/Strike',
+      text: 'ഒരേ കോൺട്രാക്ട് വീണ്ടും വീണ്ടും എടുത്ത് ബ്രോക്കറേജ് നഷ്ടപ്പെടുന്നത് തടയുന്നു: ഒരു ട്രേഡിന് ശേഷം 30 മിനിറ്റ് കണിശമായ ലോക്കൗട്ടും പ്രതിദിനം പരമാവധി 1 ട്രേഡും മാത്രം...',
+    },
+    {
+      title: 'മാക്സിമം പ്രോഫിറ്റ് റൈഡ് (Anti-Micro Scalp)',
+      badge: 'പോയിന്റ് 3 & 4 പീക്ക് ഹാർവെസ്റ്റ്',
+      text: 'ചെറിയ ₹25, ₹50, ₹100 പീനട്ട് ലാഭങ്ങൾക്കല്ല അൽഗോരിതം: +12% ലാഭത്തിൽ റിസ്ക്-ഫ്രീ ബ്രേക്-ഈവൻ ലോക്ക് ചെയ്ത് +25% മുതൽ +60%+ വരെയുള്ള വൻ മുന്നേറ്റം പിടിച്ചെടുക്കുന്നു...',
+    },
+    {
       title: 'മാർക്കറ്റ് റെജീം & ഓട്ടോ ആക്ഷൻ',
       badge: 'ഓട്ടോ ഹൈബ്രിഡ് (Buying + Selling)',
       text: 'ഇന്ത്യ VIX (13.8) നിരീക്ഷിക്കുന്നു: ശക്തമായ ട്രെൻഡിൽ Option Buying (CE/PE), സൈഡ്‌വേയ്‌സ് റേഞ്ചിൽ തീറ്റ സെല്ലിംഗ് സ്വയം തിരഞ്ഞെടുക്കുന്നു...',
@@ -115,19 +125,19 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       badge: 'അക്കൗണ്ട് മാർജിൻ സേഫ്റ്റി',
       text: 'നിങ്ങളുടെ അക്കൗണ്ടിലുള്ള ക്യാഷ് അടിസ്ഥാനമാക്കി ഒരേസമയം പരമാവധി എത്ര ട്രേഡുകൾ (1 മുതൽ 5 വരെ) സുരക്ഷിതമായി എടുക്കാമെന്ന് അൽഗോരിതം തീരുമാനിക്കുന്നു...',
     },
-    {
-      title: 'നെറ്റ് പ്രോഫിറ്റ് & ബ്രോക്കറേജ്',
-      badge: 'പോസിറ്റീവ് ആൽഫ ഷീൽഡ്',
-      text: 'എല്ലാ ബ്രോക്കറേജും ടാക്സുകളും കുറച്ചതിന് ശേഷവും കയ്യിൽ ലാഭം കിട്ടുന്ന ഉയർന്ന ഡെൽറ്റ ATM/ITM സ്ട്രൈക്കുകൾ മാത്രം തിരഞ്ഞെടുക്കുന്നു...',
-    },
-    {
-      title: 'സീറോ സ്ലിപ്പേജ് ഓർഡർ റൂട്ടിംഗ്',
-      badge: 'സ്മാർട്ട് ലിമിറ്റ് ഗാർഡ്',
-      text: 'പ്രീമിയം തെന്നിമാറി നഷ്ടമുണ്ടാകാതിരിക്കാൻ മാർക്കറ്റ് ഓർഡറിന് പകരം സ്മാർട്ട് ലിമിറ്റ് വഴി ട്രിഗർ പ്രൈസിൽ കൃത്യമായി എക്സിക്യൂട്ട് ചെയ്യുന്നു...',
-    },
   ];
 
   const hudTickerStepsEn = [
+    {
+      title: 'Anti-Churn & Brokerage Shield',
+      badge: '30-MIN LOCKOUT & 1 TRADE/DAY',
+      text: 'Strictly eliminates repeated duplicate entries on the same contract: 30-minute instrument lockout and max 1 trade per strike/day to protect capital from brokerage...',
+    },
+    {
+      title: 'Maximum Profit Trend Ride (Anti-Micro Scalp)',
+      badge: 'POINTS 3 & 4 TOP HARVEST',
+      text: 'An intelligent algorithm never scalps for ₹25 or ₹50 peanuts: Locks risk-free Breakeven at +12%, then rides +25% to +60%+ maximum peak expansions...',
+    },
     {
       title: 'Market Regime & Action',
       badge: 'AUTO HYBRID (Buy + Sell)',
@@ -147,16 +157,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       title: 'Dynamic Fund Sizing',
       badge: 'SAFE MARGIN SCALING',
       text: 'Scales concurrent trades (1 to 5) strictly based on available real account cash without artificial manual limits...',
-    },
-    {
-      title: 'Net Profit & Brokerage',
-      badge: 'NET PROFIT SHIELD',
-      text: 'Filters high-delta ATM/ITM strikes where expected take-home profit strictly exceeds full round-trip brokerage & statutory taxes...',
-    },
-    {
-      title: 'Zero Slippage Routing',
-      badge: 'SMART LIMIT GUARD',
-      text: 'Smart Limit order execution eliminates market order drift and fills orders at exact signal trigger price...',
     },
   ];
   
@@ -1217,7 +1217,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   </span>
                   <div className="flex items-center gap-2 flex-wrap text-white">
                     <span className="px-2 py-0.5 rounded bg-black/50 border border-emerald-500/30">
-                      SL Cap: <strong className="text-emerald-400">{supervisorAudit.currentVerifiedConfig.stopLossPercent}% (Max ₹400)</strong>
+                      SL Cap: <strong className="text-emerald-400">{supervisorAudit.currentVerifiedConfig.stopLossPercent}% (Max ₹500)</strong>
                     </span>
                     <span className="px-2 py-0.5 rounded bg-black/50 border border-emerald-500/30">
                       Peak SL Lock: <strong className="text-emerald-400">{supervisorAudit.currentVerifiedConfig.trailingStopLoss ? 'AUTO-ON' : 'OFF'}</strong>
@@ -1300,9 +1300,11 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                       {language === 'ml' ? 'പരമാവധി നഷ്ട പരിധി (SL Cap)' : 'Max Stop-Loss Cap'}
                     </span>
                     <span className="text-lg font-black font-mono text-amber-300">
-                      ₹400 / {botConfig.stopLossPercent}%
+                      ₹500 / {botConfig.stopLossPercent}%
                     </span>
-                    <span className="text-[9px] text-emerald-400 block">35s Early Cut Armed</span>
+                    <span className="text-[9px] text-emerald-400 block">
+                      {language === 'ml' ? '120s വിഗിൾ ഷീൽഡ്' : '120s Wiggle Shield'}
+                    </span>
                   </div>
                 </div>
               )}

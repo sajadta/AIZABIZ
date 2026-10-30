@@ -23,7 +23,10 @@ import {
   CheckCheck,
   ShieldCheck,
   Zap,
-  Check
+  Check,
+  Lock,
+  Edit2,
+  X
 } from 'lucide-react';
 import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
@@ -213,6 +216,17 @@ export const translateExitReason = (
     r.includes('minimize loss')
   ) {
     return isMl ? '🛡️ റിസ്ക് പ്രൊട്ടക്ഷൻ സ്റ്റോപ്പ്-ലോസ്' : '🛡️ Risk Protection Stop-Loss';
+  }
+
+  // 7b. Peak Harvester (Top Climax Reversal / ATR Pullback Top Capture)
+  if (
+    r.includes('volatility-adaptive') ||
+    r.includes('peak harvester') ||
+    r.includes('top harvest') ||
+    r.includes('climax') ||
+    r.includes('top exhaustion')
+  ) {
+    return isMl ? '🏆 പീക്ക് ഹാർവെസ്റ്റർ (മാക്സിമം ടോപ്പ് ലാഭം നേടി)' : '🏆 Peak Harvester (Top Profit Captured)';
   }
 
   // 8. Trailing Stop-Loss / Peak Ratchet Lock
@@ -674,6 +688,41 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
   // Orders View Mode: 'PAIRED' (Round-trip Buy & Sell paired together) vs 'INDIVIDUAL' (Raw broker order fills)
   const [ordersViewMode, setOrdersViewMode] = useState<'PAIRED' | 'INDIVIDUAL'>('PAIRED');
+
+  // Holding Buy Price Adjustment & Locking State
+  const [editingHoldingSym, setEditingHoldingSym] = useState<string | null>(null);
+  const [customBuyPriceInput, setCustomBuyPriceInput] = useState<string>('');
+  const [savingBuyPrice, setSavingBuyPrice] = useState<boolean>(false);
+  const [buyPriceSaveMessage, setBuyPriceSaveMessage] = useState<string | null>(null);
+
+  const handleSaveCustomBuyPrice = async (symbol: string, isin?: string) => {
+    const num = parseFloat(customBuyPriceInput);
+    if (isNaN(num) || num <= 0) return;
+    setSavingBuyPrice(true);
+    try {
+      const res = await fetch('/api/market/holdings/set-buy-price', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, isin, buyPrice: num }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setBuyPriceSaveMessage(
+          language === 'ml'
+            ? `✅ ${symbol} വാങ്ങിയ വില ₹${num.toFixed(2)} ആയി സ്ഥിരപ്പെടുത്തി!`
+            : `✅ Successfully locked buy price for ${symbol} at ₹${num.toFixed(2)}!`
+        );
+        setEditingHoldingSym(null);
+        setCustomBuyPriceInput('');
+        if (onRefreshHoldings) onRefreshHoldings();
+        setTimeout(() => setBuyPriceSaveMessage(null), 4000);
+      }
+    } catch (e) {
+      console.error('Failed to set buy price', e);
+    } finally {
+      setSavingBuyPrice(false);
+    }
+  };
 
   React.useEffect(() => {
     if (activeTab === 'HOLDINGS' && onRefreshHoldings) {
@@ -1298,6 +1347,14 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
               </div>
             </div>
 
+            {/* Notification Banner when custom buy price is locked */}
+            {buyPriceSaveMessage && (
+              <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-300 text-xs font-bold animate-pulse flex items-center gap-2 shadow-md">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{buyPriceSaveMessage}</span>
+              </div>
+            )}
+
             {/* Holdings List */}
             {holdings.length === 0 ? (
               <div className="p-8 text-center text-slate-400 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 space-y-4">
@@ -1395,6 +1452,17 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
                               DELIVERY · CNC
                             </span>
+                            {h.isBuyPriceLocked && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+                                <Lock className="w-2.5 h-2.5" />
+                                {language === 'ml' ? 'വാങ്ങിയ വില ലോക്ക് ചെയ്തു' : 'Buy Price Locked'}
+                              </span>
+                            )}
+                            {h.isUpstoxZeroPrice && !h.isBuyPriceLocked && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                                ⚠️ {language === 'ml' ? 'ബ്രോക്കർ വില ലഭ്യമല്ല (ക്ലോസിങ് വില)' : 'Zero broker price (Using close)'}
+                              </span>
+                            )}
                             {target50.isReached ? (
                               <span className="text-[9px] font-black px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 animate-pulse">
                                 ⚡ +50% PROFIT TARGET HIT!
@@ -1418,9 +1486,29 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                           <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'അളവ് (Qty)' : 'Qty'}</span>
                           <span className="text-xs font-bold text-slate-200">{qty}</span>
                         </div>
-                        <div>
-                          <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'വാങ്ങിയ വില (Avg)' : 'Avg Buy Price'}</span>
-                          <span className="text-xs font-bold text-slate-200">₹{avgPx.toFixed(2)}</span>
+                        <div className="relative group">
+                          <div className="flex items-center justify-center gap-1">
+                            <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'വാങ്ങിയ വില (Avg)' : 'Avg Buy Price'}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editingHoldingSym === h.symbol) {
+                                  setEditingHoldingSym(null);
+                                } else {
+                                  setEditingHoldingSym(h.symbol);
+                                  setCustomBuyPriceInput(String(avgPx > 0 ? avgPx : ''));
+                                }
+                              }}
+                              className="text-slate-400 hover:text-cyan-300 transition p-0.5"
+                              title={language === 'ml' ? 'വാങ്ങിയ യഥാർത്ഥ വില എഡിറ്റ് ചെയ്ത് ലോക്ക് ചെയ്യുക' : 'Edit & lock actual buy price'}
+                            >
+                              <Edit2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                          <span className="text-xs font-bold text-slate-200 flex items-center justify-center gap-1">
+                            ₹{avgPx.toFixed(2)}
+                            {h.isBuyPriceLocked && <Lock className="w-2.5 h-2.5 text-cyan-400" />}
+                          </span>
                         </div>
                         <div>
                           <span className="text-[9px] text-slate-400 block">{language === 'ml' ? 'നിക്ഷേപം (Invested)' : 'Invested'}</span>
@@ -1434,6 +1522,53 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                           </span>
                         </div>
                       </div>
+
+                      {/* Interactive Custom Buy Price Editor */}
+                      {editingHoldingSym === h.symbol && (
+                        <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-500/40 space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                              <Lock className="w-3.5 h-3.5" />
+                              {language === 'ml' ? `${h.symbol} വാങ്ങിയ യഥാർത്ഥ വില നിശ്ചയിക്കുക:` : `Set Exact Buy Price for ${h.symbol}:`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setEditingHoldingSym(null)}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-300">
+                            {language === 'ml'
+                              ? 'ബ്രോക്കർ നൽകിയ വില ശരിയല്ലെങ്കിൽ (ഉദാ: Upstox 0 നൽകുകയോ മുൻദിന ക്ലോസിങ് വില കാണിക്കുകയോ ചെയ്താൽ), നിങ്ങളുടെ യഥാർത്ഥ വാങ്ങിയ വില ഇവിടെ നൽകി സ്ഥിരപ്പെടുത്താം (ലോക്ക്).'
+                              : 'If broker returns 0 or closing price, enter your actual acquisition price here to lock it permanently across restarts.'}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₹</span>
+                              <input
+                                type="number"
+                                step="0.05"
+                                min="0.05"
+                                value={customBuyPriceInput}
+                                onChange={(e) => setCustomBuyPriceInput(e.target.value)}
+                                placeholder={avgPx > 0 ? String(avgPx) : "10.50"}
+                                className="w-full pl-6 pr-3 py-1.5 rounded-lg bg-slate-900 border border-cyan-500/50 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              disabled={savingBuyPrice || !customBuyPriceInput || parseFloat(customBuyPriceInput) <= 0}
+                              onClick={() => handleSaveCustomBuyPrice(h.symbol, h.isin)}
+                              className="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1 transition active:scale-95 shadow-sm"
+                            >
+                              {savingBuyPrice ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              <span>{language === 'ml' ? 'സ്ഥിരപ്പെടുത്തുക' : 'Save & Lock'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* +50% Profitable Value Milestone Calculation Box */}
                       <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 text-[11px] flex flex-col gap-1.5">

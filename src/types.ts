@@ -260,10 +260,14 @@ export interface Holding {
   symbol: string;
   companyName: string;
   instrumentKey?: string;
+  isin?: string;
   quantity: number;
   avgPrice: number;
   buyPrice?: number;
   currentLTP: number;
+  closePrice?: number;
+  isBuyPriceLocked?: boolean;
+  isUpstoxZeroPrice?: boolean;
   investedValue: number;
   currentValue: number;
   pnl: number;
@@ -418,6 +422,7 @@ export interface UpstoxApiConfig {
   tokenExpiresAt?: string;
   todayTokenValid?: boolean;
   lastConnectedAt?: string;
+  serverOutboundIp?: string;
 }
 
 export interface GeminiMarketAnalysis {

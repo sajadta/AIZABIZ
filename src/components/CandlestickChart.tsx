@@ -45,6 +45,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [showSupertrend, setShowSupertrend] = useState(true);
   const [showEMA, setShowEMA] = useState(true);
   const [activeSubChart, setActiveSubChart] = useState<'RSI' | 'MACD' | 'NONE'>('RSI');
+  const [isAiOverlayMinimized, setIsAiOverlayMinimized] = useState(false);
   
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -292,9 +293,23 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   }, [displayCandles, showEMA, showSupertrend, symbol, interval]);
 
-  const currentLtp = quote?.ltp || (displayCandles[displayCandles.length - 1]?.close || 0);
-  const currentChangePts = quote?.change || 0;
-  const currentChange = quote?.changePercent || 0;
+  const isMatchingQuote = Boolean(
+    quote &&
+      (quote.symbol === symbol ||
+        symbol.includes(quote.symbol) ||
+        quote.symbol.includes(symbol) ||
+        (quote.instrumentKey && quote.instrumentKey.includes(symbol)))
+  );
+
+  const candleClose = displayCandles[displayCandles.length - 1]?.close || 0;
+  const candleOpen = displayCandles[0]?.open || candleClose;
+  const currentLtp = isMatchingQuote && (quote?.ltp || 0) > 0 ? (quote?.ltp || 0) : (candleClose || quote?.ltp || 0);
+  const currentChangePts = isMatchingQuote && quote?.change !== undefined
+    ? quote.change
+    : (displayCandles.length > 1 ? Number((candleClose - candleOpen).toFixed(2)) : 0);
+  const currentChange = isMatchingQuote && quote?.changePercent !== undefined
+    ? quote.changePercent
+    : (candleOpen > 0 ? Number((((candleClose - candleOpen) / candleOpen) * 100).toFixed(2)) : 0);
   const isPositive = currentChange >= 0 && currentChangePts >= 0;
 
   return (
@@ -410,26 +425,56 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
          
          {/* AI Signal Overlay - if generated */}
          {signal && (
-           <div className="absolute top-4 left-4 bg-slate-900/90 backdrop-blur border border-slate-700 p-4 rounded-xl shadow-2xl max-w-xs z-10 animate-in slide-in-from-left-2">
-              <div className="flex items-center justify-between mb-2">
-                 <div className="flex items-center gap-2">
-                    <Sparkles size={16} className="text-amber-400" />
-                    <span className="font-bold text-amber-400 text-sm">AI Analysis</span>
+           <div className={`absolute top-3 left-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl z-10 transition-all duration-200 ${
+             isAiOverlayMinimized ? 'p-2 max-w-[220px]' : 'p-3.5 max-w-xs'
+           }`}>
+              <div className="flex items-center justify-between gap-2">
+                 <div 
+                   className="flex items-center gap-1.5 cursor-pointer select-none"
+                   onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
+                   title={isAiOverlayMinimized ? "Expand AI Analysis" : "Minimize AI Analysis"}
+                 >
+                    <Sparkles size={14} className="text-amber-400 shrink-0" />
+                    <span className="font-bold text-amber-300 text-xs">AI Analysis</span>
+                    <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                      (signal.action || signal.signalType) === 'BUY'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : (signal.action || signal.signalType) === 'SELL'
+                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          : 'bg-slate-800 text-slate-300'
+                    }`}>
+                      {signal.action || signal.signalType}
+                    </span>
                  </div>
-                 <button onClick={() => onGenerateAiAnalysis()} className="text-slate-400 hover:text-white">
-                   <RefreshCw size={14} className={aiLoading ? "animate-spin" : ""} />
-                 </button>
+                 <div className="flex items-center gap-1">
+                   <button
+                     onClick={() => onGenerateAiAnalysis()}
+                     className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                     title="Refresh AI Analysis"
+                   >
+                     <RefreshCw size={12} className={aiLoading ? "animate-spin" : ""} />
+                   </button>
+                   <button
+                     onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
+                     className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition text-xs font-mono font-bold"
+                     title={isAiOverlayMinimized ? "Expand" : "Minimize"}
+                   >
+                     {isAiOverlayMinimized ? "➕" : "➖"}
+                   </button>
+                 </div>
               </div>
-              <div className="flex items-center gap-2 mb-2">
-                 <span className="text-xs text-slate-400">Action:</span>
-                 <span className={`text-sm font-black ${(signal.action || signal.signalType) === 'BUY' ? 'text-emerald-400' : (signal.action || signal.signalType) === 'SELL' ? 'text-rose-400' : 'text-slate-200'}`}>
-                    {signal.action || signal.signalType}
-                 </span>
-                 <span className="text-xs text-slate-400 ml-auto">Conf: {signal.confidence ?? signal.confidenceScore}%</span>
-              </div>
-              <p className="text-xs text-slate-200 line-clamp-3 leading-relaxed">
-                 {signal.reason || signal.rationale}
-              </p>
+
+              {!isAiOverlayMinimized && (
+                <div className="mt-2 pt-2 border-t border-slate-800">
+                  <div className="flex items-center justify-between text-xs mb-1.5 font-mono">
+                    <span className="text-slate-400 text-[11px]">Confidence:</span>
+                    <span className="font-bold text-cyan-300">{signal.confidence ?? signal.confidenceScore}%</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 line-clamp-3 leading-relaxed">
+                    {signal.reason || signal.rationale}
+                  </p>
+                </div>
+              )}
            </div>
          )}
       </div>

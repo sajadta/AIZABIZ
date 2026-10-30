@@ -156,6 +156,8 @@ export const App: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');
   const [selectedInstrumentKey, setSelectedInstrumentKey] = useState<string>('NSE_INDEX|Nifty 50');
   const [chartTradeContext, setChartTradeContext] = useState<any>(null);
+  const [ipCopiedNotice, setIpCopiedNotice] = useState(false);
+  const [dismissedIpWarning, setDismissedIpWarning] = useState(false);
 
   // Chart data (100% Real Live Candles)
   const [candles, setCandles] = useState<CandleData[]>([]);
@@ -168,17 +170,17 @@ export const App: React.FC = () => {
     enabled: true, // Always active 24x7 Cloud Trading Engine
     mode: 'PAPER_TRADING',
     tradeMode: 'OPTIONS_ONLY',
-    minOptionProfitAmount: 300,
-    maxOptionLossCount: 3,
+    minOptionProfitAmount: 450,
+    maxOptionLossCount: 2,
     maxStockLossCount: 2,
     maxStockProfitCount: 5,
     selectedStrategy: 'PROFIT_MAX_100_PERCENT_MATRIX',
-    minConfidence: 78,
+    minConfidence: 82,
     maxCapitalPerTrade: 0, // 0 = Auto Dynamic Funds (100% Real Account Margin Sizing)
     maxTradesPerDay: 8,
     riskPerTradePercent: 1.5,
-    stopLossPercent: 2.5,
-    targetProfitPercent: 30,
+    stopLossPercent: 16.0,
+    targetProfitPercent: 35.0,
     trailingStopLoss: true,
     trailingStepPercent: 5,
     dailyMaxLossLimit: 2000,
@@ -512,6 +514,41 @@ export const App: React.FC = () => {
     return () => clearInterval(candleIntervalTimer);
   }, [fetchRealCandles]);
 
+  // Keep chartTradeContext dynamically synchronized with live positions & latest candles
+  useEffect(() => {
+    if (!chartTradeContext) return;
+    const active = positions.find(
+      (p) => p.id === chartTradeContext.id || p.symbol === chartTradeContext.symbol
+    );
+    const lastCandleClose = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
+    if (active) {
+      const liveLtp = lastCandleClose > 0 && Math.abs(lastCandleClose - active.buyPrice) < active.buyPrice * 5
+        ? lastCandleClose
+        : Number(active.currentLTP || active.buyPrice);
+      const livePnl = Number(((liveLtp - active.buyPrice) * active.quantity).toFixed(2));
+      setChartTradeContext((prev: any) => {
+        if (!prev) return prev;
+        if (prev.currentLTP === liveLtp && prev.pnl === livePnl && prev.stopLoss === active.stopLoss) return prev;
+        return {
+          ...prev,
+          ...active,
+          currentLTP: liveLtp,
+          pnl: livePnl,
+        };
+      });
+    } else if (lastCandleClose > 0) {
+      setChartTradeContext((prev: any) => {
+        if (!prev || prev.currentLTP === lastCandleClose) return prev;
+        const livePnl = Number(((lastCandleClose - prev.buyPrice) * (prev.quantity || 1)).toFixed(2));
+        return {
+          ...prev,
+          currentLTP: lastCandleClose,
+          pnl: livePnl,
+        };
+      });
+    }
+  }, [positions, candles, chartTradeContext?.symbol]);
+
   // Sync selected symbol's current live tick into latest candle (only if price belongs to the same instrument scale!)
   const currentQuote =
     quotes.find(
@@ -519,7 +556,79 @@ export const App: React.FC = () => {
         q.symbol === selectedSymbol ||
         q.instrumentKey === selectedInstrumentKey ||
         (selectedSymbol.includes('BANK') && q.symbol.includes('BANK') && q.segment === 'INDEX')
-    ) || quotes[0];
+    ) || (() => {
+      // If viewing an option contract from chartTradeContext, synthesize quote from trade context
+      if (chartTradeContext && (chartTradeContext.symbol === selectedSymbol || selectedSymbol.includes(chartTradeContext.symbol))) {
+        const lastCandlePrice = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
+        const ltp = lastCandlePrice > 0 ? lastCandlePrice : Number(chartTradeContext.currentLTP || chartTradeContext.buyPrice || 0);
+        const buy = Number(chartTradeContext.buyPrice || ltp);
+        const diff = ltp - buy;
+        const diffPct = buy > 0 ? (diff / buy) * 100 : 0;
+        return {
+          symbol: selectedSymbol,
+          name: selectedSymbol,
+          exchange: 'NSE',
+          segment: 'OPTIONS',
+          instrumentKey: chartTradeContext.instrumentKey || selectedInstrumentKey,
+          ltp,
+          change: Number(diff.toFixed(2)),
+          changePercent: Number(diffPct.toFixed(2)),
+          volume: 0,
+          open: buy,
+          high: Math.max(buy, ltp),
+          low: Math.min(buy, ltp),
+          close: buy,
+        } as StockQuote;
+      }
+      // If an open position matches selectedSymbol, use its live position price
+      const matchPos = positions.find((p) => p.symbol === selectedSymbol || selectedSymbol.includes(p.symbol));
+      if (matchPos) {
+        const ltp = Number(matchPos.currentLTP || matchPos.buyPrice || 0);
+        const buy = Number(matchPos.buyPrice || ltp);
+        const diff = ltp - buy;
+        const diffPct = buy > 0 ? (diff / buy) * 100 : 0;
+        return {
+          symbol: selectedSymbol,
+          name: selectedSymbol,
+          exchange: 'NSE',
+          segment: 'OPTIONS',
+          instrumentKey: matchPos.instrumentKey || selectedInstrumentKey,
+          ltp,
+          change: Number(diff.toFixed(2)),
+          changePercent: Number(diffPct.toFixed(2)),
+          volume: 0,
+          open: buy,
+          high: Math.max(buy, ltp),
+          low: Math.min(buy, ltp),
+          close: buy,
+        } as StockQuote;
+      }
+      // Fallback: derive quote from display candles for this symbol rather than picking an unrelated stock!
+      const lastCandle = candles[candles.length - 1];
+      const firstCandle = candles[0];
+      const candleLtp = lastCandle?.close || 0;
+      const candleOpen = firstCandle?.open || candleLtp;
+      const diff = candleLtp - candleOpen;
+      const diffPct = candleOpen > 0 ? (diff / candleOpen) * 100 : 0;
+      if (candleLtp > 0) {
+        return {
+          symbol: selectedSymbol,
+          name: selectedSymbol,
+          exchange: 'NSE',
+          segment: 'EQUITY',
+          instrumentKey: selectedInstrumentKey,
+          ltp: candleLtp,
+          change: Number(diff.toFixed(2)),
+          changePercent: Number(diffPct.toFixed(2)),
+          volume: lastCandle?.volume || 0,
+          open: candleOpen,
+          high: candleLtp,
+          low: candleLtp,
+          close: candleOpen,
+        } as StockQuote;
+      }
+      return quotes[0];
+    })();
 
   useEffect(() => {
     if (!currentQuote || !currentQuote.ltp || currentQuote.ltp <= 0) return;
@@ -762,14 +871,20 @@ export const App: React.FC = () => {
             symbol: h.symbol,
             companyName: h.companyName || h.symbol,
             instrumentKey: h.instrumentKey,
+            isin: h.isin,
             quantity: h.quantity,
-            avgPrice: h.buyPrice,
-            buyPrice: h.buyPrice,
+            avgPrice: h.buyPrice ?? h.avgPrice,
+            buyPrice: h.buyPrice ?? h.avgPrice,
             currentLTP: h.currentLTP,
-            investedValue: (h.quantity || 0) * (h.buyPrice || 0),
-            currentValue: (h.quantity || 0) * (h.currentLTP || 0),
-            pnl: h.pnl || ((h.currentLTP - h.buyPrice) * h.quantity),
+            closePrice: h.closePrice,
+            isBuyPriceLocked: h.isBuyPriceLocked,
+            isUpstoxZeroPrice: h.isUpstoxZeroPrice,
+            investedValue: h.investedValue || (h.quantity || 0) * (h.buyPrice || 0),
+            currentValue: h.currentValue || (h.quantity || 0) * (h.currentLTP || 0),
+            pnl: h.pnl || ((h.currentLTP - (h.buyPrice || h.avgPrice)) * h.quantity),
             pnlPercent: h.pnlPercent || (h.buyPrice > 0 ? ((h.currentLTP - h.buyPrice) / h.buyPrice) * 100 : 0),
+            fiftyPercentTarget: h.fiftyPercentTarget,
+            algoForecast: h.algoForecast,
           })));
         }
       }
@@ -862,13 +977,22 @@ export const App: React.FC = () => {
           }
         }
       } else if (token) {
-        // In UPSTOX_LIVE mode, fetch real Upstox order book
+        // In UPSTOX_LIVE mode, fetch real Upstox order book and trade history
         try {
-          const liveOrdRes = await fetch('/api/market/orders', { headers });
-          if (liveOrdRes.ok) {
-            const liveOrdData = await liveOrdRes.json();
+          const [liveOrdRes, liveHistRes] = await Promise.allSettled([
+            fetch('/api/market/orders', { headers }),
+            fetch('/api/trading/history?mode=UPSTOX_LIVE', { headers }),
+          ]);
+          if (liveOrdRes.status === 'fulfilled' && liveOrdRes.value && liveOrdRes.value.ok) {
+            const liveOrdData = await liveOrdRes.value.json();
             if (Array.isArray(liveOrdData)) {
               setOrders(liveOrdData);
+            }
+          }
+          if (liveHistRes.status === 'fulfilled' && liveHistRes.value && liveHistRes.value.ok) {
+            const liveHistData = await liveHistRes.value.json();
+            if (Array.isArray(liveHistData)) {
+              setTradeHistory(liveHistData);
             }
           }
         } catch {}
@@ -1362,7 +1486,7 @@ export const App: React.FC = () => {
   }, [quotes, soundEnabled]);
 
   // 2. Real-Time Backend Algo Bot Sync Loop (Fetches authoritative logs, 7-Layer signals, active positions, orders & history from the 200ms server engine)
-  // NOTE: All automated trade entries and exits are strictly executed by the 200ms server engine (which enforces 09:18 AM - 14:45 PM IST market hours, real Upstox Option Chain verification, and Peak-Locked Stop-Loss).
+  // NOTE: All automated trade entries and exits are strictly executed by the 200ms server engine (which enforces 09:18 AM - 15:08 PM IST market hours, real Upstox Option Chain verification, and Peak-Locked Stop-Loss).
   useEffect(() => {
     const syncBackendBotState = async () => {
       try {
@@ -1738,6 +1862,63 @@ export const App: React.FC = () => {
           <span>Zero Net Cut Drift</span>
         </div>
       </div>
+
+      {/* Upstox Static IP Warning Alert */}
+      {botLogs.some((l) => l.message && l.message.includes('static IP restrictions')) && (
+        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-500/50 px-3.5 py-2 flex items-center justify-between gap-3 text-xs flex-wrap shadow-lg">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-amber-400 font-black text-sm shrink-0">⚠️</span>
+            <div className="flex flex-col">
+              <span className="text-amber-300 font-extrabold text-[12px]">
+                {language === 'ml'
+                  ? 'Upstox ലൈവ് ഓർഡർ ബ്ലോക്ക് ആയി (Static IP Restriction)'
+                  : 'Upstox Live Order Blocked (Static IP Restriction)'}
+              </span>
+              <span className="text-slate-300 text-[11px]">
+                {language === 'ml'
+                  ? `Upstox Developer Console-ൽ 'Static IP' ഉള്ളതുകൊണ്ടാണ് ലൈവ് ഓർഡർ റിജക്റ്റ് ആയത്. Upstox Developer Console-ൽ പോയി 'Static IP' ഓഫ് ചെയ്യുക (അല്ലെങ്കിൽ സെർവർ IP: ${apiConfig.serverOutboundIp || '34.96.48.50'} ചേർക്കുക).`
+                  : `Upstox blocked live order placement because Static IP restriction is enabled. Please turn off Static IP in Upstox Developer Console (or add server IP: ${apiConfig.serverOutboundIp || '34.96.48.50'}).`}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                const ipToCopy = apiConfig.serverOutboundIp || '34.96.48.50';
+                navigator.clipboard?.writeText(ipToCopy);
+                setIpCopiedNotice(true);
+                setTimeout(() => setIpCopiedNotice(false), 3000);
+              }}
+              className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-3 py-1 rounded text-[11px] transition shadow flex items-center gap-1 active:scale-95"
+            >
+              📋 {ipCopiedNotice 
+                    ? (language === 'ml' ? '✓ IP കോപ്പി ചെയ്തു!' : '✓ IP Copied!') 
+                    : (language === 'ml' ? 'IP കോപ്പി ചെയ്യുക' : 'Copy IP')}
+            </button>
+            <button
+              onClick={() => {
+                const newMode: ExecutionMode = 'PAPER_TRADING';
+                try {
+                  localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
+                } catch {}
+                setMode(newMode);
+                setBotConfig(prev => {
+                  const updated: BotConfig = { ...prev, mode: newMode };
+                  fetch('/api/bot/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updated),
+                  }).catch(() => {});
+                  return updated;
+                });
+              }}
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1 rounded text-[11px] border border-slate-700 transition flex items-center gap-1 active:scale-95"
+            >
+              🧪 {language === 'ml' ? 'പേപ്പർ മോഡിലേക്ക് മാറ്റുക' : 'Paper Mode'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 3. MAIN WORKSPACE */}
       <div className="flex flex-1 w-full max-w-full min-w-0 min-h-0 overflow-hidden">

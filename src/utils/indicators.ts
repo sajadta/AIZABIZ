@@ -1415,13 +1415,13 @@ export function analyzeTradingSignals(
 
     optEntry = Number((optionMetrics?.ltp || realOptionPrice || basePremium).toFixed(2));
 
-    // Option Stop Loss: 15% of option premium for tight risk control, Targets 1.6x, 2.8x, 4.2x
-    optSL = Number((optEntry * 0.85).toFixed(2));
-    const risk = Math.max(1, optEntry - optSL);
+    // Option Stop Loss: 17% of option premium for breathing room against normal bid-ask spread, Targets 1.8x, 3.0x, 4.8x
+    optSL = Number((optEntry * 0.83).toFixed(2));
+    const risk = Math.max(1.2, optEntry - optSL);
 
     optT1 = Number((optEntry + risk * 1.8).toFixed(2));
     optT2 = Number((optEntry + risk * 3.0).toFixed(2));
-    optT3 = Number((optEntry + risk * 4.5).toFixed(2));
+    optT3 = Number((optEntry + risk * 4.8).toFixed(2));
 
     const lotSzForCalc = optionMetrics?.lotSize || 1;
     const oneLotCharges = calculateTradeCharges(optEntry, lotSzForCalc, true, optT1);

@@ -184,8 +184,8 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
 
   const marketOpenMin = 9 * 60 + 15; // 555 (09:15 AM)
   const algoStartMin = 9 * 60 + 18; // 558 (09:18 AM)
-  const algoCutoffMin = 14 * 60 + 45; // 885 (02:45 PM)
-  const squareOffMin = 15 * 60 + 15; // 915 (03:15 PM)
+  const algoCutoffMin = 15 * 60 + 8; // 908 (03:08 PM) - Allows high-momentum 1m/3m scalping until 03:08 PM
+  const squareOffMin = 15 * 60 + 14; // 914 (03:14 PM) - Safely exits before Upstox 03:15 broker auto-squareoff!
   const marketCloseMin = 15 * 60 + 30; // 930 (03:30 PM)
 
   const istTimeStr = now.toLocaleTimeString('en-IN', {
@@ -277,8 +277,8 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
       isMarketOpen: true,
       isAlgoEntryWindowOpen: true,
       phaseCode: 'ALGO_ACTIVE_918_1445',
-      phaseLabelMl: '🟢 ലൈവ് ട്രേഡിംഗ് & അൽഗോ എൻട്രി സജീവം (09:18 AM – 02:45 PM)',
-      phaseLabelEn: '🟢 Market & Algo Entry Window ACTIVE (09:18 AM – 02:45 PM)',
+      phaseLabelMl: '🟢 ലൈവ് ട്രേഡിംഗ് & അൽഗോ എൻട്രി സജീവം (09:18 AM – 03:08 PM)',
+      phaseLabelEn: '🟢 Market & Algo Entry Window ACTIVE (09:18 AM – 03:08 PM)',
       countdownLabelMl: `എൻട്രി വിൻഡോ: ${formatDuration(secUntilCutoff)} | ക്ലോസിംഗ്: ${formatDuration(secUntilClose)}`,
       countdownLabelEn: `Entry Cutoff in ${formatDuration(secUntilCutoff)} | Close in ${formatDuration(secUntilClose)}`,
       sessionProgressPct,
@@ -293,10 +293,10 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
       isMarketOpen: true,
       isAlgoEntryWindowOpen: false,
       phaseCode: 'LATE_SESSION_HOLD_ONLY_1445_1515',
-      phaseLabelMl: '🟠 പുതിയ എൻട്രി അവസാനിച്ചു (02:45 PM) — ഓപ്പൺ ട്രേഡുകൾ പ്രോഫിറ്റ് ലോക്ക് ചെയ്യുന്നു',
-      phaseLabelEn: '🟠 New Entry Cutoff Passed (02:45 PM) — Trailing Open Positions',
-      countdownLabelMl: `ഓട്ടോ സ്ക്വയർ-ഓഫ് (03:15 PM): ${formatDuration(secUntilSqOff)} ബാക്കി`,
-      countdownLabelEn: `Auto Square-Off (03:15 PM) in: ${formatDuration(secUntilSqOff)}`,
+      phaseLabelMl: '🟠 പുതിയ എൻട്രി അവസാനിച്ചു (03:08 PM) — ഓപ്പൺ ട്രേഡുകൾ പ്രോഫിറ്റ് ലോക്ക് ചെയ്യുന്നു',
+      phaseLabelEn: '🟠 New Entry Cutoff Passed (03:08 PM) — Trailing Open Positions',
+      countdownLabelMl: `സുരക്ഷിത സ്ക്വയർ-ഓഫ് (03:14 PM): ${formatDuration(secUntilSqOff)} ബാക്കി`,
+      countdownLabelEn: `Safe Square-Off (03:14 PM) in: ${formatDuration(secUntilSqOff)}`,
       sessionProgressPct,
     };
   }
