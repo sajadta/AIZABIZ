@@ -26,7 +26,8 @@ import {
   Check,
   Lock,
   Edit2,
-  X
+  X,
+  Target,
 } from 'lucide-react';
 import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
@@ -59,6 +60,7 @@ interface OrderBookPositionsProps {
   isConnected?: boolean;
   onOpenApiModal?: () => void;
   onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
+  onSyncHistoryBrokerage?: () => Promise<void>;
 }
 
 // Helper to format trade timestamps into clear dates and times in Malayalam and English
@@ -294,7 +296,7 @@ const PositionItem: React.FC<{
     };
   }, [buyPx, qty, isOpt, curPx]);
 
-  const [apiCharges, setApiCharges] = React.useState<{ total: number; details: any } | null>(null);
+  const [apiCharges, setApiCharges] = React.useState<{ total: number; details: any; isLiveUpstox?: boolean } | null>(null);
   const [showTaxBreakdown, setShowTaxBreakdown] = React.useState(false);
 
   const estCharges = apiCharges?.total ?? defaultCharges.total;
@@ -307,47 +309,30 @@ const PositionItem: React.FC<{
         if (!pos.buyPrice || !pos.quantity) return;
         const instToken = pos.instrumentKey || (pos.isOption ? 'NSE_FO|' + pos.symbol : 'NSE_EQ|' + pos.symbol);
         const prod = pos.productType || 'D';
+        const currentPx = pos.currentLTP || pos.buyPrice;
 
-        // Buy charges
-        let buyCharges = 0;
-        const taxes: any = { ...defaultCharges.details };
-        const r1 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&transactionType=BUY&price=${pos.buyPrice}`);
-        if (r1.ok) {
-          const d1 = await r1.json();
-          buyCharges += d1?.data?.charges?.total || 0;
-          if (d1?.data?.charges) {
-            taxes.brokerage = d1.data.charges.brokerage || 0;
-            taxes.stt = d1.data.charges.taxes?.stt || 0;
-            taxes.gst = d1.data.charges.taxes?.gst || 0;
-            taxes.stampDuty = d1.data.charges.taxes?.stampDuty || 0;
-            taxes.transactionCharge = d1.data.charges.taxes?.transactionCharge || 0;
-            taxes.sebiCharge = d1.data.charges.taxes?.sebiCharge || 0;
+        // Fetch Live Round-Trip Brokerage & Taxes directly from Upstox API via server cache
+        const r = await fetch(
+          `/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&buyPrice=${pos.buyPrice}&sellPrice=${currentPx}&roundTrip=true`
+        );
+        if (r.ok) {
+          const d = await r.json();
+          const charges = d?.data?.charges;
+          if (isMounted && charges && Number(charges.total) > 0) {
+            setApiCharges({
+              total: Number(charges.total),
+              details: {
+                brokerage: Number(charges.brokerage || 60),
+                stt: Number(charges.taxes?.stt || 0),
+                gst: Number(charges.taxes?.gst || 0),
+                stampDuty: Number(charges.taxes?.stamp_duty ?? charges.taxes?.stampDuty ?? 0),
+                transactionCharge: Number(charges.other_charges?.transaction ?? charges.taxes?.transactionCharge ?? 0),
+                sebiCharge: Number(charges.other_charges?.sebi_turnover ?? charges.taxes?.sebiCharge ?? 0),
+              },
+              isLiveUpstox: Boolean(d?.isLiveUpstox || d?.data?.source === 'UPSTOX_LIVE_API'),
+            });
+            return;
           }
-        }
-         
-        // Estimated Sell charges
-        let sellCharges = 0;
-        if (pos.currentLTP && pos.quantity) {
-          const r2 = await fetch(`/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&transactionType=SELL&price=${pos.currentLTP}`);
-          if (r2.ok) {
-            const d2 = await r2.json();
-            sellCharges += d2?.data?.charges?.total || 0;
-            if (d2?.data?.charges) {
-              taxes.brokerage += d2.data.charges.brokerage || 0;
-              taxes.stt += d2.data.charges.taxes?.stt || 0;
-              taxes.gst += d2.data.charges.taxes?.gst || 0;
-              taxes.stampDuty += d2.data.charges.taxes?.stampDuty || 0;
-              taxes.transactionCharge += d2.data.charges.taxes?.transactionCharge || 0;
-              taxes.sebiCharge += d2.data.charges.taxes?.sebiCharge || 0;
-            }
-          }
-        }
-         
-        if (isMounted && (buyCharges + sellCharges) > 0) {
-          setApiCharges({
-            total: Number((buyCharges + sellCharges).toFixed(2)),
-            details: taxes,
-          });
         }
       } catch {
         // Fallback already safely active from defaultCharges
@@ -364,216 +349,180 @@ const PositionItem: React.FC<{
   const is50PctHit = buyPx > 0 && curPx >= target50Px;
   const progressTo50 = buyPx > 0 ? Math.max(0, Math.min(100, ((curPx - buyPx) / (buyPx * 0.5)) * 100)) : 0;
   const isHighProfit = net >= 1000 || is50PctHit;
-  const isMedProfit = net >= 300 && !isHighProfit;
 
   return (
-      <div className={`p-3.5 rounded-xl border flex flex-col gap-3 transition-all duration-300 ${
+      <div className={`p-0 rounded-2xl border transition-all duration-500 backdrop-blur-md relative overflow-hidden group shadow-[0_8px_30px_rgb(0,0,0,0.4)] ${
         is50PctHit
-          ? 'bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-emerald-950/40 border-amber-400/80 shadow-[0_0_24px_rgba(251,191,36,0.28)]'
+          ? 'bg-amber-500/10 border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
           : isHighProfit
-            ? 'bg-emerald-950/30 border-emerald-400/70 shadow-[0_0_20px_rgba(16,185,129,0.22)]'
-            : isMedProfit
-              ? 'bg-slate-900/90 border-emerald-500/50 shadow-[0_0_12px_rgba(16,185,129,0.14)]'
-              : gross < 0
-                ? 'bg-rose-950/20 border-rose-500/40'
-                : isNew 
-                  ? (gross >= 0 ? 'animate-trade-glow-buy' : 'animate-trade-glow-sell')
-                  : 'bg-slate-900/80 border-slate-800 animate-row-enter'
+            ? 'bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.15)]'
+            : gross < 0
+              ? 'bg-rose-500/10 border-rose-500/40 shadow-[0_0_20px_rgba(244,63,94,0.15)]'
+              : 'bg-slate-900/60 border-slate-800/60 hover:border-cyan-500/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.1)]'
       }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-extrabold text-white">
-              {pos.symbol}
-            </span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-              pos.isOption || pos.symbol.includes('CE') || pos.symbol.includes('PE')
-                ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/30' 
-                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-            }`}>
-              {pos.isOption || pos.symbol.includes('CE') || pos.symbol.includes('PE')
-                ? '🎯 OPTION PREMIUM (കരാർ പ്രീമിയം)' 
-                : '📈 INDEX / EQUITY (ഓഹരി/സൂചിക)'}
-            </span>
-            <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
-              Qty: <strong className="text-white">{pos.quantity}</strong>
-            </span>
-            {is50PctHit && (
-              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 animate-pulse">
-                ⚡ +50% JACKPOT MILESTONE HIT!
-              </span>
-            )}
-            {!is50PctHit && isHighProfit && (
-              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/25 text-emerald-200 border border-emerald-400/60 animate-pulse">
-                🚀 HIGH PROFIT SURGE (+₹{net.toFixed(0)})
-              </span>
-            )}
-            {isNew && (
-              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                NEW POSITION
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {onViewChart && (
-              <button
-                type="button"
-                onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
-                  symbol: pos.symbol,
-                  buyPrice: pos.buyPrice,
-                  currentLTP: pos.currentLTP,
-                  target: pos.target,
-                  stopLoss: pos.stopLoss,
-                  pnl: pos.pnl,
-                  isOption: isOpt
-                })}
-                className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition shadow-sm flex items-center gap-1.5 active:scale-95 touch-manipulation"
-                title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart for this trade'}
-              >
-                <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
-                <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
-              </button>
-            )}
-            <button
-              onClick={() => onSquareOff(pos.id)}
-              className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-xs font-bold border border-rose-500/30 transition shadow-sm"
-            >
-              Exit
-            </button>
-          </div>
-        </div>
+        <div className={`absolute inset-0 bg-gradient-to-tr ${gross >= 0 ? 'from-emerald-500/5' : 'from-rose-500/5'} to-transparent pointer-events-none opacity-40`} />
+        
+        {/* Glow accent bar at top */}
+        <div className={`h-1 w-full ${is50PctHit ? 'bg-amber-500' : isHighProfit ? 'bg-emerald-500' : gross < 0 ? 'bg-rose-500' : 'bg-slate-700'} shadow-[0_0_15px_rgba(0,0,0,0.5)]`} />
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/50">
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Buy Price</span>
-                <span className="text-slate-200 font-semibold">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
-            </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Current (LTP)</span>
-                <span className="text-slate-200 font-semibold">₹{pos.currentLTP?.toFixed(2) || '0.00'}</span>
-            </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-amber-400/90">+50% Target Price</span>
-                <span className="text-amber-300 font-bold">₹{target50Px.toFixed(2)} (+₹{target50Profit.toFixed(0)})</span>
-            </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Gross P&L</span>
-                <span className={`font-semibold ${gross >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
-                </span>
-            </div>
-            <div className="flex flex-col">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">Net (After Tax)</span>
-                  {estCharges !== null && (
-                    <button 
-                      onClick={() => setShowTaxBreakdown(!showTaxBreakdown)}
-                      className="text-[9px] text-cyan-400 underline font-sans hover:text-cyan-300"
-                    >
-                      {showTaxBreakdown ? 'Hide' : 'Details'}
-                    </button>
+        <div className="p-4 sm:p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`p-2 rounded-xl border shrink-0 ${
+                isOpt ? 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              }`}>
+                {isOpt ? <Zap className="w-4 h-4" /> : <Briefcase className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-black text-white truncate tracking-tight">
+                    {pos.symbol}
+                  </span>
+                  {isNew && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[8px] font-black uppercase animate-pulse">NEW</span>
                   )}
                 </div>
-                <span className={`font-extrabold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
-                </span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-800/40 px-2 py-0.5 rounded">
+                    {pos.productType === 'DELIVERY' ? 'Delivery' : 'Intraday'}
+                  </span>
+                  <span className="text-[10px] font-mono text-cyan-400 font-bold">
+                    Qty: {pos.quantity}
+                  </span>
+                </div>
+              </div>
             </div>
+
+            <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
+              {onViewChart && (
+                <button
+                  type="button"
+                  onClick={() => onViewChart(pos.symbol, pos.instrumentKey)}
+                  className="h-10 px-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-300 border border-slate-700/50 transition flex items-center gap-2 active:scale-95 shadow-lg shadow-black/20"
+                >
+                  <BarChart2 className="w-4 h-4" />
+                  <span className="text-[11px] font-black uppercase hidden sm:inline">{language === 'ml' ? 'ചാർട്ട്' : 'Chart'}</span>
+                </button>
+              )}
+              <button
+                onClick={() => onSquareOff(pos.id)}
+                className="h-10 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black uppercase border border-rose-500/50 transition active:scale-95 shadow-lg shadow-rose-950/40"
+              >
+                {language === 'ml' ? 'എക്സിറ്റ്' : 'Exit'}
+              </button>
+            </div>
+          </div>
+
+          {/* Unified horizontal integrated data strip (No separate boxes) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6 py-4 px-5 rounded-2xl bg-black/40 border border-slate-800/40 shadow-inner group-hover:border-slate-700/60 transition-colors">
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
+                <div className="w-1 h-1 rounded-full bg-slate-500" /> Buy Price
+              </span>
+              <span className="text-slate-200 font-black font-mono text-sm">₹{buyPx.toFixed(2)}</span>
+            </div>
+            
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
+                <div className="w-1 h-1 rounded-full bg-cyan-400" /> LTP
+              </span>
+              <span className="text-white font-black font-mono text-sm">₹{curPx.toFixed(2)}</span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
+                <div className="w-1 h-1 rounded-full bg-amber-500" /> Target
+              </span>
+              <span className="text-amber-400/90 font-black font-mono text-sm">₹{target50Px.toFixed(2)}</span>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
+                <div className={`w-1 h-1 rounded-full ${gross >= 0 ? 'bg-emerald-400' : 'bg-rose-400'}`} /> Gross P&L
+              </span>
+              <span className={`text-sm font-black font-mono ${gross >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1 sm:text-right">
+              <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5 sm:justify-end">
+                <div className={`w-1 h-1 rounded-full ${net >= 0 ? 'bg-emerald-400' : 'bg-rose-400'}`} /> Net Profit
+              </span>
+              <span className={`text-base font-black font-mono ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'} drop-shadow-[0_0_12px_rgba(52,211,153,0.3)] flex items-center gap-1`}>
+                {apiCharges?.isLiveUpstox && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Upstox Live API Verified" />}
+                {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* Progress to Target */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] font-bold">
+              <span className="text-slate-400 flex items-center gap-1.5">
+                <Target className="w-3 h-3 text-amber-500" />
+                {language === 'ml' ? 'ലാഭ ലക്ഷ്യം' : 'Profit Target'}: <span className="text-slate-200">₹{target50Px} (+50%)</span>
+              </span>
+              <span className={is50PctHit ? 'text-amber-400' : 'text-cyan-400'}>
+                {progressTo50.toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-800/50">
+              <div 
+                className={`h-full transition-all duration-700 ease-out shadow-[0_0_10px_rgba(34,211,238,0.2)] ${
+                  is50PctHit ? 'bg-gradient-to-r from-emerald-500 to-amber-400' : 'bg-gradient-to-r from-cyan-600 to-emerald-500'
+                }`}
+                style={{ width: `${progressTo50}%` }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* +50% Buy-Price Profit Milestone Progress Bar */}
-        <div className="bg-slate-950/70 px-3 py-2 rounded-lg border border-slate-800/80 flex flex-col gap-1">
-          <div className="flex items-center justify-between text-[10px] font-mono">
-            <span className="text-slate-300 font-sans font-semibold">
-              🎯 വാങ്ങിയ വിലയുടെ +50% ലാഭ ലക്ഷ്യം (₹{target50Px.toFixed(2)}):
+        {/* Dynamic status labels at bottom */}
+        <div className="px-5 py-2.5 bg-black/40 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-bold">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-slate-500">
+              <Clock className="w-3 h-3" />
+              {pos.openedAt}
             </span>
-            <span className={is50PctHit ? 'text-amber-300 font-black' : 'text-cyan-300 font-bold'}>
-              {is50PctHit
-                ? `⚡ +50% മറികടന്നു! (+₹${gross.toFixed(0)} ലാഭം)`
-                : `${progressTo50.toFixed(1)}% പൂർത്തിയായി (ഇനി ₹${Math.max(0, target50Px - curPx).toFixed(2)} കൂടി)`}
-            </span>
-          </div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-300 ${
-                is50PctHit
-                  ? 'bg-gradient-to-r from-emerald-400 via-amber-400 to-yellow-300'
-                  : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
-              }`}
-              style={{ width: `${progressTo50}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Real Live Risk & Target Execution Monitor (Replaced misleading trajectory simulation) */}
-        <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-700/60 text-xs flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <span className="font-bold flex items-center gap-1.5 text-slate-200">
-              <span className={`w-2 h-2 rounded-full ${net >= 0 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-              {net >= 0 ? '🟢 തത്സമയ ലാഭം നിരീക്ഷിക്കുന്നു (In Profit)' : '⚠️ ലൈവ് റിസ്ക് നിരീക്ഷണം (Risk Guard Active)'}
-            </span>
-            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-              net >= 0 
-                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' 
-                : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
-            }`}>
-              {net >= 0 ? `Net +₹${net.toFixed(2)}` : `Net -₹${Math.abs(net).toFixed(2)}`}
+            <span className={`flex items-center gap-1.5 ${net >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
+              {net >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {net >= 0 ? (language === 'ml' ? 'ലാഭത്തിൽ' : 'In Profit') : (language === 'ml' ? 'നഷ്ടത്തിൽ' : 'In Loss')}
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-800 text-[11px] font-mono">
-            <div>
-              <span className="text-slate-400 block text-[10px]">ടാർഗെറ്റ് (Target):</span>
-              <strong className="text-emerald-300">
-                ₹{(pos.target || (pos.buyPrice * 1.18)).toFixed(2)}
-              </strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">സ്റ്റോപ്പ് ലോസ് (Stop-Loss):</span>
-              <strong className="text-rose-300">
-                ₹{(pos.stopLoss || (pos.buyPrice * 0.915)).toFixed(2)}
-              </strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">SL അകലം (Distance):</span>
-              <strong className={(pos.currentLTP || pos.buyPrice) > (pos.stopLoss || pos.buyPrice * 0.915) ? 'text-cyan-300' : 'text-rose-400'}>
-                {((pos.currentLTP || pos.buyPrice) - (pos.stopLoss || pos.buyPrice * 0.915)).toFixed(2)} pts
-              </strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block text-[10px]">റിസ്ക്:റിവാർഡ് (R:R):</span>
-              <strong className="text-amber-300">
-                1 : 2.2
-              </strong>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 flex items-center gap-1">
+              {apiCharges?.isLiveUpstox && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Upstox Live API" />}
+              {language === 'ml' ? 'ബ്രോക്കറേജ് & നികുതി' : 'Brokerage & Taxes'}: ₹{estCharges.toFixed(2)}
+            </span>
+            {showTaxBreakdown ? (
+              <button onClick={() => setShowTaxBreakdown(false)} className="text-cyan-500 hover:text-cyan-400 uppercase tracking-tighter text-[9px] font-black flex items-center gap-1">
+                {apiCharges?.isLiveUpstox && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                {language === 'ml' ? 'മറയ്ക്കുക' : 'Hide'}
+              </button>
+            ) : (
+              <button onClick={() => setShowTaxBreakdown(true)} className="text-slate-400 hover:text-cyan-400 uppercase tracking-tighter text-[9px] font-black flex items-center gap-1">
+                {apiCharges?.isLiveUpstox && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                {language === 'ml' ? 'വിശദാംശങ്ങൾ' : 'View Details'}
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Detailed Official Brokerage & Taxes Breakdown */}
         {showTaxBreakdown && chargeDetails && (
-          <div className="p-2.5 rounded-lg bg-black/60 border border-cyan-500/30 text-[10px] font-mono grid grid-cols-2 sm:grid-cols-3 gap-2 animate-fadeIn">
-            <div>
-              <span className="text-slate-500 block">Brokerage (Flat):</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.brokerage.toFixed(2)}</span>
+          <div className="p-4 bg-black/80 border-t border-cyan-900/30 text-[10px] font-mono grid grid-cols-2 sm:grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="col-span-full pb-1 border-b border-slate-800/60 flex items-center justify-between text-[9px]">
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                ⚡ {language === 'ml' ? 'Upstox ലൈവ് ഒഫീഷ്യൽ ബ്രോക്കറേജ് (Exact Match)' : 'Upstox Live Official Brokerage API'}
+              </span>
+              <span className="text-slate-400">Total: ₹{estCharges.toFixed(2)}</span>
             </div>
-            <div>
-              <span className="text-slate-500 block">STT / CTT:</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.stt.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">GST (18%):</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.gst.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">Exchange Turn.:</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.transactionCharge.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">Stamp Duty:</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.stampDuty.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-slate-500 block">SEBI Charges:</span>
-              <span className="text-slate-200 font-bold">₹{chargeDetails.sebiCharge.toFixed(2)}</span>
-            </div>
+            {Object.entries(chargeDetails).map(([key, val]: [string, any]) => (
+              <div key={key} className="flex flex-col">
+                <span className="text-slate-500 uppercase text-[8px]">{key.replace(/([A-Z])/g, ' $1')}</span>
+                <span className="text-slate-300 font-bold">₹{Number(val || 0).toFixed(2)}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -602,62 +551,60 @@ const TradeHistoryItem: React.FC<{
   const net = gross - estCharges;
 
   return (
-      <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 flex flex-col gap-3 opacity-90 hover:opacity-100 transition">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-extrabold text-white">
-              {pos.symbol}
-            </span>
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded border bg-slate-800 text-slate-200 border-slate-700">
-              CLOSED
-            </span>
-            <span className="text-[10px] font-mono text-slate-400 border border-slate-700/50 rounded px-1.5 py-0.2">
-              Qty: <strong className="text-slate-200">{pos.quantity}</strong>
-            </span>
+      <div className="p-0 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/60 transition-all duration-300 relative overflow-hidden group shadow-lg">
+        <div className={`absolute inset-0 bg-gradient-to-tr ${gross >= 0 ? 'from-emerald-500/5' : 'from-rose-500/5'} to-transparent pointer-events-none opacity-30`} />
+        
+        <div className="p-4 sm:p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-3">
+              <div className={`p-1.5 rounded-lg border ${
+                gross >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+              }`}>
+                {gross >= 0 ? <CheckCheck className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+              </div>
+              <div>
+                <span className="text-sm font-black text-white block tracking-tight">{pos.symbol}</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{pos.openedAt}</span>
+              </div>
+            </div>
+            {onViewChart && (
+              <button
+                type="button"
+                onClick={() => onViewChart(pos.symbol, pos.instrumentKey)}
+                className="p-2 rounded-xl bg-slate-800/40 border border-slate-700/40 text-slate-400 hover:text-white transition"
+              >
+                <BarChart2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          {onViewChart && (
-            <button
-              type="button"
-              onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
-                symbol: pos.symbol,
-                buyPrice: pos.buyPrice,
-                sellPrice: pos.sellPrice || pos.currentLTP,
-                currentLTP: pos.currentLTP,
-                target: pos.target,
-                stopLoss: pos.stopLoss,
-                pnl: pos.realizedPnL,
-                isOption: isOpt
-              })}
-              className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition shadow-sm flex items-center gap-1.5 active:scale-95 touch-manipulation"
-              title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ കാൻഡിൽസ്റ്റിക്ക് ചാർട്ട് കാണുക' : 'View Candlestick Chart for this trade'}
-            >
-              <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
-              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
-            </button>
-          )}
-        </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/30">
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Buy Price</span>
-                <span className="text-slate-400">₹{pos.buyPrice?.toFixed(2) || '0.00'}</span>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 py-3 px-4 rounded-xl bg-black/30 border border-slate-800/30">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Buy Px</span>
+              <span className="text-slate-300 font-bold font-mono text-xs">₹{buyPx.toFixed(2)}</span>
             </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Sell Price</span>
-                <span className="text-slate-400">₹{pos.sellPrice?.toFixed(2) || pos.currentLTP?.toFixed(2) || '0.00'}</span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Exit Px</span>
+              <span className="text-slate-300 font-bold font-mono text-xs">₹{sellPx.toFixed(2)}</span>
             </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Gross P&L</span>
-                <span className={`font-semibold ${gross >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                    {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
-                </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Gross</span>
+              <span className={`font-bold font-mono text-xs ${gross >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
+              </span>
             </div>
-            <div className="flex flex-col">
-                <span className="text-[10px] text-slate-500">Net P&L {estCharges !== null ? `(-₹${estCharges.toFixed(2)} Tax)` : '(Calc...)'}</span>
-                <span className={`font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
-                </span>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Upstox Fees</span>
+              <span className="text-slate-400 font-bold font-mono text-xs">-₹{estCharges.toFixed(2)}</span>
             </div>
+            <div className="flex flex-col gap-0.5 sm:text-right">
+              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Net Realized</span>
+              <span className={`font-black font-mono text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'} drop-shadow-[0_0_8px_rgba(52,211,153,0.2)] flex items-center gap-1 justify-end`}>
+                {(pos as any).brokerageCharges > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Upstox API Verified" />}
+                {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
   );
@@ -678,6 +625,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   isConnected = false,
   onOpenApiModal,
   onViewChart,
+  onSyncHistoryBrokerage,
 }) => {
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY'>(initialTab);
@@ -1800,28 +1748,32 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   const returnedValue = sellPx * qty;
 
                   return (
-                    <div key={`paired_${pos.id}`} className="bg-gradient-to-br from-[#0c1222] via-[#090d18] to-slate-900/90 p-4 rounded-2xl border border-slate-800 flex flex-col gap-3 shadow-md hover:border-slate-700 transition">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
-                            <CheckCheck className="w-3 h-3" />
-                            {language === 'ml' ? 'വാങ്ങലും വിൽക്കലും ഒരുമിച്ച്' : 'Paired Round-Trip'}
+                    <div 
+                      key={`paired_${pos.id}`} 
+                      className="bg-gradient-to-br from-[#0c1222]/80 via-[#080c16]/95 to-[#111827]/80 backdrop-blur-md p-4 rounded-2xl border border-slate-800/80 shadow-[0_8px_30px_rgb(0,0,0,0.4)] hover:border-slate-700/80 transition-all duration-500 relative overflow-hidden flex flex-col gap-3 group"
+                    >
+                      {/* Top Glowing Accent Line */}
+                      <div className={`h-[2px] w-full absolute top-0 left-0 ${net >= 0 ? 'bg-gradient-to-r from-emerald-500/60 via-cyan-400/40 to-transparent' : 'bg-gradient-to-r from-rose-500/60 via-amber-400/40 to-transparent'}`} />
+
+                      {/* Header Row: Symbol, Date, Chart Action, and Net P&L */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/60">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="font-black text-white text-base tracking-tight">{pos.symbol}</span>
+                          <span className="text-[11px] text-slate-300 bg-slate-800/70 px-2 py-0.5 rounded-md border border-slate-700/50 font-mono">
+                            Qty: <strong className="text-white">{qty}</strong>
                           </span>
-                          <span className="font-extrabold text-white text-sm">{pos.symbol}</span>
-                          <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 font-mono">
-                            Qty: <strong>{qty}</strong>
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-950/70 border border-indigo-500/40 text-cyan-200 text-xs font-bold">
-                            <Calendar className="w-3 h-3 text-cyan-400" />
+                          <div className="flex items-center gap-1 text-slate-400 text-xs font-sans">
+                            <Calendar className="w-3.5 h-3.5 text-cyan-400" />
                             <span>{tradeDateLabel}</span>
                           </div>
                           {duration && (
-                            <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                              {duration}
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              ({duration})
                             </span>
                           )}
+                        </div>
+
+                        <div className="flex items-center gap-3">
                           {onViewChart && (
                             <button
                               type="button"
@@ -1833,92 +1785,55 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                                 pnl: net,
                                 isOption: /\b(CE|PE)\b/i.test(pos.symbol)
                               })}
-                              className="px-3 py-1.5 min-h-[34px] rounded-xl bg-gradient-to-r from-indigo-600/35 to-cyan-600/35 hover:from-indigo-600 hover:to-cyan-600 text-cyan-200 hover:text-white text-xs font-black border border-cyan-500/40 transition flex items-center gap-1.5 shadow-sm active:scale-95 touch-manipulation"
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-cyan-300 hover:text-white text-xs font-bold border border-indigo-500/30 transition flex items-center gap-1 active:scale-95"
                               title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart for this trade'}
                             >
                               <BarChart2 className="w-3.5 h-3.5 text-cyan-300" />
-                              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                              <span>{language === 'ml' ? 'ലൈവ് ചാർട്ട്' : 'Live Chart'}</span>
                             </button>
                           )}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
-                        {/* Buy Info */}
-                        <div className="p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 flex items-center justify-between">
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-sans">
-                              {language === 'ml' ? '🟢 വാങ്ങിയത് (BUY)' : '🟢 Bought (Buy)'}
-                            </span>
-                            <span className="text-emerald-300 font-black text-sm">
-                              ₹{buyPx.toFixed(2)}
-                            </span>
-                          </div>
                           <div className="text-right">
-                            <span className="text-[10px] text-slate-400 block font-sans">
-                              {language === 'ml' ? 'തീയതി & സമയം' : 'Date & Time'}
-                            </span>
-                            <span className="text-slate-200 text-[11px]">
-                              {entryDt.fullStr || entryDt.timeStr || pos.openedAt || '—'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Sell Info */}
-                        <div className="p-2.5 rounded-xl bg-rose-950/20 border border-rose-500/30 flex items-center justify-between">
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-sans">
-                              {language === 'ml' ? '🔴 വിറ്റത് (SELL)' : '🔴 Sold (Sell)'}
-                            </span>
-                            <span className="text-rose-300 font-black text-sm">
-                              ₹{sellPx.toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[10px] text-slate-400 block font-sans">
-                              {language === 'ml' ? 'തീയതി & സമയം' : 'Date & Time'}
-                            </span>
-                            <span className="text-slate-200 text-[11px]">
-                              {exitDt.fullStr || exitDt.timeStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleTimeString('en-IN') : '—')}
+                            <span className="text-[10px] text-slate-400 uppercase font-mono block">Net P&L</span>
+                            <span className={`text-base sm:text-lg font-black font-mono tracking-tight ${
+                              net >= 0 
+                                ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' 
+                                : 'text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]'
+                            }`}>
+                              {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
                             </span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Summary */}
-                      <div className="p-2.5 rounded-xl bg-black/40 border border-slate-800/80 flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
-                        <div className="text-[11px] text-slate-400 flex items-center gap-1.5 flex-wrap">
-                          <span>{language === 'ml' ? 'എക്സിറ്റ് കാരണം: ' : 'Exit: '}</span>
-                          <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
-                            net >= 0 
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-rose-500/10 text-rose-300 border border-rose-500/30'
+                      {/* Execution Details: Seamless Horizontal Flow (Light lines, no rigid box clutter) */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono pt-1">
+                        <div className="flex items-center gap-3 sm:gap-5 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-black text-emerald-400 uppercase bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">BUY</span>
+                            <span className="text-white font-bold text-sm">₹{buyPx.toFixed(2)}</span>
+                            <span className="text-slate-400 text-[11px] font-sans">({entryDt.timeStr || pos.openedAt || '—'})</span>
+                          </div>
+
+                          <span className="text-slate-600 font-bold hidden sm:inline">→</span>
+
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-black text-rose-400 uppercase bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">SELL</span>
+                            <span className="text-white font-bold text-sm">₹{sellPx.toFixed(2)}</span>
+                            <span className="text-slate-400 text-[11px] font-sans">({exitDt.timeStr || (pos.closeTime ? new Date(pos.closeTime).toLocaleTimeString('en-IN') : '—')})</span>
+                          </div>
+                        </div>
+
+                        {/* Financial charges & Exit reason */}
+                        <div className="flex items-center gap-2.5 flex-wrap justify-between sm:justify-end">
+                          <span className="text-[11px] text-slate-400 font-sans">
+                            Gross: <strong className="text-slate-200">₹{gross.toFixed(2)}</strong> • Charges: <strong className="text-slate-300">₹{estCharges.toFixed(2)}</strong>
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            net >= 0
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
                           }`}>
                             {exitReason}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {onViewChart && (
-                            <button
-                              type="button"
-                              onClick={() => onViewChart(pos.symbol, pos.instrumentKey, {
-                                symbol: pos.symbol,
-                                buyPrice: buyPx,
-                                sellPrice: sellPx,
-                                currentLTP: sellPx,
-                                pnl: net,
-                                isOption: /\b(CE|PE)\b/i.test(pos.symbol)
-                              })}
-                              className="px-2.5 py-1 min-h-[30px] rounded-lg bg-indigo-500/25 hover:bg-indigo-600 text-cyan-300 hover:text-white text-[11px] font-extrabold border border-cyan-500/30 transition flex items-center gap-1 active:scale-95"
-                              title={language === 'ml' ? 'ഈ ട്രേഡിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Chart'}
-                            >
-                              <BarChart2 className="w-3 h-3 text-cyan-300" />
-                              <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
-                            </button>
-                          )}
-                          <span className="text-[10px] text-slate-400 uppercase">Net P&L:</span>
-                          <span className={`font-black text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -1986,24 +1901,25 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   return (
                     <div
                       key={ord.id}
-                      className={`p-3.5 rounded-xl border flex flex-col gap-2.5 text-xs font-mono transition-all duration-300 ${
+                      className={`p-4 rounded-2xl border transition-all duration-500 backdrop-blur-md shadow-[0_4px_20px_rgb(0,0,0,0.3)] relative overflow-hidden ${
                         isNew
                           ? (isBuy ? 'animate-trade-glow-buy' : 'animate-trade-glow-sell')
-                          : 'bg-slate-900/60 border-slate-800 hover:bg-slate-900 animate-row-enter'
+                          : 'bg-gradient-to-br from-[#0c1222]/80 to-[#080c16]/95 border-slate-800/80 hover:bg-[#0c1222]/90 hover:border-slate-700/60 animate-row-enter'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-3">
-                          <span className={`px-2 py-1 rounded-md text-[10px] font-black w-14 text-center ${
+                      <div className={`absolute inset-0 bg-gradient-to-tr ${isBuy ? 'from-emerald-500/5' : 'from-rose-500/5'} to-transparent pointer-events-none opacity-40`} />
+                      <div className="flex items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className={`px-2 py-1 rounded-lg text-[10px] font-black w-14 text-center shrink-0 tracking-wider ${
                             isBuy
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                           }`}>
                             {isBuy ? (language === 'ml' ? 'വാങ്ങൽ' : 'BUY') : (language === 'ml' ? 'വിൽക്കൽ' : 'SELL')}
                           </span>
-                          <div>
+                          <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-white font-sans text-sm">{ord.symbol}</span>
+                              <span className="font-extrabold text-white font-sans text-sm tracking-tight truncate">{ord.symbol}</span>
                               {isNew && (
                                 <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
                                   <span className="w-1 h-1 rounded-full bg-cyan-400"></span>
@@ -2011,25 +1927,25 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                              {/* Order Date & Time */}
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap text-[11px]">
                               <span className="text-cyan-300 font-sans text-[10px] font-semibold flex items-center gap-1">
                                 <Calendar className="w-3 h-3 text-cyan-400" />
                                 {orderFormattedDate.fullStr || ord.timestamp}
                               </span>
                               <span className="w-1 h-1 rounded-full bg-slate-700" />
-                              <span className="text-slate-300 text-[10px]">Qty: <strong>{qty}</strong></span>
+                              <span className="text-slate-300 text-[10px] font-mono">Qty: <strong className="text-white">{qty}</strong></span>
                               {ord.productType && (
                                 <>
                                   <span className="w-1 h-1 rounded-full bg-slate-700" />
-                                  <span className="text-slate-400 text-[10px]">{ord.productType}</span>
+                                  <span className="text-slate-400 text-[10px] font-sans">{ord.productType}</span>
                                 </>
                               )}
                             </div>
                           </div>
                         </div>
-                        <div className="text-right flex flex-col items-end gap-1">
-                          <div className="text-white font-bold text-sm mb-0.5">
+
+                        <div className="text-right flex flex-col items-end gap-1 shrink-0">
+                          <div className="text-white font-black text-sm sm:text-base font-mono">
                             ₹{execPx.toFixed(2)}
                           </div>
                           <div className="flex items-center justify-end gap-1.5 flex-wrap">
@@ -2043,11 +1959,11 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                                   pnl: grossPnl,
                                   isOption: isOpt
                                 })}
-                                className="px-2.5 py-1 min-h-[30px] rounded-lg bg-indigo-500/25 hover:bg-indigo-600 text-cyan-300 hover:text-white text-[11px] font-extrabold border border-cyan-500/30 transition shadow-sm flex items-center gap-1 active:scale-95 touch-manipulation"
+                                className="px-2 py-0.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-cyan-300 hover:text-white text-[10px] font-bold border border-indigo-500/30 transition flex items-center gap-1 active:scale-95"
                                 title={language === 'ml' ? 'ഈ ഓർഡറിന്റെ ലൈവ് ചാർട്ട് കാണുക' : 'View Live Candlestick Chart'}
                               >
                                 <BarChart2 className="w-3 h-3 text-cyan-300" />
-                                <span>{language === 'ml' ? '📈 ലൈവ് ചാർട്ട്' : '📈 Live Chart'}</span>
+                                <span>{language === 'ml' ? 'ചാർട്ട്' : 'Chart'}</span>
                               </button>
                             )}
                             <div className="flex items-center justify-end gap-1 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
@@ -2058,48 +1974,29 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                         </div>
                       </div>
 
-                      {/* Accurate Order Execution Breakdown */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/80 text-[10px] bg-slate-950/50 p-2 rounded-lg">
-                        <div>
-                          <span className="text-slate-500 block font-sans">
-                            {isBuy ? (language === 'ml' ? 'വാങ്ങിയ വില (Buy)' : 'Buy Price') : (language === 'ml' ? 'വിറ്റ വില (Sell)' : 'Exit Price')}
+                      {/* Seamless execution breakdown row with light line separation */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-800/50 text-[11px] font-mono text-slate-400">
+                        <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+                          <span>
+                            {language === 'ml' ? 'മൂല്യം:' : 'Val:'} <strong className="text-slate-200">₹{(execPx * qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</strong>
                           </span>
-                          <span className="text-slate-200 font-bold">₹{execPx.toFixed(2)}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block font-sans">
-                            {language === 'ml' ? 'ആകെ ഓർഡർ തുക (Value)' : 'Order Value'}
-                          </span>
-                          <span className="text-cyan-300 font-bold">₹{(execPx * qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block font-sans">
-                            {language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Tax'}
-                          </span>
-                          <span className="text-amber-300 font-bold">
-                            ₹{(matchingClosedTrade ? roundTripTax : (roundTripTax / 2)).toFixed(2)}
+                          <span>
+                            {language === 'ml' ? 'ചാർജ്ജുകൾ:' : 'Chg:'} <strong className="text-amber-300">₹{(matchingClosedTrade ? roundTripTax : (roundTripTax / 2)).toFixed(2)}</strong>
                           </span>
                         </div>
                         <div>
-                          <span className="text-slate-500 block font-sans">
-                            {matchingOpenPos
-                              ? (language === 'ml' ? 'പൊസിഷൻ സ്റ്റാറ്റസ്' : 'Position Status')
-                              : matchingClosedTrade
-                                ? (language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Realized P&L')
-                                : (language === 'ml' ? 'ഓർഡർ സ്റ്റാറ്റസ്' : 'Order Status')}
-                          </span>
                           {matchingOpenPos ? (
-                            <span className="text-emerald-400 font-bold flex items-center gap-1">
+                            <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                              {language === 'ml' ? 'നിലവിൽ ഹോൾഡ് ചെയ്യുന്നു' : 'Holding Active'}
+                              {language === 'ml' ? 'ഹോൾഡ് ചെയ്യുന്നു' : 'Holding Active'}
                             </span>
                           ) : matchingClosedTrade ? (
-                            <span className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}
+                            <span className="text-[11px]">
+                              Net: <strong className={`font-black ${netPnlAfterTax >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{netPnlAfterTax >= 0 ? '+' : ''}₹{netPnlAfterTax.toFixed(2)}</strong>
                             </span>
                           ) : (
-                            <span className="text-slate-300 font-bold">
-                              {language === 'ml' ? 'പൂർത്തിയായി (Filled)' : 'Filled'}
+                            <span className="text-slate-400 font-sans text-[11px]">
+                              {language === 'ml' ? 'പൂർത്തിയായി' : 'Filled'}
                             </span>
                           )}
                         </div>
@@ -2132,8 +2029,18 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                       {language === 'ml' ? 'പൂർത്തിയായ ട്രേഡുകൾ — വാങ്ങലും വിൽക്കലും ഒരുമിച്ച്' : 'Completed Trades — Buy & Sell Combined'}
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                      {tradeHistory.length} {language === 'ml' ? 'ട്രേഡുകൾ' : 'Trades'}
+                      {language === 'ml' ? `ആകെ ${tradeHistory.length} ട്രേഡുകൾ` : `${tradeHistory.length} Total Trades`}
                     </span>
+                    {onSyncHistoryBrokerage && (
+                      <button
+                        onClick={onSyncHistoryBrokerage}
+                        className="ml-auto px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase transition flex items-center gap-1.5 active:scale-95 shadow-sm"
+                        title={language === 'ml' ? 'Upstox API-യുമായി ലാഭം ഒത്തുനോക്കുക' : 'Sync Brokerage with Upstox API'}
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>{language === 'ml' ? 'ലാഭം കൃത്യമാക്കുക (Sync)' : 'Sync Live Profit'}</span>
+                      </button>
+                    )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-1">
                     {language === 'ml'

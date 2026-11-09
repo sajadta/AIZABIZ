@@ -1,4 +1,4 @@
-export type Exchange = 'NSE' | 'BSE' | 'NFO' | 'MCX';
+export type Exchange = 'NSE' | 'BSE' | 'NFO' | 'MCX' | 'GLOBAL';
 
 export interface StockQuote {
   symbol: string;
@@ -6,7 +6,7 @@ export interface StockQuote {
   name: string;
   instrumentKey: string;
   exchange: Exchange;
-  segment: 'EQUITY' | 'INDEX' | 'FUTURES' | 'OPTIONS';
+  segment: 'EQUITY' | 'INDEX' | 'FUTURES' | 'OPTIONS' | 'COMMODITY' | 'GLOBAL';
   ltp: number;
   change: number;
   changePercent: number;
@@ -199,6 +199,12 @@ export interface Order {
   triggerPrice?: number;
   status: OrderStatus;
   executedPrice?: number;
+  positionId?: string;
+  buyPrice?: number;
+  sellPrice?: number;
+  realizedPnL?: number;
+  brokerageCharges?: number;
+  netRealizedPnL?: number;
   timestamp: string;
   mode: ExecutionMode;
   notes?: string;
@@ -418,11 +424,16 @@ export interface UpstoxApiConfig {
   broker: string;
   availableMargin: number;
   usedMargin: number;
+  utilizedMargin?: number;
+  payin?: number;
+  payout?: number;
+  totalBalance?: number;
   tokenGeneratedAt?: string;
   tokenExpiresAt?: string;
   todayTokenValid?: boolean;
   lastConnectedAt?: string;
   serverOutboundIp?: string;
+  serverSecondaryIp?: string;
 }
 
 export interface GeminiMarketAnalysis {

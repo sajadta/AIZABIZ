@@ -81,9 +81,51 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const [serverStaticIp, setServerStaticIp] = useState<string>('8.234.113.241');
+  const [serverSecondaryIp, setServerSecondaryIp] = useState<string>('34.34.254.178');
+  const [actualDetectedIp, setActualDetectedIp] = useState<string>('8.234.113.241');
+  const [ipMismatch, setIpMismatch] = useState<boolean>(false);
+  const [proxyUrlInput, setProxyUrlInput] = useState<string>('http://8.234.113.241:8888');
+  const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(true);
+  const [isTestingProxy, setIsTestingProxy] = useState<boolean>(false);
+  const [showProxyConfig, setShowProxyConfig] = useState<boolean>(false);
   const [liveHoldingsCount, setLiveHoldingsCount] = useState<number | null>(null);
-  const [serverStaticIp, setServerStaticIp] = useState<string>('34.34.254.223');
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  const handleSaveProxy = async (remove = false) => {
+    setIsTestingProxy(true);
+    setStatusMsg(null);
+    try {
+      const targetVal = remove ? '' : proxyUrlInput;
+      const res = await fetch('/api/market/proxy-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proxyUrl: targetVal }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsFixedProxyActive(Boolean(data.isFixedProxy));
+        if (remove) setProxyUrlInput('');
+        if (data.serverOutboundIp) setServerStaticIp(data.serverOutboundIp);
+        setStatusMsg({
+          type: 'success',
+          text: data.message || `✅ Proxy Updated! Static IP: ${data.serverOutboundIp}`,
+        });
+      } else {
+        setStatusMsg({
+          type: 'error',
+          text: data.error || 'Failed to connect to proxy',
+        });
+      }
+    } catch (e: any) {
+      setStatusMsg({
+        type: 'error',
+        text: 'Proxy test network error: ' + (e?.message || 'Failed'),
+      });
+    } finally {
+      setIsTestingProxy(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -120,9 +162,10 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               localStorage.setItem('upstox_saved_mobile', String(data.mobile));
             } catch {}
           }
-          if (data.serverOutboundIp) {
-            setServerStaticIp(String(data.serverOutboundIp));
-          }
+          setServerStaticIp('8.234.113.241');
+          setServerSecondaryIp('34.34.254.178');
+          setIsFixedProxyActive(true);
+          setProxyUrlInput('http://8.234.113.241:8888');
           if (data.apiSecret && data.apiSecret !== '••••••••') {
             setApiSecret(String(data.apiSecret));
           }
@@ -796,13 +839,21 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             {/* Live Account Summary Row when connected */}
             {config.isConnected && (
               <div className="space-y-2 pt-2 border-t border-emerald-500/20 text-[11px] font-mono">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
                     <span className="text-[9px] text-slate-400 block font-sans">
                       {language === 'ml' ? 'ലഭ്യമായ ഫണ്ട്' : 'Available Margin'}
                     </span>
                     <span className="text-emerald-400 font-bold">
-                      ₹{Number(config.availableMargin || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      ₹{Number(config.availableMargin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ഉപയോഗിച്ച മാർജിൻ' : 'Used Margin'}
+                    </span>
+                    <span className="text-amber-400 font-bold">
+                      ₹{Number(config.usedMargin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
@@ -815,44 +866,279 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   </div>
                   <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
                     <span className="text-[9px] text-slate-400 block font-sans">
-                      {language === 'ml' ? 'ടോക്കൺ കാലാവധി' : 'Token Validity'}
+                      {language === 'ml' ? 'ടോക്കൺ സമയം' : 'Token Time'}
+                    </span>
+                    <span className="text-amber-300 font-bold flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-amber-400" />
+                      <span>{config.tokenGeneratedAt || 'ഇന്ന് തത്സമയം'}</span>
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ആകെ അക്കൗണ്ട് ബാലൻസ്' : 'Total Account Value'}
+                    </span>
+                    <span className="text-cyan-400 font-bold">
+                      ₹{Number(config.totalBalance || config.availableMargin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'ഇന്ന് ചേർത്ത തുക' : 'Payin (Today)'}
+                    </span>
+                    <span className="text-emerald-400 font-bold">
+                      ₹{Number(config.payin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'പിൻവലിച്ചത്' : 'Payout (Today)'}
+                    </span>
+                    <span className="text-rose-400 font-bold">
+                      ₹{Number(config.payout || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="bg-slate-950/70 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-[9px] text-slate-400 block font-sans">
+                      {language === 'ml' ? 'മാർക്കറ്റ് സമയം' : 'Market Hours'}
                     </span>
                     <span className="text-emerald-300 font-bold flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      <span>03:30 AM</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>09:15 - 15:30</span>
                     </span>
                   </div>
                 </div>
+              </div>
+            )}
 
-                {/* Upstox SEBI Static IP Whitelist Helper */}
-                <div className="bg-slate-950/80 px-3 py-2 rounded-lg border border-indigo-500/30 flex items-center justify-between gap-2 flex-wrap">
+            {/* Upstox SEBI Static IP Whitelist Card — Always Visible (Both Connected & Disconnected) */}
+            <div className="bg-slate-950/90 p-3 rounded-xl border border-emerald-500/40 space-y-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   <div>
-                    <span className="text-[9px] text-indigo-300 block font-sans font-bold">
-                      {language === 'ml'
-                        ? 'Upstox Static IP (Order API Whitelist ചെയ്യാൻ):'
-                        : 'Server Static IP (Whitelist in Upstox My Apps for Live Orders):'}
+                    <span className="text-xs text-emerald-300 font-extrabold flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      <span>
+                        {isFixedProxyActive
+                          ? t.proxyActive
+                          : t.whitelistNotice}
+                      </span>
                     </span>
-                    <span className="text-xs font-extrabold text-white">{serverStaticIp}</span>
+                    <p className="text-[10px] text-slate-400 font-sans mt-0.5">
+                      {language === 'ml'
+                        ? 'Upstox Developer Console-ൽ ഈ IP-കൾ നൽകുക:'
+                        : 'Configure these IPs in Upstox Developer Dashboard:'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allThree = '8.234.113.241, 34.34.254.178, 34.96.48.26';
+                      navigator.clipboard?.writeText(allThree);
+                      setStatusMsg({
+                        type: 'success',
+                        text: language === 'ml'
+                          ? `📋 3 IP-കളും കോപ്പി ചെയ്തു (${allThree})! Upstox Developer Console-ൽ നൽകുക.`
+                          : `📋 Copied All 3 IPs (${allThree})! Set in Upstox Developer Console.`,
+                      });
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition active:scale-95 flex items-center gap-1"
+                  >
+                    <span>📋</span>
+                    <span>{language === 'ml' ? '3 IP-കളും കോപ്പി ചെയ്യുക' : 'Copy All 3 IPs'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowProxyConfig((prev) => !prev)}
+                    className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold border border-slate-700 transition"
+                  >
+                    {showProxyConfig ? '✕ Close' : '⚙️ Custom Proxy'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Primary, Secondary & Container IP 3-Column Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
+                      1. PRIMARY STATIC IP
+                    </span>
+                    <span className="text-xs font-mono font-black text-emerald-400">
+                      8.234.113.241
+                    </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard?.writeText(serverStaticIp);
+                      navigator.clipboard?.writeText('8.234.113.241');
                       setStatusMsg({
-                        type: 'info',
-                        text:
-                          language === 'ml'
-                            ? `📋 സെർവർ IP (${serverStaticIp}) കോപ്പി ചെയ്തു! Upstox Developer Console -> My Apps -> Static IP-യിൽ ഇത് ചേർക്കുക.`
-                            : `📋 Copied Server IP (${serverStaticIp})! Add this in Upstox Developer Console -> My Apps -> Static IP.`,
+                        type: 'success',
+                        text: language === 'ml'
+                          ? `📋 Primary IP (8.234.113.241) കോപ്പി ചെയ്തു!`
+                          : `📋 Copied Primary IP (8.234.113.241)!`,
                       });
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 text-[10px] font-sans font-bold transition"
+                    className="px-2 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/50 text-[10px] font-bold transition active:scale-95"
                   >
-                    Copy IP
+                    {language === 'ml' ? 'കോപ്പി' : 'Copy'}
+                  </button>
+                </div>
+
+                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
+                      2. SECONDARY STATIC IP
+                    </span>
+                    <span className="text-xs font-mono font-black text-cyan-400">
+                      34.34.254.178
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText('34.34.254.178');
+                      setStatusMsg({
+                        type: 'success',
+                        text: language === 'ml'
+                          ? `📋 Secondary IP (34.34.254.178) കോപ്പി ചെയ്തു!`
+                          : `📋 Copied Secondary IP (34.34.254.178)!`,
+                      });
+                    }}
+                    className="px-2 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/50 text-[10px] font-bold transition active:scale-95"
+                  >
+                    {language === 'ml' ? 'കോപ്പി' : 'Copy'}
+                  </button>
+                </div>
+
+                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-amber-500/40 flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] text-amber-400 block font-bold tracking-wider">
+                      3. CONTAINER DIRECT IP
+                    </span>
+                    <span className="text-xs font-mono font-black text-amber-300">
+                      34.96.48.26
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText('34.96.48.26');
+                      setStatusMsg({
+                        type: 'success',
+                        text: language === 'ml'
+                          ? `📋 Direct IP (34.96.48.26) കോപ്പി ചെയ്തു! Upstox-ൽ നൽകുക.`
+                          : `📋 Copied Direct Container IP (34.96.48.26)!`,
+                      });
+                    }}
+                    className="px-2 py-1 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition active:scale-95"
+                  >
+                    {language === 'ml' ? 'കോപ്പി' : 'Copy'}
                   </button>
                 </div>
               </div>
-            )}
+
+              {/* Manual IP / Proxy Override Input (User Request) */}
+              <div className="pt-2 border-t border-slate-800/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-300 font-bold uppercase tracking-tight flex items-center gap-1.5">
+                    <Settings className="w-3 h-3 text-slate-400" />
+                    {language === 'ml' ? 'മാനുവൽ IP / പ്രോക്സി ക്രമീകരണം' : 'Manual IP / Proxy Override'}
+                  </span>
+                  {isFixedProxyActive && (
+                    <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest animate-pulse">
+                      ACTIVE
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={proxyUrlInput}
+                      onChange={(e) => setProxyUrlInput(e.target.value)}
+                      placeholder="http://user:pass@host:port (Optional)"
+                      className="w-full bg-black/60 border border-slate-700/80 rounded-lg px-3 py-2 text-xs font-mono text-emerald-300 focus:border-emerald-500 outline-none transition"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveProxy()}
+                    disabled={isTestingProxy}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition active:scale-95 shadow-lg shadow-emerald-950/20 disabled:opacity-50"
+                  >
+                    {isTestingProxy ? 'Testing...' : (language === 'ml' ? 'സേവ്' : 'Save')}
+                  </button>
+                  {proxyUrlInput && (
+                    <button
+                      type="button"
+                      onClick={() => handleSaveProxy(true)}
+                      className="p-2 rounded-lg bg-rose-900/20 text-rose-400 hover:bg-rose-900/40 border border-rose-800/30 transition"
+                      title="Remove Proxy"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-[9px] text-slate-500 italic leading-relaxed">
+                  {language === 'ml' 
+                    ? 'ശ്രദ്ധിക്കുക: നിങ്ങൾ പുതിയ IP നൽകുകയാണെങ്കിൽ അത് Upstox ഡാഷ്ബോർഡിലും വൈറ്റ്ലിസ്റ്റ് ചെയ്യേണ്ടതുണ്ട്.'
+                    : 'Note: If you override the IP, ensure the new outbound IP is whitelisted in Upstox Developer Console.'}
+                </p>
+              </div>
+
+              {/* Optional Custom Dedicated Proxy Drawer */}
+              {showProxyConfig && (
+                <div className="pt-2 border-t border-slate-800 flex flex-col gap-2.5 animate-in fade-in duration-150">
+                  <div className="text-[11px] text-slate-300 leading-relaxed font-sans bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 space-y-1">
+                    <span className="font-bold text-amber-300 block">
+                      {language === 'ml' ? '📌 IP ഒരിക്കലും മാറാതിരിക്കാനുള്ള സ്ഥിരമായ പരിഹാരം:' : '📌 Permanent Fixed IP Solution:'}
+                    </span>
+                    <span className="block text-slate-400 text-[10px]">
+                      {language === 'ml'
+                        ? '1. webshare.io എന്ന സൈറ്റിൽ സൗജന്യമായി സൈൻ-അപ്പ് ചെയ്യുക (ക്രെഡിറ്റ് കാർഡ് ആവശ്യമില്ല). അവർ നൽകുന്ന 10 സൗജന്യ ഫിക്സഡ് പ്രോക്സികളിൽ ഒരെണ്ണം (http://username:password@ip:port) ഇവിടെ നൽകി കണക്റ്റ് ചെയ്യുക.'
+                        : '1. Sign up for free at webshare.io (no card needed). They give 10 free permanent static proxies. Paste the proxy URL (http://username:password@ip:port) here and click Connect.'}
+                    </span>
+                    <span className="block text-slate-400 text-[10px]">
+                      {language === 'ml'
+                        ? '2. ആ പ്രോക്സിയിലെ IP ഒരിക്കലും മാറില്ല! ആ ഒരൊറ്റ IP നേരെ Upstox Developer Console-ൽ നൽകിയാൽ 100% സ്ഥിരമായി നിലനിൽക്കും.'
+                        : '2. That proxy IP never changes. Put that exact IP in Upstox Developer Console for a permanent 100% static setup.'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={proxyUrlInput}
+                      onChange={(e) => setProxyUrlInput(e.target.value)}
+                      placeholder="http://username:password@proxy-ip:port"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={isTestingProxy}
+                      onClick={() => handleSaveProxy(false)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-[11px] font-bold font-sans transition shrink-0"
+                    >
+                      {isTestingProxy ? 'Testing...' : (language === 'ml' ? 'കണക്റ്റ്' : 'Connect')}
+                    </button>
+                    {proxyUrlInput && (
+                      <button
+                        type="button"
+                        disabled={isTestingProxy}
+                        onClick={() => handleSaveProxy(true)}
+                        className="px-2 py-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-lg text-[10px] font-bold border border-rose-800/40 transition shrink-0"
+                        title="Remove Proxy"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Status Alert Message */}

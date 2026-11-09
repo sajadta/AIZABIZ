@@ -45,6 +45,9 @@ interface AlgoBotPanelProps {
   quotes?: StockQuote[];
   tradeHistory?: Position[];
   activeSignal?: TradingSignal | null;
+  onSelectOptionTrade?: (type: 'BUY' | 'SELL', optionSymbol: string, price: number, instrumentKey?: string, lotSize?: number) => void;
+  onSelectSymbol?: (symbol: string, instrumentKey?: string) => void;
+  selectedSymbol?: string;
 }
 
 export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
@@ -58,6 +61,9 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   quotes = [],
   tradeHistory = [],
   activeSignal = null,
+  onSelectOptionTrade,
+  onSelectSymbol,
+  selectedSymbol = '',
 }) => {
     const t = translations[language];
   const [scanMessageIndex, setScanMessageIndex] = useState(0);
@@ -339,42 +345,42 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Bot Master Header */}
-      <div className="pb-3 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <div className={`p-2 rounded-xl border transition-all ${
+      <div className="pb-2 sm:pb-3 border-b border-slate-800/80 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className={`p-1.5 sm:p-2 rounded-xl border transition-all ${
             botConfig.enabled
               ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 live-pulse shadow-md shadow-emerald-950/50'
               : 'bg-slate-800/80 border-slate-700 text-slate-400'
           }`}>
-            <Cpu className="w-5 h-5" />
+            <Cpu className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <h3 className="text-xs sm:text-sm font-black text-white tracking-tight">
                 {t.algoBot}
               </h3>
-              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider uppercase border shadow-sm ${
+              <span className={`px-1.5 py-0.2 rounded-full text-[8px] sm:text-[9px] font-bold uppercase border shadow-sm ${
                 botConfig.enabled
-                  ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40'
+                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                   : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
               }`}>
-                {botConfig.enabled ? (language === 'ml' ? 'ആക്ടീവ് (Active)' : 'RUNNING') : (language === 'ml' ? 'നിർത്തിവെച്ചു' : 'STOPPED')}
+                {botConfig.enabled ? (language === 'ml' ? 'ഓൺ (ON)' : 'ON') : (language === 'ml' ? 'ഓഫ് (OFF)' : 'OFF')}
               </span>
               {botConfig.dailyLossLocked && (
-                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-500 text-white tracking-wider animate-pulse">
-                  {language === 'ml' ? 'സർക്യൂട്ട് ബ്രേക്കർ ലോക്ക്ഡ്' : 'CIRCUIT LOCKED'}
+                <span className="px-1.5 py-0.2 rounded-full text-[8px] sm:text-[9px] font-black bg-rose-500 text-white animate-pulse">
+                  {language === 'ml' ? 'സർക്യൂട്ട് ലോക്ക്' : 'LOCKED'}
                 </span>
               )}
             </div>
-            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-              {botConfig.mode === 'UPSTOX_LIVE' ? 'Live Upstox API Execution' : 'Paper Trading Simulator'}
+            <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium">
+              {botConfig.mode === 'UPSTOX_LIVE' ? 'Live Upstox API' : 'Paper Trading Simulator'}
             </p>
           </div>
         </div>
 
-        {/* Cloud Always-On Engine Indicator, Mode Switcher & Emergency Pause */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex bg-slate-950 rounded-xl p-0.5 border border-slate-800 text-[10px] font-black">
+        {/* Cloud Always-On Engine Indicator, Desktop Mode Switcher & Emergency Pause */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="hidden sm:flex bg-slate-950 rounded-xl p-0.5 border border-slate-800 text-[10px] font-black">
             <button
               type="button"
               onClick={() => onUpdateBotConfig({ mode: 'PAPER_TRADING' })}
@@ -384,7 +390,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {language === 'ml' ? 'പേപ്പർ (Virtual Cash)' : 'PAPER (Virtual Cash)'}
+              {language === 'ml' ? 'പേപ്പർ' : 'PAPER'}
             </button>
             <button
               type="button"
@@ -395,31 +401,31 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {language === 'ml' ? 'ലൈവ് (Real Account Cash)' : 'LIVE (Real Cash Only)'}
+              {language === 'ml' ? 'ലൈവ്' : 'LIVE'}
             </button>
           </div>
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>24x7 Cloud Execution Active</span>
+          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>24x7 Cloud Active</span>
           </div>
           <button
             id="btn-bot-toggle"
             onClick={() => onUpdateBotConfig({ enabled: !botConfig.enabled, dailyLossLocked: false })}
-            className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg transition active:scale-95 border ${
+            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold flex items-center gap-1 sm:gap-1.5 shadow transition active:scale-95 border ${
               botConfig.enabled
-                ? 'bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border-slate-700 hover:border-rose-500/40'
+                ? 'bg-slate-800/90 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border-slate-700'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400/30'
             }`}
           >
             {botConfig.enabled ? (
               <>
-                <Square className="w-3.5 h-3.5 text-rose-400" />
-                <span>{language === 'ml' ? 'താൽക്കാലികമായി നിർത്തുക' : 'Pause Auto-Trading'}</span>
+                <Square className="w-3 h-3 text-rose-400" />
+                <span>{language === 'ml' ? 'നിർത്തുക' : 'Pause'}</span>
               </>
             ) : (
               <>
-                <Play className="w-3.5 h-3.5 fill-white" />
-                <span>{language === 'ml' ? 'തുടങ്ങുക (Resume)' : 'Resume Auto-Trading'}</span>
+                <Play className="w-3 h-3 fill-white" />
+                <span>{language === 'ml' ? 'തുടങ്ങുക' : 'Resume'}</span>
               </>
             )}
           </button>
@@ -517,108 +523,101 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto smooth-scroll p-3 sm:p-4 pb-20 sm:pb-6">
+      <div className="flex-1 overflow-y-auto smooth-scroll overscroll-contain p-2.5 sm:p-4 pb-36 sm:pb-8">
         
         {/* TAB 1: LIVE SIGNALS */}
         {activeTab === 'SIGNALS' && (
           <div className="space-y-3">
             {botConfig.enabled && (
-               <div className="p-4 mb-4 text-center text-slate-200 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-center gap-3">
-                 <Activity className="w-5 h-5 text-emerald-500 animate-pulse" />
-                 <p className="text-xs font-semibold animate-pulse">
-                   {language === 'ml' ? scanMessagesMl[scanMessageIndex] : scanMessagesEn[scanMessageIndex]}
-                 </p>
-               </div>
+              <div className="py-2.5 px-4 mb-3 text-center text-slate-200 bg-gradient-to-r from-emerald-950/20 via-[#0c1222] to-cyan-950/20 rounded-2xl border border-emerald-500/20 backdrop-blur-xl shadow-[0_8px_32px_rgba(16,185,129,0.05)] flex items-center justify-center gap-2.5 transition-all duration-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                <p className="text-xs font-bold tracking-wide text-emerald-300 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">
+                  {language === 'ml' ? scanMessagesMl[scanMessageIndex] : scanMessagesEn[scanMessageIndex]}
+                </p>
+              </div>
             )}
 
-            {/* Corporate Institutional Quant Diagnostic Card */}
-            <div className="p-3.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-950 border border-indigo-500/30 text-xs shadow-md">
-              <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-indigo-900/40">
+            {/* Corporate Institutional Quant Diagnostic Strip (Integrated Design) */}
+            <div className="p-4 rounded-2xl bg-slate-900/40 backdrop-blur-md border border-slate-800/40 shadow-sm text-xs relative overflow-hidden group transition-all duration-500 hover:border-cyan-500/20">
+              <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/20">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                  <span className="font-black text-cyan-200 tracking-wide text-xs">
+                  <div className="p-1.5 rounded-lg bg-cyan-500/5 text-cyan-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <span className="font-bold text-slate-200 tracking-tight text-[11px] uppercase">
                     {language === 'ml'
-                      ? '🏛️ കോർപ്പറേറ്റ് ഇൻസ്റ്റിറ്റ്യൂഷണൽ ക്വാണ്ട് എൻജിൻ'
-                      : '🏛️ Corporate Institutional Quant Engine'}
+                      ? '🏛️ കോрപ്പറേറ്റ് ക്വാണ്ട് ഷീൽഡ്'
+                      : '🏛️ Corporate Quant Shield'}
                   </span>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  {language === 'ml' ? 'ആക്ടീവ് പ്രൊട്ടക്ഷൻ' : 'Active Protection'}
+                <span className="px-2 py-0.5 rounded-full text-[8px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  {language === 'ml' ? 'സജീവം' : 'Active'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2.5 text-[11px]">
-                <div className="flex items-start gap-2 bg-slate-900/70 p-2 rounded-lg border border-slate-800">
-                  <TrendingUp className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 text-[10px]">
+                <div className="flex items-start gap-2.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-indigo-400/70 mt-0.5 shrink-0" />
                   <div>
-                    <span className="text-[10px] text-slate-400 block font-mono">
-                      {language === 'ml' ? '15m/5m ട്രെൻഡ് & VWAP വേറ്റോ:' : '15m/5m Trend & VWAP Veto:'}
+                    <span className="text-slate-500 block font-bold uppercase tracking-wider mb-0.5">
+                      {language === 'ml' ? 'ട്രെൻഡ് വേറ്റോ:' : 'Trend Veto:'}
                     </span>
-                    <span className="font-bold text-slate-200 leading-snug">
+                    <span className="text-slate-400 leading-relaxed">
                       {language === 'ml'
-                        ? '15m ഡൗൺട്രെൻഡിൽ കാൾ (CE) തടഞ്ഞു; അപ്‌ട്രെൻഡിൽ പുട്ട് (PE) തടഞ്ഞു'
-                        : 'Anti-Whipsaw: Counter-trend entries strictly blocked'}
+                        ? 'വിപരീത ദിശയിലുള്ള ട്രേഡുകൾ തടയുന്നു'
+                        : 'Blocking counter-trend entries'}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-start gap-2 bg-slate-900/70 p-2 rounded-lg border border-slate-800">
-                  <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400/70 mt-0.5 shrink-0" />
                   <div>
-                    <span className="text-[10px] text-slate-400 block font-mono">
-                      {language === 'ml' ? 'സീറോ ബ്രോക്കറേജ് നഷ്ട പ്രൊട്ടക്ഷൻ:' : 'Anti-Brokerage-Loss Shield:'}
+                    <span className="text-slate-500 block font-bold uppercase tracking-wider mb-0.5">
+                      {language === 'ml' ? 'ബ്രോക്കറേജ് ഷീൽഡ്:' : 'Brokerage Shield:'}
                     </span>
-                    <span className="font-bold text-slate-200 leading-snug">
+                    <span className="text-slate-400 leading-relaxed">
                       {language === 'ml'
-                        ? 'വാങ്ങിയ വിലയിലെ (+₹25) അകാല എക്സിറ്റ് റദ്ദാക്കി; +₹350 നെറ്റ് ലാഭത്തിൽ മാത്രം വോൾട്ട്'
-                        : 'No premature cost exits at +₹25; Breathing room + ₹350 Net Profit vault'}
+                        ? 'ചെറിയ ലാഭങ്ങളിൽ വിൽക്കാതെ സംരക്ഷിക്കുന്നു'
+                        : 'Protecting from low-profit exits'}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Multi-Index Real-Time Alpha Opportunity Matrix & Premium Selector */}
-            <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 text-xs space-y-3.5 shadow-xl">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <Layers className="w-4 h-4" />
-                  </div>
+            {/* Multi-Index Real-Time Alpha Opportunity Matrix (Integrated Design) */}
+            <div className="p-4 rounded-2xl bg-slate-900/30 backdrop-blur-sm border border-slate-800/30 shadow-inner text-xs space-y-3 transition-all duration-500 hover:border-emerald-500/10">
+              <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-800/20">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-400/70" />
                   <div>
-                    <span className="font-black text-white text-xs sm:text-sm block">
+                    <span className="font-bold text-slate-100 text-xs block">
                       {language === 'ml'
-                        ? '📊 എല്ലാ സൂചികകളും & ഇൻഡക്സ് ഓപ്ഷൻ പ്രീമിയം സെലക്ടറും (6 Major Indices)'
-                        : '📊 Multi-Index Scanner & High-Alpha Option Premium Finder (6 Indices)'}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block">
-                      {language === 'ml'
-                        ? 'ഏറ്റവും മികച്ച ട്രെൻഡും ഉയർന്ന അറ്റാദായവും നൽകുന്ന ഇൻഡക്സ് ഓപ്ഷൻ സ്വയം തിരഞ്ഞെടുക്കുന്നു'
-                        : 'Scans all indices concurrently to identify and trade the single most profitable option premium'}
+                        ? '📊 സൂചികകൾ & ഓപ്ഷൻ പ്രീമിയം സെലക്ടർ'
+                        : '📊 Indices & Option Premium Selector'}
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowIndexIntelligence(!showIndexIntelligence)}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-cyan-800/40 flex items-center gap-1.5 transition-all"
+                    className="px-2 py-0.5 rounded-lg text-[9px] font-bold bg-slate-800/40 hover:bg-slate-800 text-cyan-400/80 border border-slate-800 transition"
                   >
-                    <Info className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>{language === 'ml' ? 'ഇൻഡക്സ് ഗൈഡ് & അൽഗോരിതം' : 'Index Selection Logic'}</span>
-                    {showIndexIntelligence ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {language === 'ml' ? 'വിശദാംശങ്ങൾ' : 'Details'}
                   </button>
-                  <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/60 px-2 py-1 rounded-lg border border-emerald-800/40 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    {language === 'ml' ? 'ലൈവ് അനാലിസിസ്' : 'LIVE TICK AUDIT'}
+                  <span className="text-[9px] font-mono font-bold text-emerald-400/80 flex items-center gap-1">
+                    <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>LIVE</span>
                   </span>
                 </div>
               </div>
 
-              {/* Index Priority Mode Selector Buttons */}
-              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800/80 space-y-1.5">
-                <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium px-1">
-                  <span>{language === 'ml' ? 'ഇൻഡക്സ് ഫോക്കസ് മോഡ് (Index Selection):' : 'Index Focus Mode:'}</span>
-                  <span className="text-cyan-400 font-mono">
+              {/* Index Priority Mode Selector Buttons (Clean Flat Ribbon) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span>{language === 'ml' ? 'ഇൻഡക്സ് ഫോക്കസ് മോഡ്:' : 'Index Focus Mode:'}</span>
+                  <span className="text-cyan-400 font-bold">
                     {botConfig.selectedIndexPriority || 'FULL_AUTO_MULTI_INDEX'}
                   </span>
                 </div>
@@ -626,31 +625,42 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   {[
                     {
                       id: 'FULL_AUTO_MULTI_INDEX',
-                      labelMl: '⚡ ഓട്ടോ സ്കാനർ (എല്ലാ ഇൻഡക്സുകളും)',
-                      labelEn: '⚡ Full Auto (All 6 Indices)',
-                      desc: 'Top Net Profit Index Auto-Picked',
+                      labelMl: '⚡ ഓട്ടോ സ്കാനർ (എല്ലാം)',
+                      labelEn: '⚡ Full Auto (All 6)',
                     },
-                    { id: 'NIFTY_50_ONLY', labelMl: 'NIFTY 50', labelEn: 'NIFTY 50', desc: 'NSE Nifty' },
-                    { id: 'BANKNIFTY_ONLY', labelMl: 'BANKNIFTY', labelEn: 'BANKNIFTY', desc: 'NSE Bank' },
-                    { id: 'SENSEX_ONLY', labelMl: 'SENSEX', labelEn: 'SENSEX', desc: 'BSE Sensex' },
-                    { id: 'FINNIFTY_ONLY', labelMl: 'FINNIFTY', labelEn: 'FINNIFTY', desc: 'NSE Fin' },
-                    { id: 'MIDCPNIFTY_ONLY', labelMl: 'MIDCPNIFTY', labelEn: 'MIDCPNIFTY', desc: 'NSE Midcap' },
-                    { id: 'BANKEX_ONLY', labelMl: 'BANKEX', labelEn: 'BANKEX', desc: 'BSE Bankex' },
+                    { id: 'NIFTY_50_ONLY', labelMl: 'NIFTY 50', labelEn: 'NIFTY 50' },
+                    { id: 'BANKNIFTY_ONLY', labelMl: 'BANKNIFTY', labelEn: 'BANKNIFTY' },
+                    { id: 'SENSEX_ONLY', labelMl: 'SENSEX', labelEn: 'SENSEX' },
+                    { id: 'FINNIFTY_ONLY', labelMl: 'FINNIFTY', labelEn: 'FINNIFTY' },
+                    { id: 'MIDCPNIFTY_ONLY', labelMl: 'MIDCPNIFTY', labelEn: 'MIDCPNIFTY' },
+                    { id: 'BANKEX_ONLY', labelMl: 'BANKEX', labelEn: 'BANKEX' },
                   ].map((mode) => {
                     const isSelected =
                       (botConfig.selectedIndexPriority || 'FULL_AUTO_MULTI_INDEX') === mode.id;
                     return (
                       <button
                         key={mode.id}
-                        onClick={() =>
+                        onClick={() => {
                           onUpdateBotConfig({
                             selectedIndexPriority: mode.id as any,
-                          })
-                        }
-                        className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black tracking-wide transition-all ${
+                          });
+                          // Sync main chart if it's a specific index
+                          const symMap: Record<string, string> = {
+                            'NIFTY_50_ONLY': 'NIFTY 50',
+                            'BANKNIFTY_ONLY': 'BANKNIFTY',
+                            'SENSEX_ONLY': 'SENSEX',
+                            'FINNIFTY_ONLY': 'FINNIFTY',
+                            'MIDCPNIFTY_ONLY': 'MIDCPNIFTY',
+                            'BANKEX_ONLY': 'BANKEX'
+                          };
+                          if (symMap[mode.id]) {
+                            if (onSelectSymbol) onSelectSymbol(symMap[mode.id]);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
                           isSelected
-                            ? 'bg-gradient-to-r from-emerald-600 to-cyan-600 text-white shadow-md shadow-emerald-950 border border-emerald-400'
-                            : 'bg-slate-950/70 text-slate-300 hover:bg-slate-800/80 hover:text-white border border-slate-800'
+                            ? 'bg-cyan-500 text-slate-950 shadow font-black'
+                            : 'bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800/60'
                         }`}
                       >
                         {language === 'ml' ? mode.labelMl : mode.labelEn}
@@ -722,7 +732,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
               )}
 
               {/* 6-Index Real-Time Alpha Radar Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2.5 text-[10px] font-mono">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-2.5 text-[10px] font-mono">
                 {[
                   { name: 'NIFTY 50', key: 'NSE_INDEX|Nifty 50', exch: 'NSE', lot: 65, exp: 'Thu' },
                   { name: 'BANKNIFTY', key: 'NSE_INDEX|Nifty Bank', exch: 'NSE', lot: 30, exp: 'Wed' },
@@ -751,62 +761,98 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   const ltpDisplay = ltp > 0 ? `₹${ltp.toLocaleString('en-IN')}` : '--';
                   const trend15 = matrixItem?.trend15m || matchingSig?.mtfConfirmation?.timeframe15m || 'NEUTRAL';
                   const signalType = matrixItem?.signalType || matchingSig?.signalType || 'HOLD';
+                  const isHold = signalType === 'HOLD';
                   const isCall = signalType === 'BUY';
                   const isPut = signalType === 'SELL';
-                  const isHold = signalType === 'HOLD';
-                  const isTopPick = matrixItem?.isTopPick || (idx === 0 && !isHold);
+                  
+                  const isPriorityIndex = 
+                    (botConfig.selectedIndexPriority === 'NIFTY_50_ONLY' && item.name === 'NIFTY 50') ||
+                    (botConfig.selectedIndexPriority === 'BANKNIFTY_ONLY' && item.name === 'BANKNIFTY') ||
+                    (botConfig.selectedIndexPriority === 'SENSEX_ONLY' && item.name === 'SENSEX') ||
+                    (botConfig.selectedIndexPriority === 'FINNIFTY_ONLY' && item.name === 'FINNIFTY') ||
+                    (botConfig.selectedIndexPriority === 'MIDCPNIFTY_ONLY' && item.name === 'MIDCPNIFTY') ||
+                    (botConfig.selectedIndexPriority === 'BANKEX_ONLY' && item.name === 'BANKEX');
 
-                  const optSymbol = matrixItem?.bestOptionSymbol || matchingSig?.symbol || '--';
-                  const optLtp = matrixItem?.bestOptionLtp || (matchingSig?.price ? Number(matchingSig.price) : 0);
-                  const expNet = matrixItem?.expectedNetProfit || 0;
-                  const delta = matrixItem?.delta || matchingSig?.recommendedOptionStrike?.delta || 0;
+                  const isSelected = item.name === selectedSymbol;
+                   const isTopPickNow = !!matrixItem?.isTopPick && botConfig.selectedIndexPriority === 'FULL_AUTO_MULTI_INDEX';
+                   
+                   const optSymbol = matrixItem?.bestOptionSymbol || matchingSig?.symbol || '--';
+                   const optLtp = matrixItem?.bestOptionLtp || (matchingSig?.price ? Number(matchingSig.price) : 0);
+                   const expNet = matrixItem?.expectedNetProfit || 0;
+                   const delta = matrixItem?.delta || matchingSig?.recommendedOptionStrike?.delta || 0;
 
-                  return (
-                    <div
-                      key={item.name}
-                      className={`p-3 rounded-xl flex flex-col justify-between gap-2 shadow-md transition-all ${
-                        isTopPick
-                          ? 'bg-gradient-to-br from-emerald-950/70 via-slate-900 to-slate-950 border-2 border-emerald-400 shadow-emerald-950/50'
-                          : 'bg-slate-900/90 border border-slate-800/90'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <div>
-                          <span className="font-black text-white text-[12px] truncate block">{item.name}</span>
-                          <span className="text-[9px] text-slate-400 font-sans block">
-                            {item.exch} • Lot: {matrixItem?.lotSize || item.lot} • {item.exp}
-                          </span>
-                        </div>
-                        {isTopPick ? (
-                          <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-emerald-500 text-slate-950 animate-pulse">
-                            #1 TOP PICK
-                          </span>
-                        ) : (
-                          <span className="text-[9px] text-slate-500 font-sans">
-                            #{matrixItem?.rank || idx + 1}
-                          </span>
-                        )}
-                      </div>
+                   return (
+                     <div
+                       key={item.name}
+                       onClick={() => onSelectSymbol && onSelectSymbol(item.name, item.key)}
+                       className={`p-3.5 rounded-2xl flex flex-col justify-between gap-3 transition-all duration-500 backdrop-blur-md relative overflow-hidden group cursor-pointer border ${
+                         isSelected
+                           ? 'bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_20px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/30'
+                           : isTopPickNow && !selectedSymbol
+                             ? 'bg-emerald-500/10 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/30 scale-[1.01]'
+                             : 'bg-slate-900/60 border-slate-800/60 hover:border-cyan-500/40 hover:shadow-[0_0_20px_rgba(6,182,212,0.1)]'
+                       }`}
+                     >
+                       {(isTopPickNow || isSelected) && (
+                         <div className={`absolute top-0 left-0 w-full h-[1.5px] bg-gradient-to-r from-transparent ${isSelected ? 'via-cyan-400' : 'via-emerald-400'} to-transparent`}></div>
+                       )}
+                       <div className="flex items-center justify-between gap-1">
+                         <div>
+                           <span className={`font-black text-[13px] tracking-tight block ${isSelected ? 'text-cyan-300' : 'text-white'}`}>{item.name}</span>
+                           <span className="text-[9px] text-slate-500 font-sans font-bold uppercase tracking-tighter block mt-0.5">
+                             {item.exch} • LOT: {matrixItem?.lotSize || item.lot}
+                           </span>
+                         </div>
+                         {isTopPickNow ? (
+                           <div className="flex flex-col items-end">
+                             <span className={`px-2 py-0.5 rounded text-[8px] font-black ${isSelected ? 'bg-cyan-500 text-slate-950' : 'bg-emerald-500 text-slate-950'} shadow-[0_0_8px_rgba(16,185,129,0.4)]`}>
+                               {isSelected ? 'SELECTED' : 'ALPHA #1'}
+                             </span>
+                           </div>
+                         ) : isSelected ? (
+                            <span className="px-2 py-0.5 rounded text-[8px] font-black bg-cyan-500 text-slate-950 shadow-[0_0_8px_rgba(6,182,212,0.4)]">
+                              ACTIVE
+                            </span>
+                         ) : (
+                           <span className="text-[10px] font-black text-slate-600 font-mono">
+                             0{matrixItem?.rank || idx + 1}
+                           </span>
+                         )}
+                       </div>
+                       <div className="flex items-baseline justify-between py-1 border-b border-slate-800/30">
+                         <span className="text-slate-100 font-mono text-[12px] font-black tracking-tighter">{ltpDisplay}</span>
+                         <span
+                           className={`text-[9px] font-black px-2 py-0.5 rounded-md ${
+                             trend15 === 'BULLISH'
+                               ? 'text-emerald-400 bg-emerald-500/10'
+                               : trend15 === 'BEARISH'
+                               ? 'text-rose-400 bg-rose-500/10'
+                               : 'text-amber-400 bg-amber-500/10'
+                           }`}
+                         >
+                           {trend15}
+                         </span>
+                       </div>
 
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-slate-200 font-mono text-[11px] font-bold">{ltpDisplay}</span>
-                        <span
-                          className={`text-[8px] font-bold px-1.5 py-0.2 rounded ${
-                            trend15 === 'BULLISH'
-                              ? 'text-emerald-400 bg-emerald-950/60 border border-emerald-800/40'
-                              : trend15 === 'BEARISH'
-                              ? 'text-rose-400 bg-rose-950/60 border border-rose-800/40'
-                              : 'text-amber-400 bg-amber-950/40 border border-amber-800/30'
-                          }`}
-                        >
-                          15m: {trend15}
-                        </span>
-                      </div>
-
-                      {/* Best Option Strike & Profit Potential */}
-                      <div className="p-2 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+                      {/* Best Option Strike & Profit Potential (Flat Hairline Separator) */}
+                      <div
+                        onClick={() => {
+                          if (optSymbol !== '--' && optLtp > 0 && onSelectOptionTrade) {
+                            onSelectOptionTrade(
+                              isPut ? 'BUY' : 'BUY',
+                              optSymbol,
+                              optLtp,
+                              matrixItem?.key || item.key,
+                              matrixItem?.lotSize || item.lot
+                            );
+                          }
+                        }}
+                        className={`py-1.5 px-1 border-t border-b border-slate-800/50 space-y-1 transition active:scale-95 ${
+                          optSymbol !== '--' && optLtp > 0 ? 'cursor-pointer hover:bg-slate-800/30' : ''
+                        }`}
+                      >
                         <div className="flex items-center justify-between text-[9px]">
-                          <span className="text-slate-400 truncate max-w-[90px]">
+                          <span className="text-cyan-300 font-bold truncate max-w-[90px]">
                             {optSymbol !== '--' ? optSymbol.replace('NSE_FO|', '').replace('BSE_FO|', '') : 'Option Strike'}
                           </span>
                           <span className="font-bold text-white">
@@ -825,19 +871,37 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* Action Verdict */}
+                      {/* Action Verdict Button */}
                       <div className="pt-0.5 flex items-center justify-between gap-1">
-                        <span
-                          className={`w-full text-center py-1 rounded text-[9px] font-black uppercase tracking-wider ${
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (matchingSig) {
+                              onExecuteSignal(matchingSig);
+                            } else if (onSelectOptionTrade && optSymbol !== '--' && optLtp > 0) {
+                              onSelectOptionTrade(
+                                isPut ? 'BUY' : 'BUY',
+                                optSymbol,
+                                optLtp,
+                                matrixItem?.key || item.key,
+                                matrixItem?.lotSize || item.lot
+                              );
+                            }
+                          }}
+                          className={`w-full text-center py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition active:scale-95 shadow ${
                             isHold
-                              ? 'bg-slate-800/80 text-slate-400 border border-slate-700/50'
+                              ? 'bg-slate-800/80 text-slate-400 border border-slate-700/50 hover:bg-slate-700'
                               : isCall
-                              ? 'bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-900/50'
-                              : 'bg-rose-500 text-white font-black shadow-md shadow-rose-900/50'
+                              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black shadow-md shadow-emerald-900/50'
+                              : 'bg-rose-500 hover:bg-rose-400 text-white font-black shadow-md shadow-rose-900/50'
                           }`}
                         >
-                          {isHold ? 'HOLD (Wait)' : isCall ? 'BUY CALL (CE)' : 'BUY PUT (PE)'}
-                        </span>
+                          {isHold
+                            ? (optSymbol !== '--' && optLtp > 0 ? `TRADE ${item.name}` : 'HOLD (Wait)')
+                            : isCall
+                            ? 'BUY CALL (CE)'
+                            : 'BUY PUT (PE)'}
+                        </button>
                       </div>
                     </div>
                   );
@@ -856,12 +920,12 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
               signals.map((sig) => (
                 <div
                   key={sig.id}
-                  className={`p-3.5 rounded-xl border transition-all ${
+                  className={`p-3.5 sm:p-4 rounded-2xl border transition-all backdrop-blur-md shadow-lg ${
                     sig.signalType === 'BUY'
-                      ? 'bg-emerald-950/20 border-emerald-500/40 hover:border-emerald-500/70'
+                      ? 'bg-gradient-to-br from-emerald-950/25 via-slate-900/70 to-slate-950 border-emerald-500/30 hover:border-emerald-500/60 shadow-[0_4px_24px_rgba(16,185,129,0.08)]'
                       : sig.signalType === 'SELL'
-                      ? 'bg-rose-950/20 border-rose-500/40 hover:border-rose-500/70'
-                      : 'bg-slate-900 border-slate-800'
+                      ? 'bg-gradient-to-br from-rose-950/25 via-slate-900/70 to-slate-950 border-rose-500/30 hover:border-rose-500/60 shadow-[0_4px_24px_rgba(244,63,94,0.08)]'
+                      : 'bg-slate-900/40 border-slate-800/60'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -919,7 +983,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
                   {/* Candlestick Pattern Recognition Card */}
                   {sig.candlestickPattern && (
-                    <div className="mt-2 p-2 rounded-lg bg-[#0c101d] border border-cyan-900/40 flex items-center justify-between text-xs">
+                    <div className="mt-2.5 p-2.5 rounded-xl bg-slate-950/60 backdrop-blur-sm border border-cyan-500/20 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5">
                         <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                         <div>
@@ -939,22 +1003,22 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
                   {/* 7-Layer Institutional Quant Matrix (Chart History S/R, Corporate Heavyweights, Global Macro, OI & Target Forecast) */}
                   {sig.institutionalQuantAnalysis && (
-                    <div className="mt-2 p-2.5 rounded-xl bg-slate-950/90 border border-indigo-900/40 space-y-1.5 text-[11px]">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="mt-2.5 p-3 rounded-2xl bg-slate-950/60 backdrop-blur-sm border border-indigo-500/25 space-y-2 text-[11px]">
+                      <div className="flex items-center justify-between gap-2 flex-wrap pb-1.5 border-b border-indigo-500/20">
                         <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-wider">
                           {language === 'ml'
                             ? '🏛️ 7-തല ഇൻസ്റ്റിറ്റ്യൂഷണൽ & ചാർട്ട് ഹിസ്റ്ററി അനാലിസിസ്'
                             : '🏛️ 7-Layer Institutional & Chart History Quant Matrix'}
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold">
                           {language === 'ml' ? 'പ്രതീക്ഷിക്കുന്ന സമയം:' : 'Est. Target Time:'}{' '}
                           {sig.institutionalQuantAnalysis.estimatedMinutesToTarget} |{' '}
                           {sig.institutionalQuantAnalysis.estimatedNetProfitRange}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-mono pt-1">
-                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-mono pt-0.5">
+                        <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
                           <span className="text-slate-400">
                             {language === 'ml' ? 'ചാർട്ട് സ്ട്രക്ചർ:' : 'Chart Structure:'}
                           </span>
@@ -964,7 +1028,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                               : sig.institutionalQuantAnalysis.chartStructurePattern}
                           </span>
                         </div>
-                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                        <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
                           <span className="text-slate-400">
                             {language === 'ml' ? 'സപ്പോർട്ട് / റെസിസ്റ്റൻസ് റൺവേ:' : 'S/R Clear Runway:'}
                           </span>
@@ -972,7 +1036,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             S: ₹{sig.institutionalQuantAnalysis.nearestSupport} | R: ₹{sig.institutionalQuantAnalysis.nearestResistance} (+{sig.institutionalQuantAnalysis.clearRunwayPoints} pts)
                           </span>
                         </div>
-                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                        <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
                           <span className="text-slate-400">
                             {language === 'ml' ? 'കോർപ്പറേറ്റ് ഹെവിവെയ്റ്റ്സ്:' : 'Corporate Heavyweights:'}
                           </span>
@@ -986,7 +1050,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                             {sig.institutionalQuantAnalysis.corporateHeavyweightSummary}
                           </span>
                         </div>
-                        <div className="bg-slate-900/80 px-2 py-1 rounded border border-slate-800/80 flex items-center justify-between">
+                        <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
                           <span className="text-slate-400">
                             {language === 'ml' ? 'ആഗോള മാക്രോ & OI ഫ്ലോ:' : 'Global Macro & OI Flow:'}
                           </span>
@@ -995,7 +1059,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                           </span>
                         </div>
                         {sig.institutionalQuantAnalysis.fiveYearRegimeSummary && (
-                          <div className="sm:col-span-2 bg-indigo-950/30 px-2.5 py-1.5 rounded border border-indigo-500/30 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="sm:col-span-2 bg-indigo-950/25 px-2.5 py-1.5 rounded-xl border border-indigo-500/25 flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-indigo-300 font-bold">
                               {language === 'ml' ? '📅 5-വർഷ ചാർട്ട് & 200D EMA ഹിസ്റ്ററി:' : '📅 5-Year Daily Chart & 200D EMA Regime:'}
                             </span>
@@ -1007,7 +1071,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                           </div>
                         )}
                         {sig.institutionalQuantAnalysis.multiLegDetails && (
-                          <div className="sm:col-span-2 bg-cyan-950/30 px-2.5 py-1.5 rounded border border-cyan-500/30 flex items-center justify-between gap-2 flex-wrap">
+                          <div className="sm:col-span-2 bg-cyan-950/25 px-2.5 py-1.5 rounded-xl border border-cyan-500/25 flex items-center justify-between gap-2 flex-wrap">
                             <span className="text-cyan-300 font-bold">
                               {language === 'ml'
                                 ? `⚖️ ${sig.institutionalQuantAnalysis.multiLegDetails.strategyType === 'SHORT_STRANGLE' ? 'Short Strangle (സൈഡ്‌വേയ്‌സ് മൾട്ടി-ലെഗ്)' : 'Short Straddle / Option Selling'}:`
@@ -1022,23 +1086,23 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Target & Stop Loss Levels */}
-                  <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
-                    <div className="bg-slate-900/90 p-2 rounded-lg border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">{t.entryPrice}</span>
-                      <span className="font-bold text-white">{sig.price < 5000 ? `₹${sig.price}` : 'Market Price'}</span>
+                  {/* Target & Stop Loss Levels (Unified Translucent Strip with Hairline Dividers) */}
+                  <div className="mt-2.5 p-2 rounded-xl bg-slate-950/50 backdrop-blur-sm border border-slate-800/60 grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-800/60 text-xs font-mono">
+                    <div className="p-1.5 sm:px-3 text-left">
+                      <span className="text-[10px] text-slate-400 block font-sans">{t.entryPrice}</span>
+                      <span className="font-bold text-white text-[13px]">{sig.price < 5000 ? `₹${sig.price}` : 'Market Price'}</span>
                     </div>
-                    <div className="bg-rose-950/30 p-2 rounded-lg border border-rose-800/40">
-                      <span className="text-[10px] text-rose-400 block">{t.stopLoss}</span>
-                      <span className="font-bold text-rose-300">{sig.stopLoss < 5000 ? `₹${sig.stopLoss}` : `${sig.stopLoss > 10000 ? '-' : ''}₹${Math.abs(sig.stopLoss)}`}</span>
+                    <div className="p-1.5 sm:px-3 text-left">
+                      <span className="text-[10px] text-rose-400/90 block font-sans">{t.stopLoss}</span>
+                      <span className="font-bold text-rose-300 text-[13px]">{sig.stopLoss < 5000 ? `₹${sig.stopLoss}` : `${sig.stopLoss > 10000 ? '-' : ''}₹${Math.abs(sig.stopLoss)}`}</span>
                     </div>
-                    <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
-                      <span className="text-[10px] text-emerald-400 block">{t.target1} (T1)</span>
-                      <span className="font-bold text-emerald-300">{sig.target1 < 5000 ? `₹${sig.target1}` : `${sig.target1 > 10000 ? '+' : ''}₹${Math.abs(sig.target1)}`}</span>
+                    <div className="p-1.5 sm:px-3 text-left">
+                      <span className="text-[10px] text-emerald-400/90 block font-sans">{t.target1} (T1)</span>
+                      <span className="font-bold text-emerald-300 text-[13px]">{sig.target1 < 5000 ? `₹${sig.target1}` : `${sig.target1 > 10000 ? '+' : ''}₹${Math.abs(sig.target1)}`}</span>
                     </div>
-                    <div className="bg-emerald-950/30 p-2 rounded-lg border border-emerald-800/40">
-                      <span className="text-[10px] text-emerald-400 block">{t.target2} (T2)</span>
-                      <span className="font-bold text-emerald-300">{sig.target2 < 5000 ? `₹${sig.target2}` : `${sig.target2 > 10000 ? '+' : ''}₹${Math.abs(sig.target2)}`}</span>
+                    <div className="p-1.5 sm:px-3 text-left">
+                      <span className="text-[10px] text-emerald-400/90 block font-sans">{t.target2} (T2)</span>
+                      <span className="font-bold text-emerald-300 text-[13px]">{sig.target2 < 5000 ? `₹${sig.target2}` : `${sig.target2 > 10000 ? '+' : ''}₹${Math.abs(sig.target2)}`}</span>
                     </div>
                   </div>
 

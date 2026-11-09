@@ -55,6 +55,7 @@ import { AlertsModal } from './components/AlertsModal';
 import { AndroidInstallModal } from './components/AndroidInstallModal';
 import { OnboardingSetupModal } from './components/OnboardingSetupModal';
 import { MasterPinLockModal } from './components/MasterPinLockModal';
+import { InvestmentPortal } from './components/InvestmentPortal';
 import {
   enrichCandlesWithIndicators,
   analyzeTradingSignals,
@@ -72,41 +73,59 @@ import {
 const INITIAL_WATCHLIST_SYMBOLS: StockQuote[] = [
   { symbol: 'NIFTY 50', name: 'Nifty 50 Index', instrumentKey: 'NSE_INDEX|Nifty 50', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
   { symbol: 'BANKNIFTY', name: 'Nifty Bank Index', instrumentKey: 'NSE_INDEX|Nifty Bank', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
+  { symbol: 'NIFTY FUT', name: 'Nifty Index Futures', instrumentKey: 'NSE_FO|NIFTY24NOVFUT', exchange: 'NFO', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'FUTURES' },
+  { symbol: 'BANKNIFTY FUT', name: 'Bank Nifty Futures', instrumentKey: 'NSE_FO|BANKNIFTY24NOVFUT', exchange: 'NFO', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'FUTURES' },
   { symbol: 'SENSEX', name: 'BSE SENSEX Index', instrumentKey: 'BSE_INDEX|SENSEX', exchange: 'BSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
   { symbol: 'FINNIFTY', name: 'Nifty Fin Service', instrumentKey: 'NSE_INDEX|Nifty Fin Service', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
   { symbol: 'MIDCPNIFTY', name: 'Nifty Midcap Select', instrumentKey: 'NSE_INDEX|NIFTY MID SELECT', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
   { symbol: 'BANKEX', name: 'BSE BANKEX Index', instrumentKey: 'BSE_INDEX|BANKEX', exchange: 'BSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
+  { symbol: 'CRUDEOIL FUT', name: 'MCX Crude Oil Futures', instrumentKey: 'MCX_FO|CRUDEOIL24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
+  { symbol: 'NATURALGAS', name: 'MCX Natural Gas Futures', instrumentKey: 'MCX_FO|NATURALGAS24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
+  { symbol: 'GOLD', name: 'MCX Gold Futures', instrumentKey: 'MCX_FO|GOLD24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
+  { symbol: 'S&P 500', name: 'S&P 500 Index', instrumentKey: 'GLOBAL_INDEX|US500', exchange: 'GLOBAL', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'GLOBAL' },
   { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', instrumentKey: 'NSE_EQ|INE002A01018', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
   { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', instrumentKey: 'NSE_EQ|INE040A01034', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
   { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd', instrumentKey: 'NSE_EQ|INE090A01021', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'TCS', name: 'Tata Consultancy Services', instrumentKey: 'NSE_EQ|INE467B01029', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'INFY', name: 'Infosys Ltd', instrumentKey: 'NSE_EQ|INE009A01021', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'TATAMOTORS', name: 'Tata Motors Ltd', instrumentKey: 'NSE_EQ|INE155A01022', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
   { symbol: 'SBIN', name: 'State Bank of India', instrumentKey: 'NSE_EQ|INE062A01020', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'AXISBANK', name: 'Axis Bank Ltd', instrumentKey: 'NSE_EQ|INE238A01034', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
 ];
 
 export const deduplicateQuotes = (quotesList: any[]): StockQuote[] => {
   const map = new Map<string, StockQuote>();
-  for (const q of quotesList) {
+  const listToProcess = Array.isArray(quotesList) ? quotesList : [];
+  for (const q of listToProcess) {
     if (!q) continue;
     const rawKey = String(q.instrumentKey || q.symbol || '').toUpperCase().trim();
     let normKey = q.instrumentKey || q.symbol;
-    if (rawKey.includes('FIN SERVICE') || rawKey.includes('FINNIFTY')) {
-      normKey = 'NSE_INDEX|Nifty Fin Service';
-    } else if (rawKey.includes('MID SELECT') || rawKey.includes('MIDCP') || rawKey.includes('MIDCAP')) {
-      normKey = 'NSE_INDEX|NIFTY MID SELECT';
-    } else if (rawKey.includes('BANKEX')) {
-      normKey = 'BSE_INDEX|BANKEX';
-    } else if (rawKey.includes('SENSEX')) {
-      normKey = 'BSE_INDEX|SENSEX';
-    } else if (rawKey.includes('NIFTY BANK') || rawKey.includes('BANKNIFTY')) {
-      normKey = 'NSE_INDEX|Nifty Bank';
-    } else if (
-      rawKey.includes('NIFTY 50') ||
-      (rawKey.includes('NIFTY') && !rawKey.includes('BANK') && !rawKey.includes('FIN') && !rawKey.includes('MID'))
-    ) {
-      normKey = 'NSE_INDEX|Nifty 50';
+    const isFuturesOrCommodityOrGlobal =
+      rawKey.includes('FUT') ||
+      rawKey.includes('CRUDE') ||
+      rawKey.includes('GOLD') ||
+      rawKey.includes('SILVER') ||
+      rawKey.includes('GAS') ||
+      rawKey.includes('US500') ||
+      rawKey.includes('NDX') ||
+      rawKey.includes('GLOBAL') ||
+      q.segment === 'FUTURES' ||
+      q.segment === 'COMMODITY' ||
+      q.segment === 'GLOBAL';
+
+    if (!isFuturesOrCommodityOrGlobal) {
+      if (rawKey.includes('FIN SERVICE') || rawKey.includes('FINNIFTY')) {
+        normKey = 'NSE_INDEX|Nifty Fin Service';
+      } else if (rawKey.includes('MID SELECT') || rawKey.includes('MIDCP') || rawKey.includes('MIDCAP')) {
+        normKey = 'NSE_INDEX|NIFTY MID SELECT';
+      } else if (rawKey.includes('BANKEX')) {
+        normKey = 'BSE_INDEX|BANKEX';
+      } else if (rawKey.includes('SENSEX')) {
+        normKey = 'BSE_INDEX|SENSEX';
+      } else if (rawKey.includes('NIFTY BANK') || rawKey.includes('BANKNIFTY')) {
+        normKey = 'NSE_INDEX|Nifty Bank';
+      } else if (
+        rawKey.includes('NIFTY 50') ||
+        (rawKey.includes('NIFTY') && !rawKey.includes('BANK') && !rawKey.includes('FIN') && !rawKey.includes('MID'))
+      ) {
+        normKey = 'NSE_INDEX|Nifty 50';
+      }
     }
     if (!map.has(normKey)) {
       map.set(normKey, q);
@@ -128,7 +147,7 @@ export const getStandardIndexLotSize = (symbolOrKey: string): number => {
 
 export const App: React.FC = () => {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'WATCHLIST' | 'CHART' | 'BOT' | 'OPTIONS' | 'ORDERS' | 'HOLDINGS' | 'HEATMAP' | 'AI'>('CHART');
+  const [activeTab, setActiveTab] = useState<'WATCHLIST' | 'CHART' | 'BOT' | 'OPTIONS' | 'ORDERS' | 'HOLDINGS' | 'HEATMAP' | 'AI' | 'INVEST'>('CHART');
   
   // App configurations
   const [language, setLanguage] = useState<Language>('ml');
@@ -194,7 +213,7 @@ export const App: React.FC = () => {
     telegramAlertsEnabled: false,
     telegramBotToken: '',
     telegramChatId: '',
-    autoSquareOffTime: '15:15',
+    autoSquareOffTime: '15:25',
     allowedSymbols: ['NIFTY 50', 'BANKNIFTY', 'SENSEX', 'FINNIFTY', 'MIDCPNIFTY', 'BANKEX'],
     soundAlerts: true,
     selectedIndexPriority: 'FULL_AUTO_MULTI_INDEX',
@@ -207,9 +226,43 @@ export const App: React.FC = () => {
 
   // Positions, Orders, Holdings
   const [positions, setPositions] = useState<Position[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => {
+    try {
+      const saved = localStorage.getItem('aizabiz_persisted_orders_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
   const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [tradeHistory, setTradeHistory] = useState<Position[]>([]);
+  const [tradeHistory, setTradeHistory] = useState<Position[]>(() => {
+    try {
+      const saved = localStorage.getItem('aizabiz_persisted_trade_history_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    if (orders.length > 0) {
+      try {
+        localStorage.setItem('aizabiz_persisted_orders_v2', JSON.stringify(orders));
+      } catch {}
+    }
+  }, [orders]);
+
+  useEffect(() => {
+    if (tradeHistory.length > 0) {
+      try {
+        localStorage.setItem('aizabiz_persisted_trade_history_v2', JSON.stringify(tradeHistory));
+      } catch {}
+    }
+  }, [tradeHistory]);
 
   // Option Chain
   const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
@@ -231,6 +284,10 @@ export const App: React.FC = () => {
     broker: 'Live Market Feed Active',
     availableMargin: 0,
     usedMargin: 0,
+    utilizedMargin: 0,
+    payin: 0,
+    payout: 0,
+    totalBalance: 0,
   });
 
   // Price Alerts
@@ -372,8 +429,8 @@ export const App: React.FC = () => {
           }
           setApiConfig(prev => ({ ...prev, ...cfg }));
         }
-        if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value)) {
-          setTradeHistory(historyRes.value);
+        if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value) && historyRes.value.length > 0) {
+          fetchHistory();
         }
       } catch (err) {
         console.warn('Initial data fetch notice:', err);
@@ -397,8 +454,14 @@ export const App: React.FC = () => {
               accessToken: cfg.accessToken || prev.accessToken,
               availableMargin: Number(cfg.availableMargin ?? prev.availableMargin),
               usedMargin: Number(cfg.usedMargin ?? prev.usedMargin),
+              utilizedMargin: Number(cfg.utilizedMargin ?? prev.utilizedMargin),
+              payin: Number(cfg.payin ?? prev.payin),
+              payout: Number(cfg.payout ?? prev.payout),
+              totalBalance: Number(cfg.totalBalance ?? prev.totalBalance),
               userName: cfg.userName || prev.userName,
               userClientCode: cfg.userClientCode || prev.userClientCode,
+              serverOutboundIp: cfg.serverOutboundIp || prev.serverOutboundIp,
+              serverSecondaryIp: cfg.serverSecondaryIp || prev.serverSecondaryIp,
             }));
           }
         }
@@ -430,7 +493,7 @@ export const App: React.FC = () => {
           // Support both array and { quotes: [...] } format from Upstox
           const quotesList = Array.isArray(data) ? data : (Array.isArray(data?.quotes) ? data.quotes : null);
           if (quotesList && quotesList.length > 0 && isMounted) {
-            const uniqueQuotes = deduplicateQuotes(quotesList);
+            const uniqueQuotes = deduplicateQuotes([...quotesList, ...INITIAL_WATCHLIST_SYMBOLS]);
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
             return;
@@ -443,8 +506,6 @@ export const App: React.FC = () => {
       }
 
       if (!isMounted) return;
-      // When live Upstox is disconnected or token is needed, never generate fake random numbers.
-      // Simply keep last known official prices and notify user that token is required.
     };
 
     updateQuotes();
@@ -458,7 +519,7 @@ export const App: React.FC = () => {
         try {
           const msg = JSON.parse(ev.data);
           if (msg.type === 'QUOTES' && Array.isArray(msg.data) && msg.data.length > 0 && isMounted) {
-            const uniqueQuotes = deduplicateQuotes(msg.data);
+            const uniqueQuotes = deduplicateQuotes([...msg.data, ...INITIAL_WATCHLIST_SYMBOLS]);
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
           }
@@ -813,8 +874,7 @@ export const App: React.FC = () => {
     handleFetchGeminiAnalysis();
   }, [handleFetchGeminiAnalysis]);
 
-  // Fetch Option Chain directly from Upstox API
-  const fetchOptionChain = useCallback(async (expiryOverride?: string) => {
+  const fetchOptionChain = useCallback(async (expiryOverride?: string, symbolOverride?: string) => {
     setOptionChainLoading(true);
     let token = apiConfig.accessToken;
     if (!token) {
@@ -828,8 +888,9 @@ export const App: React.FC = () => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    const targetSymbol = symbolOverride || selectedSymbol;
     try {
-      const qs = new URLSearchParams({ symbol: selectedSymbol });
+      const qs = new URLSearchParams({ symbol: targetSymbol });
       if (expiryOverride && typeof expiryOverride === 'string') {
         qs.set('expiry', expiryOverride);
       }
@@ -893,6 +954,27 @@ export const App: React.FC = () => {
     }
   }, [apiConfig.accessToken]);
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch('/api/history');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setTradeHistory((prev) => {
+            const map = new Map<string, Position>();
+            prev.forEach(t => map.set(t.id, t));
+            data.forEach((t: any) => map.set(t.id, { ...t, mode: t.mode || 'PAPER_TRADING' }));
+            return Array.from(map.values()).sort((a, b) => {
+              const timeA = new Date(a.closeTime || 0).getTime();
+              const timeB = new Date(b.closeTime || 0).getTime();
+              return timeB - timeA;
+            });
+          });
+        }
+      }
+    } catch {}
+  }, []);
+
   // Fetch real Upstox live positions AND Paper Trading positions/orders from backend
   const fetchLivePositions = useCallback(async () => {
     let token = apiConfig.accessToken;
@@ -946,34 +1028,53 @@ export const App: React.FC = () => {
       if (mode === 'PAPER_TRADING') {
         if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
           const oData = await paperOrdRes.value.json();
-          if (Array.isArray(oData)) {
-            setOrders(oData.map((o: any) => ({
-              id: o.id,
-              orderId: o.orderId || o.id,
-              positionId: o.positionId,
-              symbol: o.symbol,
-              instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
-              transactionType: o.transactionType || o.type || 'BUY',
-              orderType: o.orderType || 'MARKET',
-              productType: o.productType || 'INTRADAY',
-              quantity: o.quantity,
-              price: o.price,
-              executedPrice: o.executedPrice || o.price,
-              buyPrice: o.buyPrice,
-              sellPrice: o.sellPrice,
-              realizedPnL: o.realizedPnL,
-              brokerageCharges: o.brokerageCharges,
-              netRealizedPnL: o.netRealizedPnL,
-              status: o.status || 'COMPLETE',
-              timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
-              mode: 'PAPER_TRADING',
-            })));
+          if (Array.isArray(oData) && oData.length > 0) {
+            setOrders((prev) => {
+              const map = new Map<string, Order>();
+              prev.forEach((o) => map.set(o.id || o.orderId, o));
+              oData.forEach((o: any) => {
+                const item: Order = {
+                  id: o.id || o.orderId,
+                  orderId: o.orderId || o.id,
+                  positionId: o.positionId,
+                  symbol: o.symbol,
+                  instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
+                  transactionType: o.transactionType || o.type || 'BUY',
+                  orderType: o.orderType || 'MARKET',
+                  productType: o.productType || 'INTRADAY',
+                  quantity: o.quantity,
+                  price: o.price,
+                  executedPrice: o.executedPrice || o.price,
+                  buyPrice: o.buyPrice,
+                  sellPrice: o.sellPrice,
+                  realizedPnL: o.realizedPnL,
+                  brokerageCharges: o.brokerageCharges,
+                  netRealizedPnL: o.netRealizedPnL,
+                  status: o.status || 'COMPLETE',
+                  timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
+                  mode: 'PAPER_TRADING',
+                };
+                map.set(item.id || item.orderId, item);
+              });
+              return Array.from(map.values());
+            });
           }
         }
         if (paperHistRes.status === 'fulfilled' && paperHistRes.value && paperHistRes.value.ok) {
           const hData = await paperHistRes.value.json();
-          if (Array.isArray(hData)) {
-            setTradeHistory(hData);
+          if (Array.isArray(hData) && hData.length > 0) {
+            setTradeHistory((prev) => {
+              const map = new Map<string, Position>();
+              prev.forEach((t) => map.set(t.id, t));
+              hData.forEach((t: any) => {
+                map.set(t.id, { ...t, mode: 'PAPER_TRADING' });
+              });
+              return Array.from(map.values()).sort((a, b) => {
+                const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
+                const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
+                return tB - tA;
+              });
+            });
           }
         }
       } else if (token) {
@@ -985,14 +1086,32 @@ export const App: React.FC = () => {
           ]);
           if (liveOrdRes.status === 'fulfilled' && liveOrdRes.value && liveOrdRes.value.ok) {
             const liveOrdData = await liveOrdRes.value.json();
-            if (Array.isArray(liveOrdData)) {
-              setOrders(liveOrdData);
+            if (Array.isArray(liveOrdData) && liveOrdData.length > 0) {
+              setOrders((prev) => {
+                const map = new Map<string, Order>();
+                prev.forEach((o) => map.set(o.id || o.orderId, o));
+                liveOrdData.forEach((o: any) => {
+                  map.set(o.id || o.orderId, { ...o, mode: 'UPSTOX_LIVE' });
+                });
+                return Array.from(map.values());
+              });
             }
           }
           if (liveHistRes.status === 'fulfilled' && liveHistRes.value && liveHistRes.value.ok) {
             const liveHistData = await liveHistRes.value.json();
-            if (Array.isArray(liveHistData)) {
-              setTradeHistory(liveHistData);
+            if (Array.isArray(liveHistData) && liveHistData.length > 0) {
+              setTradeHistory((prev) => {
+                const map = new Map<string, Position>();
+                prev.forEach((t) => map.set(t.id, t));
+                liveHistData.forEach((t: any) => {
+                  map.set(t.id, { ...t, mode: 'UPSTOX_LIVE' });
+                });
+                return Array.from(map.values()).sort((a, b) => {
+                  const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
+                  const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
+                  return tB - tA;
+                });
+              });
             }
           }
         } catch {}
@@ -1004,12 +1123,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'OPTIONS') {
-      fetchOptionChain();
+      fetchOptionChain(undefined, selectedSymbol);
     } else if (activeTab === 'HOLDINGS' || activeTab === 'ORDERS') {
       fetchHoldings();
       fetchLivePositions();
     }
-  }, [activeTab, fetchOptionChain, fetchHoldings, fetchLivePositions]);
+  }, [activeTab, selectedSymbol, fetchOptionChain, fetchHoldings, fetchLivePositions]);
 
   // Initial and periodic sync of holdings and positions when token is present
   useEffect(() => {
@@ -1234,6 +1353,46 @@ export const App: React.FC = () => {
     positions.forEach(p => handleSquareOffPosition(p.id));
   };
 
+  const handleSyncHistoryBrokerage = async () => {
+    try {
+      const res = await fetch('/api/bot/sync-history-brokerage', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Refresh history to see updated brokerage from API
+        fetchHistory();
+      }
+    } catch (err) {
+      console.error('Failed to sync history brokerage:', err);
+    }
+  };
+
+
+  const handleResetPaperAccount = async () => {
+    if (!window.confirm(language === 'ml' ? 'നിങ്ങളുടെ പേപ്പർ ട്രേഡിംഗ് അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണമെന്നുറപ്പാണോ?' : 'Are you sure you want to reset your paper trading account?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/paper/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initialCapital: 2000 }),
+      });
+      if (res.ok) {
+        setOrders([]);
+        setPositions([]);
+        setTradeHistory([]);
+        try {
+          localStorage.removeItem('aizabiz_persisted_orders_v2');
+          localStorage.removeItem('aizabiz_persisted_trade_history_v2');
+        } catch {}
+        alert(language === 'ml' ? 'അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു!' : 'Account reset successfully!');
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error('Failed to reset account', e);
+    }
+  };
+
   // Dedicated Option Premium & Instrument Chart Handler (Supports running positions, history, orders & holdings)
   const handleViewChart = useCallback((sym: string, key?: string, context?: any) => {
     setSelectedSymbol(sym);
@@ -1309,7 +1468,9 @@ export const App: React.FC = () => {
         ? botConfig.maxCapitalPerTrade > 0
           ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade)
           : apiConfig.availableMargin
-        : botConfig.maxCapitalPerTrade || 2000;
+        : botConfig.maxCapitalPerTrade > 0
+          ? Math.min(paperAccountBalance, botConfig.maxCapitalPerTrade)
+          : paperAccountBalance;
 
     if (oneLotTotalWithBrokerage > effectiveCap) {
       setBotLogs(prev => [
@@ -1353,7 +1514,12 @@ export const App: React.FC = () => {
 
   // Accurate PnL Calculation: Separate Today's Trading P&L vs Total Cumulative P&L
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const totalPnL = positions.reduce((acc, p) => acc + (p.pnl || 0), 0);
+  const totalNetMtm = positions.reduce((acc, p) => {
+    const gross = (p.pnl || 0);
+    // Use tracked live brokerage from Upstox API or fallback formula
+    const brok = p.brokerageCharges || calculateTradeCharges(p.buyPrice, p.quantity, p.isOption !== false, p.currentLTP).roundTripCharges;
+    return acc + (gross - brok);
+  }, 0);
 
   // Filter closed trades strictly executed today (IST based on when the trade was opened)
   const getTradeSessionDate = (t: Position) => {
@@ -1373,20 +1539,33 @@ export const App: React.FC = () => {
     return tradeHistory.filter((t) => (t.mode || 'PAPER_TRADING') === mode);
   }, [tradeHistory, mode]);
 
+  const modeOrders = useMemo(() => {
+    return orders.filter((o) => (o.mode || 'PAPER_TRADING') === mode);
+  }, [orders, mode]);
+
   const todayClosedTrades = modeTradeHistory.filter((t) => getTradeSessionDate(t) === todayIst);
 
-  const todayRealizedNet = todayClosedTrades.reduce((acc, t) => acc + Number(t.netRealizedPnL ?? t.realizedPnL ?? 0), 0);
-  const totalRealizedNet = modeTradeHistory.reduce((acc, t) => acc + Number(t.netRealizedPnL ?? t.realizedPnL ?? 0), 0);
+  const todayRealizedNet = todayClosedTrades.reduce((acc, t) => {
+    const gross = Number(t.realizedPnL ?? 0);
+    const brok = Number(t.brokerageCharges || calculateTradeCharges(t.buyPrice || 0, t.quantity || 1, t.isOption !== false, t.sellPrice || t.currentLTP || t.buyPrice || 0).roundTripCharges);
+    return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : (gross - brok));
+  }, 0);
 
-  // Today's Trading P&L (Today's Realized Net + Open Positions MTM)
-  const todayProfit = todayRealizedNet + totalPnL;
+  const totalRealizedNet = modeTradeHistory.reduce((acc, t) => {
+    const gross = Number(t.realizedPnL ?? 0);
+    const brok = Number(t.brokerageCharges || calculateTradeCharges(t.buyPrice || 0, t.quantity || 1, t.isOption !== false, t.sellPrice || t.currentLTP || t.buyPrice || 0).roundTripCharges);
+    return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : (gross - brok));
+  }, 0);
 
-  // Total Cumulative P&L (All-Time Realized Net + Open Positions MTM)
-  const totalCumulativeProfit = totalRealizedNet + totalPnL;
+  // Today's Trading P&L (Today's Realized Net + Open Positions Net MTM)
+  const todayProfit = todayRealizedNet + totalNetMtm;
+
+  // Total Cumulative P&L (All-Time Realized Net + Open Positions Net MTM)
+  const totalCumulativeProfit = totalRealizedNet + totalNetMtm;
 
   // Paper Trading Virtual Account Capital (Base ₹2,000 + total realized profit - open positions invested)
   const openPositionsInvested = positions.reduce((acc, p) => acc + (Number(p.buyPrice || 0) * Math.max(1, Number(p.quantity || 1))), 0);
-  const paperAccountBalance = Math.max(0, 2000 + totalRealizedNet - openPositionsInvested);
+  const paperAccountBalance = 2000 + totalRealizedNet - openPositionsInvested;
 
   // Price alert handlers
   const handleAddAlert = (
@@ -1726,15 +1905,29 @@ export const App: React.FC = () => {
         onOpenAndroidModal={() => setIsAndroidModalOpen(true)}
         activePositionsCount={positions.length}
         onSquareOffAll={handleSquareOffAll}
-        totalPnL={totalPnL}
+        totalPnL={totalNetMtm}
         dailyProfit={todayProfit}
         cumulativeProfit={totalCumulativeProfit}
         virtualCapital={paperAccountBalance}
         onOpenAlerts={() => setIsAlertsModalOpen(true)}
+        onResetPaperAccount={handleResetPaperAccount}
+        botEnabled={botConfig.enabled}
+        onToggleBot={() => {
+          const newState = !botConfig.enabled;
+          setBotConfig(prev => {
+            const updated = { ...prev, enabled: newState, dailyLossLocked: false };
+            fetch('/api/bot/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(updated),
+            }).catch(() => {});
+            return updated;
+          });
+        }}
       />
 
-      {/* 1.1 UNIFIED LIVE TERMINAL RIBBON (Market Timing, Feed Status & Alert Controls) */}
-      <div className="w-full px-2 sm:px-4 py-1.5 text-[11px] font-mono flex items-center justify-between gap-2 border-b shrink-0 bg-[#070b14]/95 border-slate-800/80 text-slate-300 overflow-x-auto no-scrollbar shadow-inner">
+      {/* 1.1 UNIFIED LIVE TERMINAL RIBBON (Market Timing, Feed Status & Alert Controls - Desktop Only) */}
+      <div className="hidden sm:flex w-full px-2 sm:px-4 py-1 text-[11px] font-mono items-center justify-between gap-2 border-b shrink-0 bg-[#070b14]/95 border-slate-800/80 text-slate-300 overflow-x-auto no-scrollbar shadow-inner">
         {/* Left: Feed Status & IST Clock */}
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[10px]">
@@ -1828,18 +2021,40 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 2. TICKER BAR */}
+      {/* 2. TICKER BAR - The only continuous market strip on mobile */}
       <TickerBar
         quotes={quotes}
         selectedSymbol={selectedSymbol}
         onSelectSymbol={(sym, key) => {
           setSelectedSymbol(sym);
           if (key) setSelectedInstrumentKey(key);
+          
+          // Auto-sync Algo Bot focus when clicking an index in the ticker bar
+          const indexPriorityMap: Record<string, string> = {
+            'NIFTY 50': 'NIFTY_50_ONLY',
+            'BANKNIFTY': 'BANKNIFTY_ONLY',
+            'SENSEX': 'SENSEX_ONLY',
+            'FINNIFTY': 'FINNIFTY_ONLY',
+            'MIDCPNIFTY': 'MIDCPNIFTY_ONLY',
+            'BANKEX': 'BANKEX_ONLY'
+          };
+          
+          if (indexPriorityMap[sym]) {
+            setBotConfig(prev => {
+              const updated = { ...prev, selectedIndexPriority: indexPriorityMap[sym] as any };
+              fetch('/api/bot/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updated),
+              }).catch(() => {});
+              return updated;
+            });
+          }
         }}
       />
 
-      {/* 2.1 LIVE ALGO INSPECTION BANNER (Texting/Inspection Status) */}
-      <div className="bg-slate-950/90 border-b border-slate-800/80 px-3 py-1.5 flex items-center justify-between gap-2 overflow-hidden text-xs">
+      {/* 2.1 LIVE ALGO INSPECTION BANNER (Texting/Inspection Status - Desktop Only to save vertical mobile space) */}
+      <div className="hidden md:flex bg-slate-950/90 border-b border-slate-800/80 px-3 py-1 items-center justify-between gap-2 overflow-hidden text-xs">
         <div className="flex items-center gap-2 min-w-0">
           <span className="flex h-2 w-2 relative shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1856,65 +2071,58 @@ export const App: React.FC = () => {
                   : 'Continuously scanning institutional order flow, Option Greeks, and FVG levels...')}
           </span>
         </div>
-        <div className="hidden md:flex items-center gap-3 shrink-0 text-[10px] font-mono text-slate-400">
+        <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono text-slate-400">
           <span className="text-emerald-400 font-bold">24x7 Cloud Active</span>
           <span>•</span>
           <span>Zero Net Cut Drift</span>
         </div>
       </div>
 
-      {/* Upstox Static IP Warning Alert */}
-      {botLogs.some((l) => l.message && l.message.includes('static IP restrictions')) && (
-        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-500/50 px-3.5 py-2 flex items-center justify-between gap-3 text-xs flex-wrap shadow-lg">
+      {/* Upstox Static IP Whitelist Notice (Only if an old IP rejection log is present) */}
+      {!dismissedIpWarning && botLogs.some((l) => l.message && l.message.includes('static IP restrictions') && (Date.now() - Number(l.id || 0) < 15 * 60 * 1000)) && (
+        <div className="bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border-b border-amber-500/50 px-3.5 py-2 flex items-center justify-between gap-3 text-xs flex-wrap shadow-lg">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-amber-400 font-black text-sm shrink-0">⚠️</span>
+            <span className="text-amber-400 font-black text-sm shrink-0">🛡️</span>
             <div className="flex flex-col">
               <span className="text-amber-300 font-extrabold text-[12px]">
                 {language === 'ml'
-                  ? 'Upstox ലൈവ് ഓർഡർ ബ്ലോക്ക് ആയി (Static IP Restriction)'
-                  : 'Upstox Live Order Blocked (Static IP Restriction)'}
+                  ? 'Upstox SEBI Static IP വെരിഫിക്കേഷൻ'
+                  : 'Upstox SEBI Static IP Whitelist Required'}
               </span>
               <span className="text-slate-300 text-[11px]">
                 {language === 'ml'
-                  ? `Upstox Developer Console-ൽ 'Static IP' ഉള്ളതുകൊണ്ടാണ് ലൈവ് ഓർഡർ റിജക്റ്റ് ആയത്. Upstox Developer Console-ൽ പോയി 'Static IP' ഓഫ് ചെയ്യുക (അല്ലെങ്കിൽ സെർവർ IP: ${apiConfig.serverOutboundIp || '34.96.48.50'} ചേർക്കുക).`
-                  : `Upstox blocked live order placement because Static IP restriction is enabled. Please turn off Static IP in Upstox Developer Console (or add server IP: ${apiConfig.serverOutboundIp || '34.96.48.50'}).`}
+                  ? `Upstox Developer Console-ൽ 8.234.113.241, 34.34.254.178, 34.96.48.26 എന്നീ 3 IP-കളും Whitelist ചെയ്യുക.`
+                  : `Please ensure IPs (8.234.113.241, 34.34.254.178, 34.96.48.26) are saved in Upstox Developer Console.`}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => {
-                const ipToCopy = apiConfig.serverOutboundIp || '34.96.48.50';
-                navigator.clipboard?.writeText(ipToCopy);
+                const allThree = '8.234.113.241, 34.34.254.178, 34.96.48.26';
+                navigator.clipboard?.writeText(allThree);
                 setIpCopiedNotice(true);
                 setTimeout(() => setIpCopiedNotice(false), 3000);
               }}
-              className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-3 py-1 rounded text-[11px] transition shadow flex items-center gap-1 active:scale-95"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1 rounded text-[11px] transition shadow flex items-center gap-1 active:scale-95"
             >
               📋 {ipCopiedNotice 
-                    ? (language === 'ml' ? '✓ IP കോപ്പി ചെയ്തു!' : '✓ IP Copied!') 
-                    : (language === 'ml' ? 'IP കോപ്പി ചെയ്യുക' : 'Copy IP')}
+                    ? (language === 'ml' ? '✓ 3 IP-കളും കോപ്പി ചെയ്തു!' : '✓ All 3 IPs Copied!') 
+                    : (language === 'ml' ? '3 IP-കളും കോപ്പി ചെയ്യുക' : 'Copy All 3 IPs')}
             </button>
             <button
-              onClick={() => {
-                const newMode: ExecutionMode = 'PAPER_TRADING';
-                try {
-                  localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
-                } catch {}
-                setMode(newMode);
-                setBotConfig(prev => {
-                  const updated: BotConfig = { ...prev, mode: newMode };
-                  fetch('/api/bot/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updated),
-                  }).catch(() => {});
-                  return updated;
-                });
-              }}
+              onClick={() => setIsApiModalOpen(true)}
               className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1 rounded text-[11px] border border-slate-700 transition flex items-center gap-1 active:scale-95"
             >
-              🧪 {language === 'ml' ? 'പേപ്പർ മോഡിലേക്ക് മാറ്റുക' : 'Paper Mode'}
+              ⚙️ {language === 'ml' ? 'സെറ്റിംഗ്സ്' : 'Settings'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissedIpWarning(true)}
+              className="px-2 py-1 rounded bg-black/40 hover:bg-black/60 text-slate-300 hover:text-white text-[11px] font-bold border border-white/20 transition active:scale-95"
+              title="Dismiss"
+            >
+              ✕
             </button>
           </div>
         </div>
@@ -2054,6 +2262,18 @@ export const App: React.FC = () => {
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                 <span>{t.aiAdvisor}</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('INVEST')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
+                  activeTab === 'INVEST'
+                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
+                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <PieChart className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{language === 'ml' ? 'നിക്ഷേപം (Invest)' : 'Invest (MF & IPO)'}</span>
               </button>
             </div>
 
@@ -2220,7 +2440,7 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'BOT' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll pb-16 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
                 <AlgoBotPanel
                   botConfig={botConfig}
                   onUpdateBotConfig={(cfg) => {
@@ -2243,23 +2463,49 @@ export const App: React.FC = () => {
                   botLogs={botLogs}
                   signals={signals}
                   language={language}
+                  selectedSymbol={selectedSymbol}
+                  onSelectSymbol={(sym, key) => {
+                    setSelectedSymbol(sym);
+                    if (key) setSelectedInstrumentKey(key);
+                    else {
+                      const matched = quotes.find(q => q.symbol === sym);
+                      if (matched?.instrumentKey) setSelectedInstrumentKey(matched.instrumentKey);
+                    }
+                  }}
                   onExecuteSignal={handleExecuteSignal}
                   optionChainData={optionChainData}
                   quotes={quotes}
                   tradeHistory={modeTradeHistory}
                   activeSignal={activeSignal}
+                  onSelectOptionTrade={(type, optSym, prc, instrKey, liveLotSize) => {
+                    setOrderModalData({
+                      symbol: optSym,
+                      price: prc,
+                      type,
+                      instrumentKey: instrKey,
+                      quantity: liveLotSize && liveLotSize > 0 ? liveLotSize : undefined,
+                      lotSize: liveLotSize,
+                    });
+                    setIsOrderModalOpen(true);
+                  }}
                 />
               </div>
             )}
 
             {activeTab === 'OPTIONS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-14 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
                 <OptionChainView
                   data={optionChainData}
                   quotes={quotes}
                   loading={optionChainLoading}
                   onRefresh={fetchOptionChain}
                   language={language}
+                  selectedSymbol={selectedSymbol}
+                  onSelectSymbol={(sym, key) => {
+                    setSelectedSymbol(sym);
+                    if (key) setSelectedInstrumentKey(key);
+                    fetchOptionChain(undefined, sym);
+                  }}
                   onSelectOptionTrade={(type, optSym, prc, instrKey, liveLotSize) => {
                     setOrderModalData({
                       symbol: optSym,
@@ -2277,23 +2523,24 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'ORDERS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-16 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-28 lg:pb-4">
                 {/* Performance Overview: Total Realized + Open MTM PnL, Win/Loss Ratio, Avg Trade Duration */}
                 <PerformanceOverviewCard tradeHistory={modeTradeHistory} activePositions={positions} language={language} />
 
                 <OrderBookPositions
                   positions={positions}
-                  orders={orders}
+                  orders={modeOrders}
                   tradeHistory={modeTradeHistory}
                   holdings={holdings}
                   language={language}
                   onSquareOffPosition={handleSquareOffPosition}
                   onSquareOffAll={handleSquareOffAll}
-                  totalPnL={totalPnL}
+                  totalPnL={totalNetMtm}
                   onRefreshHoldings={fetchHoldings}
                   isConnected={apiConfig.isConnected}
                   onOpenApiModal={() => setIsApiModalOpen(true)}
                   onViewChart={handleViewChart}
+                  onSyncHistoryBrokerage={handleSyncHistoryBrokerage}
                   onOpenOrderModal={(type, sym, prc, opts) => {
                     setOrderModalData({ symbol: sym, price: prc, type, ...opts });
                     setIsOrderModalOpen(true);
@@ -2310,21 +2557,22 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'HOLDINGS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-16 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-28 lg:pb-4">
                 <OrderBookPositions
                   positions={positions}
-                  orders={orders}
+                  orders={modeOrders}
                   tradeHistory={modeTradeHistory}
                   holdings={holdings}
                   language={language}
                   onSquareOffPosition={handleSquareOffPosition}
                   onSquareOffAll={handleSquareOffAll}
-                  totalPnL={totalPnL}
+                  totalPnL={totalNetMtm}
                   initialTab="HOLDINGS"
                   onRefreshHoldings={fetchHoldings}
                   isConnected={apiConfig.isConnected}
                   onOpenApiModal={() => setIsApiModalOpen(true)}
                   onViewChart={handleViewChart}
+                  onSyncHistoryBrokerage={handleSyncHistoryBrokerage}
                   onOpenOrderModal={(type, sym, prc, opts) => {
                     setOrderModalData({ symbol: sym, price: prc, type, ...opts });
                     setIsOrderModalOpen(true);
@@ -2334,13 +2582,13 @@ export const App: React.FC = () => {
             )}
 
             {activeTab === 'HEATMAP' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-14 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-28 lg:pb-4">
                 <MarketHeatmap quotes={quotes} />
               </div>
             )}
 
             {activeTab === 'AI' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll grid grid-cols-1 lg:grid-cols-2 gap-4 pb-16 lg:pb-0">
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll grid grid-cols-1 lg:grid-cols-2 gap-4 pb-28 lg:pb-4">
                 <ErrorBoundary fallbackTitle="AI മാർക്കറ്റ് അഡ്വൈസർ ലോഡ് ചെയ്യുന്നതിൽ പിശക് (AI Advisor Error)">
                   <GeminiAiAdvisor
                     analysis={geminiAnalysis}
@@ -2355,12 +2603,18 @@ export const App: React.FC = () => {
                 </ErrorBoundary>
               </div>
             )}
+
+            {activeTab === 'INVEST' && (
+              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll pb-28 lg:pb-4">
+                <InvestmentPortal language={language} />
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 4. MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="lg:hidden shrink-0 w-full max-w-full min-w-0 bg-[#090d16] border-t border-slate-800 flex items-center justify-around px-1 py-1 pb-[max(0.4rem,env(safe-area-inset-bottom))] z-30 shadow-2xl">
+      {/* 4. MOBILE BOTTOM NAVIGATION BAR (Auto-aligns perfectly with safe-area on all iPhones & Androids) */}
+      <nav className="lg:hidden shrink-0 w-full max-w-full min-w-0 bg-[#090d16] border-t border-slate-800 flex items-center justify-around px-1 py-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] z-30 shadow-2xl">
         <button
           onClick={() => setActiveTab('WATCHLIST')}
           className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 ${

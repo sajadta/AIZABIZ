@@ -19,12 +19,17 @@ html, body, #root {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto',
-    sans-serif;
+  font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Manjari', sans-serif;
+  letter-spacing: -0.012em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #070a12;
   color: #f8fafc;
+}
+
+/* Professional typographic headings & micro-labels */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.025em;
 }
 
 /* Tabular financial numbers with zero horizontal jitter on live ticks */
@@ -33,6 +38,7 @@ html, body, #root {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" on, "zero" on;
+  letter-spacing: -0.015em;
 }
 
 /* Ensure mobile safe areas (notches and navigation pills) */
@@ -48,6 +54,8 @@ html, body, #root {
 .smooth-scroll {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
 }
 
 /* Hide scrollbars for slick mobile touch-scrolling */

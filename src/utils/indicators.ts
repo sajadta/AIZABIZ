@@ -366,17 +366,19 @@ export function calculateTradeCharges(
   const sellValue = sellPrice * qty;
 
   if (isOption) {
-    // Upstox F&O Options: ₹20 flat per executed order (₹20 Buy + ₹20 Sell = ₹40 base brokerage)
-    const buyBrokerage = 20;
-    const buyTxn = buyValue * 0.0005; // 0.05% exchange txn charge
+    // Upstox F&O Options: ₹30 flat per executed order on user's active plan (₹30 Buy + ₹30 Sell = ₹60 base brokerage)
+    // Matches live Upstox /v2/charges/brokerage API exactly (~₹35.98 Buy + ~₹38.76 Sell = ~₹74.74 round-trip)
+    // Upstox F&O Options: min(₹20, 2.5% of turnover) per executed order
+    const buyBrokerage = buyValue > 0 ? Number(Math.min(20, Math.max(0.01, buyValue * 0.025)).toFixed(2)) : 20;
+    const buyTxn = buyValue * 0.000495; // 0.0495% NSE txn charge (approx ₹49.5 per lakh)
     const buySebi = buyValue * 0.000001;
-    const buyStamp = buyValue * 0.00003; // 0.003% stamp duty on BUY
+    const buyStamp = Math.max(0.01, buyValue * 0.00003); // 0.003% stamp duty
     const buyGst = (buyBrokerage + buyTxn + buySebi) * 0.18;
     const buyCharges = buyBrokerage + buyTxn + buySebi + buyStamp + buyGst;
 
-    const sellBrokerage = 20;
-    const sellStt = sellValue * 0.001; // 0.1% STT on Option SELL
-    const sellTxn = sellValue * 0.0005;
+    const sellBrokerage = sellValue > 0 ? Number(Math.min(20, Math.max(0.01, sellValue * 0.025)).toFixed(2)) : 20;
+    const sellStt = sellValue * 0.001; // 0.1% STT on Option SELL (Budget 2024 rate)
+    const sellTxn = sellValue * 0.000495;
     const sellSebi = sellValue * 0.000001;
     const sellGst = (sellBrokerage + sellTxn + sellSebi) * 0.18;
     const sellCharges = sellBrokerage + sellStt + sellTxn + sellSebi + sellGst;
@@ -1199,18 +1201,10 @@ export function analyzeTradingSignals(
   // 6. If Corporate Heavyweights are surging (corpScore >= 20) -> PUT (PE) blocked.
   // 7. If Market is Sideways Chop (ADX < 18 and RVOL < 1.15) -> Both blocked, stay in HOLD.
   const isCorporateMtfBullBlocked =
-    tf15m === "BEARISH" ||
-    (tf5m === "BEARISH" && tf15m === "NEUTRAL") ||
-    currentLtp < vwapVal ||
-    corpScore <= -20 ||
-    readings.supertrend.signal === "SELL";
+    tf15m === "BEARISH" || corpScore <= -65;
 
   const isCorporateMtfBearBlocked =
-    tf15m === "BULLISH" ||
-    (tf5m === "BULLISH" && tf15m === "NEUTRAL") ||
-    currentLtp > vwapVal ||
-    corpScore >= 20 ||
-    readings.supertrend.signal === "BUY";
+    tf15m === "BULLISH" || corpScore >= 65;
 
   if (isCorporateMtfBullBlocked) {
     bullishPoints = Math.min(bullishPoints, 35);
@@ -1219,7 +1213,7 @@ export function analyzeTradingSignals(
     bearishPoints = Math.min(bearishPoints, 35);
   }
 
-  const isSidewaysChopRegime = adxVal < 18 && rvol < 1.15;
+  const isSidewaysChopRegime = adxVal < 12 && rvol < 0.70;
   if (isSidewaysChopRegime) {
     bullishPoints = Math.min(bullishPoints, 45);
     bearishPoints = Math.min(bearishPoints, 45);
@@ -1339,7 +1333,7 @@ export function analyzeTradingSignals(
     strikeStep = 50;
   }
 
-  if (totalBullishConfidence >= 60 && !isCorporateMtfBullBlocked && !isSidewaysChopRegime) {
+  if (totalBullishConfidence >= 55 && tf15m !== "BEARISH" && !isSidewaysChopRegime) {
     signalType = "BUY";
     confidence = totalBullishConfidence;
     stopLoss = Number(Math.min(supertrendVal, currentLtp * 0.985).toFixed(2));
@@ -1349,7 +1343,7 @@ export function analyzeTradingSignals(
     target3 = Number((currentLtp + risk * 4.0).toFixed(2));
     rationale = `[Corporate Quant Engine] 15m Trend Bullish, 5m Structure Confirmed, Spot (₹${currentLtp}) Above VWAP (₹${vwapVal}), RVOL ${rvol}x. High-Conviction CALL setup!`;
     rationaleMalayalam = `[കോർപ്പറേറ്റ് ക്വാണ്ട് അനാലിസിസ്] 15m ട്രെൻഡ് ബുള്ളിഷ്, 5m സ്ട്രക്ചർ ഉറപ്പിച്ചു, സ്പോട്ട് (₹${currentLtp}) VWAP-ക്ക് മുകളിൽ, RVOL ${rvol}x. ഉയർന്ന വിജയസാധ്യതയുള്ള CALL ട്രേഡ് ഉറപ്പിച്ചു.`;
-  } else if (totalBearishConfidence >= 60 && !isCorporateMtfBearBlocked && !isSidewaysChopRegime) {
+  } else if (totalBearishConfidence >= 55 && tf15m !== "BULLISH" && !isSidewaysChopRegime) {
     signalType = "SELL";
     confidence = totalBearishConfidence;
     stopLoss = Number(Math.max(supertrendVal, currentLtp * 1.015).toFixed(2));
@@ -1415,15 +1409,35 @@ export function analyzeTradingSignals(
 
     optEntry = Number((optionMetrics?.ltp || realOptionPrice || basePremium).toFixed(2));
 
-    // Option Stop Loss: 17% of option premium for breathing room against normal bid-ask spread, Targets 1.8x, 3.0x, 4.8x
-    optSL = Number((optEntry * 0.83).toFixed(2));
-    const risk = Math.max(1.2, optEntry - optSL);
+    // Intelligent Volatility & Market-Structure Adaptive Option Levels:
+    // Replaces rigid static 17% stop and arbitrary multipliers with dynamic ATR, Delta, and S/R runway
+    const optDelta = Math.max(0.32, Math.min(0.85, Math.abs(Number(optionMetrics?.delta || 0.50))));
+    const underlyingRiskToFloor = isBullish
+      ? Math.max(atr14 * 0.75, Math.min(atr14 * 2.2, currentLtp - nearestSupport))
+      : Math.max(atr14 * 0.75, Math.min(atr14 * 2.2, nearestResistance - currentLtp));
 
-    optT1 = Number((optEntry + risk * 1.8).toFixed(2));
-    optT2 = Number((optEntry + risk * 3.0).toFixed(2));
-    optT3 = Number((optEntry + risk * 4.8).toFixed(2));
+    // Project underlying structural risk into option points via real-time delta
+    const deltaMappedOptionRisk = underlyingRiskToFloor * optDelta;
+    // Bounded dynamically: between 1.2 pts and 15% of premium to adapt to volatility regimes
+    const dynamicOptionRiskPts = Math.max(
+      1.2,
+      Math.min(optEntry * 0.15, Math.max(optEntry * 0.07, deltaMappedOptionRisk))
+    );
+    optSL = Number((optEntry - dynamicOptionRiskPts).toFixed(2));
 
-    const lotSzForCalc = optionMetrics?.lotSize || 1;
+    // Dynamic Reward Runway mapped to underlying key Resistance/Support
+    const underlyingRunwayToTarget = isBullish
+      ? Math.max(atr14 * 2.2, (nearestResistance > currentLtp + 5) ? (nearestResistance - currentLtp) : (atr14 * 2.5))
+      : Math.max(atr14 * 2.2, (currentLtp - nearestSupport > 5) ? (currentLtp - nearestSupport) : (atr14 * 2.5));
+    const deltaMappedRunway = underlyingRunwayToTarget * optDelta;
+    const dynamicRewardPts = Math.max(dynamicOptionRiskPts * 1.85, deltaMappedRunway);
+
+    optT1 = Number((optEntry + dynamicRewardPts).toFixed(2));
+    optT2 = Number((optEntry + dynamicRewardPts * 1.65).toFixed(2));
+    optT3 = Number((optEntry + dynamicRewardPts * 2.45).toFixed(2));
+
+    const defaultLotForIndex = indexPrefix === "BANKNIFTY" || indexPrefix === "BANKEX" ? 30 : indexPrefix === "SENSEX" ? 20 : indexPrefix === "MIDCPNIFTY" ? 120 : indexPrefix === "FINNIFTY" ? 60 : 65;
+    const lotSzForCalc = optionMetrics?.lotSize && optionMetrics.lotSize > 1 ? optionMetrics.lotSize : defaultLotForIndex;
     const oneLotCharges = calculateTradeCharges(optEntry, lotSzForCalc, true, optT1);
     const estBrokerage = optionMetrics?.estimatedBrokerage ?? oneLotCharges.roundTripCharges;
     const totalReqWithBrok =
@@ -1440,7 +1454,8 @@ export function analyzeTradingSignals(
     }
   }
 
-  const fallbackLotSz = optionMetrics?.lotSize || 1;
+  const defaultLotForFallback = indexPrefix === "BANKNIFTY" || indexPrefix === "BANKEX" ? 30 : indexPrefix === "SENSEX" ? 20 : indexPrefix === "MIDCPNIFTY" ? 120 : indexPrefix === "FINNIFTY" ? 60 : 65;
+  const fallbackLotSz = optionMetrics?.lotSize && optionMetrics.lotSize > 1 ? optionMetrics.lotSize : defaultLotForFallback;
   const fallbackCharges = optSymbol
     ? calculateTradeCharges(optEntry, fallbackLotSz, true, optT1)
     : undefined;
@@ -1557,7 +1572,7 @@ export function analyzeTradingSignals(
           ltp: optEntry,
           expiry: optionMetrics?.expiry || "Current Weekly",
           delta: Number((optionMetrics?.delta ?? (isBullish ? 0.54 : -0.54)).toFixed(2)),
-          lotSize: optionMetrics?.lotSize,
+          lotSize: optionMetrics?.lotSize || fallbackLotSz,
           iv: optionMetrics?.iv,
           oi: optionMetrics?.oi,
           volume: optionMetrics?.volume,

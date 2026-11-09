@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
+import { X, Check, ShieldCheck, Zap, AlertCircle, Clock } from 'lucide-react';
 import { OrderTransactionType, OrderType, ProductType, Language, ExecutionMode } from '../types';
 import { translations } from '../translations';
 import { calculateTradeCharges, calculateAffordableLotsWithBrokerage } from '../utils/indicators';
@@ -31,6 +31,7 @@ interface OrderModalProps {
     triggerPrice?: number;
     stopLoss?: number;
     target?: number;
+    is_amo?: boolean;
   }) => void;
   language: Language;
 }
@@ -130,6 +131,13 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
   const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
   const [target, setTarget] = useState<number>(Number(((defaultPrice || 0) * 1.025).toFixed(2)));
+  const [isAmo, setIsAmo] = useState<boolean>(false);
+  const [liveUpstoxCharges, setLiveUpstoxCharges] = useState<{
+    total: number;
+    brokerage: number;
+    source: string;
+    isLiveUpstox: boolean;
+  } | null>(null);
 
   useEffect(() => {
     setPrice(defaultPrice || 100);
@@ -150,24 +158,58 @@ export const OrderModal: React.FC<OrderModalProps> = ({
     }
   }, [defaultPrice, initialType, defaultProductType, heldQuantity, defaultStopLoss, defaultTarget, isOptionOrFo]);
 
+  const effectivePrice = orderType === 'MARKET' ? (defaultPrice || price || 100) : (price || defaultPrice || 100);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchLiveBrokerage = async () => {
+      try {
+        const qs = new URLSearchParams({
+          instrumentToken: instrumentKey || symbol,
+          quantity: String(quantity),
+          price: String(effectivePrice),
+          product: productType,
+          transactionType: transactionType,
+          roundTrip: 'true',
+        });
+        let headers: Record<string, string> = {};
+        try {
+          const savedTok = localStorage.getItem('upstox_daily_token');
+          if (savedTok) headers['Authorization'] = `Bearer ${savedTok}`;
+        } catch {}
+        const res = await fetch(`/api/market/brokerage?${qs.toString()}`, { headers });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.data?.charges) {
+            setLiveUpstoxCharges({
+              total: Number(json.data.charges.total || 0),
+              brokerage: Number(json.data.charges.brokerage || 0),
+              source: json.data.source || json.source || 'UPSTOX_LIVE_API',
+              isLiveUpstox: Boolean(json.isLiveUpstox),
+            });
+          }
+        }
+      } catch {}
+    };
+    fetchLiveBrokerage();
+  }, [isOpen, symbol, instrumentKey, quantity, price, defaultPrice, orderType, productType, transactionType, effectivePrice]);
+
   if (!isOpen) return null;
 
   const lotStep = isOptionOrFo ? (lotSize || 1) : 1;
-  const effectivePrice = orderType === 'MARKET' ? (defaultPrice || price || 100) : (price || defaultPrice || 100);
   const oneLotCharges = calculateTradeCharges(effectivePrice, lotStep, isOptionOrFo, target);
   const oneLotCost = oneLotCharges.tradeValue;
   const oneLotTotalWithBrokerage = oneLotCharges.totalRequiredWithBrokerage;
 
   const currentOrderCharges = calculateTradeCharges(effectivePrice, quantity, isOptionOrFo, target);
   const baseMargin = Number((effectivePrice * quantity * (productType === 'INTRADAY' && !isOptionOrFo ? 0.2 : 1)).toFixed(2));
-  const estimatedBrokerageAndTaxes = currentOrderCharges.roundTripCharges;
+  const estimatedBrokerageAndTaxes = liveUpstoxCharges?.total && liveUpstoxCharges.total > 0
+    ? liveUpstoxCharges.total
+    : currentOrderCharges.roundTripCharges;
   const estimatedMargin = Number((baseMargin + estimatedBrokerageAndTaxes).toFixed(2));
 
-  // Strict separation: UPSTOX_LIVE uses ONLY real Upstox availableMargin, never dummy cash!
-  const effectiveAvailableBalance =
-    mode === 'UPSTOX_LIVE'
-      ? availableMargin
-      : maxCapitalPerTrade || 2000;
+  // Strict Balance Protection for both UPSTOX_LIVE and PAPER_TRADING
+  const effectiveAvailableBalance = Number(availableMargin || 0);
   const lotAffordability = calculateAffordableLotsWithBrokerage(
     effectivePrice,
     lotStep,
@@ -177,9 +219,8 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   );
   const maxAffordableLots = lotAffordability.affordableLots;
   const isInsufficientMargin =
-    mode === 'UPSTOX_LIVE' &&
     transactionType === 'BUY' &&
-    estimatedMargin > availableMargin;
+    estimatedMargin > effectiveAvailableBalance;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +236,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
       triggerPrice: orderType.includes('SL') ? triggerPrice : undefined,
       stopLoss,
       target,
+      is_amo: isAmo,
     });
     onClose();
   };
@@ -452,10 +494,15 @@ export const OrderModal: React.FC<OrderModalProps> = ({
               </span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-slate-400">
+              <span className="text-slate-400 flex items-center gap-1">
                 {language === 'ml'
                   ? 'ബ്രോക്കറേജ് & ടാക്സ് (Buy+Sell GST/STT):'
                   : 'Est. Brokerage & Taxes (Buy+Sell):'}
+                {liveUpstoxCharges?.isLiveUpstox && (
+                  <span className="px-1 py-0.2 rounded text-[8px] font-extrabold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    Upstox Live API
+                  </span>
+                )}
               </span>
               <span className="font-bold text-amber-300">
                 +₹{estimatedBrokerageAndTaxes.toFixed(2)}
@@ -499,8 +546,8 @@ export const OrderModal: React.FC<OrderModalProps> = ({
                 <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span>
                   {language === 'ml'
-                    ? `അക്കൗണ്ടിൽ മതിയായ ബാലൻസ് ഇല്ല! 1 ലോട്ടിന് ബ്രോക്കറേജ് ഉൾപ്പെടെ ₹${oneLotTotalWithBrokerage.toLocaleString('en-IN')} വേണം (പ്രീമിയം ₹${oneLotCost.toLocaleString('en-IN')} + ബ്രോക്കറേജ് ₹${oneLotCharges.roundTripCharges.toFixed(0)}).`
-                    : `Insufficient Upstox balance! 1 Lot requires ₹${oneLotTotalWithBrokerage.toLocaleString('en-IN')} incl. brokerage (Premium ₹${oneLotCost.toLocaleString('en-IN')} + Brokerage ₹${oneLotCharges.roundTripCharges.toFixed(0)}).`}
+                    ? `അക്കൗണ്ടിൽ മതിയായ ബാലൻസ് ഇല്ല! ഈ ട്രേഡിന് ബ്രോക്കറേജ് ഉൾപ്പെടെ ₹${estimatedMargin.toLocaleString('en-IN')} വേണം. ലഭ്യമായ ബാലൻസ്: ₹${Number(effectiveAvailableBalance || 0).toLocaleString('en-IN')}.`
+                    : `Insufficient balance! This trade requires ₹${estimatedMargin.toLocaleString('en-IN')} incl. brokerage, but available balance is only ₹${Number(effectiveAvailableBalance || 0).toLocaleString('en-IN')}.`}
                 </span>
               </div>
             )}

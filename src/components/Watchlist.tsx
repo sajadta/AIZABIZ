@@ -26,14 +26,23 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 }) => {
   const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY' | 'GLOBAL'>('ALL');
+  const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY' | 'FUTURES' | 'COMMODITY' | 'GLOBAL'>('ALL');
   const [alertTargetSymbol, setAlertTargetSymbol] = useState<string | null>(null);
   const [alertPrice, setAlertPrice] = useState<string>('');
 
   const filteredQuotes = quotes.filter((q) => {
-    const matchesSearch = q.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      q.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSegment = filterSegment === 'ALL' || q.segment === (filterSegment as any);
+    const term = searchTerm.toLowerCase().trim();
+    const matchesSearch =
+      !term ||
+      q.symbol.toLowerCase().includes(term) ||
+      q.name.toLowerCase().includes(term) ||
+      (q.instrumentKey && q.instrumentKey.toLowerCase().includes(term)) ||
+      (q.segment && q.segment.toLowerCase().includes(term));
+    const matchesSegment =
+      filterSegment === 'ALL' ||
+      q.segment === (filterSegment as any) ||
+      (filterSegment === 'FUTURES' && (q.symbol.includes('FUT') || q.segment === 'FUTURES')) ||
+      (filterSegment === 'COMMODITY' && (q.symbol.includes('CRUDE') || q.symbol.includes('GOLD') || q.symbol.includes('GAS') || q.segment === 'COMMODITY'));
     return matchesSearch && matchesSegment;
   });
 
@@ -68,20 +77,20 @@ export const Watchlist: React.FC<WatchlistProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={language === 'ml' ? 'ഓഹരികൾ തിരയുക (Search)...' : 'Search symbol, index, stock...'}
+            placeholder={language === 'ml' ? 'ഓഹരികൾ, ഫ്യൂച്ചറുകൾ, കമോഡിറ്റി തിരയുക...' : 'Search symbol, futures, commodity...'}
             className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
           />
         </div>
 
         {/* Filter Pills */}
         <div className="flex items-center gap-1.5 text-[11px] font-bold overflow-x-auto no-scrollbar w-full min-w-0 py-0.5">
-          {(['ALL', 'INDEX', 'EQUITY', 'GLOBAL'] as const).map((seg) => (
+          {(['ALL', 'INDEX', 'EQUITY', 'FUTURES', 'COMMODITY', 'GLOBAL'] as const).map((seg) => (
             <button
               key={seg}
               onClick={() => setFilterSegment(seg)}
-              className={`px-3 py-1 rounded-lg transition text-xs ${
+              className={`px-2.5 py-1 rounded-lg transition text-[10px] font-extrabold shrink-0 ${
                 filterSegment === seg
-                  ? 'bg-[#1d2335] text-emerald-400 font-extrabold border border-slate-700 shadow-sm'
+                  ? 'bg-[#1d2335] text-emerald-400 border border-slate-700 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
               }`}
             >

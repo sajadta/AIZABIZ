@@ -87,9 +87,23 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {language === 'ml' 
-              ? 'സ്വകാര്യ ട്രേഡിംഗ് ടെർമിനൽ • പ്രവേശിക്കാൻ മാസ്റ്റർ പിൻ നൽകുക' 
-              : 'Private Algorithmic Terminal • Enter 4-Digit Master PIN'}
+              ? 'സ്വകാര്യ ട്രേഡിംഗ് ടെർമിനൽ • പ്രവേശിക്കാൻ മാസ്റ്റർ പിൻ (PIN: 9847) നൽകുക' 
+              : 'Private Algorithmic Terminal • Enter 4-Digit Master PIN (Default: 9847)'}
           </p>
+          <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[11px] font-mono text-emerald-300">
+            <span>PIN:</span>
+            <span className="font-bold text-white tracking-widest">9847</span>
+            <button
+              type="button"
+              onClick={() => {
+                setPin('9847');
+                verifyPin('9847');
+              }}
+              className="ml-1 px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[10px] font-sans font-bold uppercase transition"
+            >
+              {language === 'ml' ? 'ഓട്ടോ അൺലോക്ക്' : 'Auto Unlock'}
+            </button>
+          </div>
         </div>
 
         {/* PIN Dots Display */}
