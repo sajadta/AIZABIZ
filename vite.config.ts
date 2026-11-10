@@ -3,24 +3,6 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  server: {
-    host: '0.0.0.0',
-    port: 3000,
-    hmr: false,
-    watch: null,
-  },
-  build: {
-    chunkSizeWarningLimit: 1200,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'charts-vendor': ['recharts', 'd3', 'lightweight-charts'],
-          'ui-vendor': ['lucide-react', 'motion'],
-        },
-      },
-    },
-  },
   plugins: [
     react(),
     VitePWA({
@@ -64,4 +46,34 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+    strictPort: false,
+    hmr: {
+      host: 'localhost',
+      port: 3000,
+    },
+    watch: {
+      ignored: ['**/node_modules/**', '**/dist/**'],
+    },
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 4173,
+  },
+  build: {
+    target: 'es2022',
+    sourcemap: false,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom'],
+          'charts-vendor': ['recharts', 'd3', 'lightweight-charts'],
+          'ui-vendor': ['lucide-react', 'motion'],
+        },
+      },
+    },
+  },
 });
