@@ -1,7 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Send, CheckCircle2, Server, Save, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Shield, Send, Server, Save, X } from 'lucide-react';
+import type { BotConfig, Language, UpstoxApiConfig } from '../types';
+import { safeStorage } from '../utils/storage';
 
-export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig, defaultApiConfig, language }: any) => {
+interface OnboardingSetupModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (config: {
+    botConfig: Pick<BotConfig, 'telegramBotToken' | 'telegramChatId'>;
+    apiConfig: Pick<UpstoxApiConfig, 'apiKey' | 'apiSecret' | 'redirectUri'>;
+  }) => void;
+  defaultBotConfig: BotConfig;
+  defaultApiConfig: UpstoxApiConfig;
+  language: Language;
+}
+
+export const OnboardingSetupModal: React.FC<OnboardingSetupModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  defaultBotConfig,
+  defaultApiConfig,
+  language,
+}) => {
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [upstoxApiKey, setUpstoxApiKey] = useState('');
@@ -9,141 +30,70 @@ export const OnboardingSetupModal = ({ isOpen, onClose, onSave, defaultBotConfig
   const [redirectUri, setRedirectUri] = useState('');
 
   useEffect(() => {
-    if (isOpen) {
-      setTelegramBotToken(defaultBotConfig?.telegramBotToken || localStorage.getItem('algo_tg_token') || '');
-      setTelegramChatId(defaultBotConfig?.telegramChatId || localStorage.getItem('algo_tg_chat') || '');
-      setUpstoxApiKey(defaultApiConfig?.apiKey || localStorage.getItem('algo_upstox_key') || '');
-      setUpstoxApiSecret(defaultApiConfig?.apiSecret || localStorage.getItem('algo_upstox_secret') || '');
-      setRedirectUri(defaultApiConfig?.redirectUri || localStorage.getItem('algo_upstox_redirect') || 'https://127.0.0.1:3000');
-    }
+    if (!isOpen) return;
+
+    setTelegramBotToken(defaultBotConfig?.telegramBotToken || safeStorage.getItem('algo_tg_token') || '');
+    setTelegramChatId(defaultBotConfig?.telegramChatId || safeStorage.getItem('algo_tg_chat') || '');
+    setUpstoxApiKey(defaultApiConfig?.apiKey || safeStorage.getItem('algo_upstox_key') || '');
+    setUpstoxApiSecret(defaultApiConfig?.apiSecret || '');
+    setRedirectUri(
+      defaultApiConfig?.redirectUri || safeStorage.getItem('algo_upstox_redirect') ||
+      (typeof window !== 'undefined' ? window.location.origin : ''),
+    );
   }, [isOpen, defaultBotConfig, defaultApiConfig]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
-    localStorage.setItem('app_setup_complete', 'true');
-    localStorage.setItem('algo_tg_token', telegramBotToken);
-    localStorage.setItem('algo_tg_chat', telegramChatId);
-    localStorage.setItem('algo_upstox_key', upstoxApiKey);
-    localStorage.setItem('algo_upstox_secret', upstoxApiSecret);
-    localStorage.setItem('algo_upstox_redirect', redirectUri);
-    
+    safeStorage.setItem('app_setup_complete', 'true');
+    safeStorage.setItem('algo_tg_token', telegramBotToken);
+    safeStorage.setItem('algo_tg_chat', telegramChatId);
+    safeStorage.setItem('algo_upstox_key', upstoxApiKey);
+    safeStorage.removeItem('algo_upstox_secret');
+    safeStorage.setItem('algo_upstox_redirect', redirectUri);
+
     onSave({
       botConfig: { telegramBotToken, telegramChatId },
-      apiConfig: { apiKey: upstoxApiKey, apiSecret: upstoxApiSecret, redirectUri }
+      apiConfig: { apiKey: upstoxApiKey, apiSecret: upstoxApiSecret, redirectUri },
     });
     onClose();
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-[#0b0f19] border border-slate-700/80 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 flex flex-col max-h-[90vh] my-auto relative"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-3 right-3 w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition active:scale-95 touch-manipulation z-10"
-          aria-label="Close setup modal"
-        >
+        <button type="button" onClick={onClose} className="absolute top-3 right-3 w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition active:scale-95 touch-manipulation z-10" aria-label="Close setup modal">
           <X className="w-5 h-5" />
         </button>
-
         <div className="p-5 border-b border-slate-800/60 bg-gradient-to-r from-indigo-900/40 to-slate-900 text-center">
-          <div className="w-12 h-12 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Shield className="w-6 h-6 text-indigo-400" />
-          </div>
-          <h2 className="text-xl font-black text-white tracking-tight">
-            {language === 'ml' ? 'ആദ്യത്തെ സജ്ജീകരണം' : 'Initial Setup'}
-          </h2>
+          <div className="w-12 h-12 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-3"><Shield className="w-6 h-6 text-indigo-400" /></div>
+          <h2 className="text-xl font-black text-white tracking-tight">{language === 'ml' ? 'ആദ്യത്തെ സജ്ജീകരണം' : 'Initial Setup'}</h2>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            {language === 'ml' 
-              ? 'ഈ ആപ്പ് നിങ്ങളുടെ മൊബൈലിൽ സുരക്ഷിതമായി പ്രവർത്തിക്കാൻ ആവശ്യമായ അടിസ്ഥാന വിവരങ്ങൾ നൽകുക. ഇത് നിങ്ങളുടെ ബ്രൗസറിൽ മാത്രമേ സേവ് ചെയ്യപ്പെടുകയുള്ളൂ.'
-              : 'Provide the basic configuration required for this private app. This is saved locally in your browser.'}
+            {language === 'ml' ? 'ആവശ്യമായ ക്രമീകരണങ്ങൾ നൽകുക. API രഹസ്യം ബ്രൗസറിൽ സൂക്ഷിക്കില്ല.' : 'Provide basic settings. API secrets are not persisted in browser storage.'}
           </p>
         </div>
-
         <div className="p-5 overflow-y-auto space-y-6">
-          {/* Telegram Settings */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-              <Send className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-slate-200">{language === 'ml' ? 'ടെലഗ്രാം അലർട്ടുകൾ' : 'Telegram Alerts'}</h3>
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-slate-400 block mb-1">Bot Token</label>
-              <input
-                type="text"
-                value={telegramBotToken}
-                onChange={(e) => setTelegramBotToken(e.target.value)}
-                placeholder="e.g. 123456789:ABCdefGhI..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-slate-400 block mb-1">Chat ID</label>
-              <input
-                type="text"
-                value={telegramChatId}
-                onChange={(e) => setTelegramChatId(e.target.value)}
-                placeholder="e.g. 12345678"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Upstox Settings */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-              <Server className="w-4 h-4 text-amber-400" />
-              <h3 className="text-sm font-bold text-slate-200">{language === 'ml' ? 'Upstox API വിവരങ്ങൾ (Optional)' : 'Upstox API Keys (Optional)'}</h3>
-            </div>
-            <p className="text-[10px] text-amber-500/80 -mt-2">
-              {language === 'ml' ? '* നിങ്ങൾ Daily Access Token മാത്രമാണ് ഉപയോഗിക്കുന്നതെങ്കിൽ ഇത് നിർബന്ധമില്ല.' : '* Not required if using Daily Access Token manual login.'}
-            </p>
-            <div>
-              <label className="text-[11px] font-bold text-slate-400 block mb-1">API Key (Client ID)</label>
-              <input
-                type="text"
-                value={upstoxApiKey}
-                onChange={(e) => setUpstoxApiKey(e.target.value)}
-                placeholder="e.g. 5xxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-slate-400 block mb-1">API Secret</label>
-              <input
-                type="password"
-                value={upstoxApiSecret}
-                onChange={(e) => setUpstoxApiSecret(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-amber-500 focus:outline-none"
-              />
-            </div>
-          </div>
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2"><Send className="w-4 h-4 text-emerald-400" /><h3 className="text-sm font-bold text-slate-200">{language === 'ml' ? 'ടെലഗ്രാം അലർട്ടുകൾ' : 'Telegram Alerts'}</h3></div>
+            <label className="block text-[11px] font-bold text-slate-400">Bot Token<input type="password" autoComplete="off" value={telegramBotToken} onChange={(event) => setTelegramBotToken(event.target.value)} className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none" /></label>
+            <label className="block text-[11px] font-bold text-slate-400">Chat ID<input type="text" autoComplete="off" value={telegramChatId} onChange={(event) => setTelegramChatId(event.target.value)} className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-emerald-500 focus:outline-none" /></label>
+          </section>
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2"><Server className="w-4 h-4 text-amber-400" /><h3 className="text-sm font-bold text-slate-200">{language === 'ml' ? 'Upstox API വിവരങ്ങൾ (ഐച്ഛികം)' : 'Upstox API Keys (Optional)'}</h3></div>
+            <label className="block text-[11px] font-bold text-slate-400">API Key (Client ID)<input type="text" autoComplete="off" value={upstoxApiKey} onChange={(event) => setUpstoxApiKey(event.target.value)} className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-amber-500 focus:outline-none" /></label>
+            <label className="block text-[11px] font-bold text-slate-400">API Secret<input type="password" autoComplete="new-password" value={upstoxApiSecret} onChange={(event) => setUpstoxApiSecret(event.target.value)} className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-amber-500 focus:outline-none" /></label>
+            <label className="block text-[11px] font-bold text-slate-400">Redirect URI<input type="url" autoComplete="url" value={redirectUri} onChange={(event) => setRedirectUri(event.target.value)} className="mt-1 w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white font-mono focus:border-amber-500 focus:outline-none" /></label>
+          </section>
         </div>
-
         <div className="p-4 border-t border-slate-800/60 bg-slate-900/50 space-y-2">
-          <button
-            onClick={handleSave}
-            className="w-full py-3.5 min-h-[44px] rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-sm font-black shadow-lg shadow-indigo-950 transition active:scale-95 flex items-center justify-center gap-2 touch-manipulation"
-          >
-            <Save className="w-4 h-4" />
-            <span>{language === 'ml' ? 'സേവ് ചെയ്യുക & തുടങ്ങുക' : 'Save & Continue'}</span>
-          </button>
-          
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full py-2.5 min-h-[44px] rounded-xl bg-transparent hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-semibold transition active:scale-95 flex items-center justify-center gap-1.5 touch-manipulation"
-          >
-            <span>{language === 'ml' ? 'ഇപ്പോഴത്തേക്ക് ഒഴിവാക്കുക (Skip for now)' : 'Skip for now'}</span>
-          </button>
+          <button type="button" onClick={handleSave} className="w-full py-3.5 min-h-[44px] rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-sm font-black shadow-lg flex items-center justify-center gap-2"><Save className="w-4 h-4" /><span>{language === 'ml' ? 'സേവ് ചെയ്യുക & തുടങ്ങുക' : 'Save & Continue'}</span></button>
+          <button type="button" onClick={onClose} className="w-full py-2.5 min-h-[44px] rounded-xl bg-transparent hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-semibold transition">{language === 'ml' ? 'ഇപ്പോഴത്തേക്ക് ഒഴിവാക്കുക' : 'Skip for now'}</button>
         </div>
       </div>
     </div>
