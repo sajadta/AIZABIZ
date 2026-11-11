@@ -1,167 +1,10 @@
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
-import dns from "dns";
-import net from "net";
-import https from "https";
-try {
-  dns.setDefaultResultOrder("ipv4first");
-  if (typeof (net as any).setDefaultAutoSelectFamily === "function") {
-    (net as any).setDefaultAutoSelectFamily(false);
-  }
-} catch {}
-
 import { HttpsProxyAgent } from "https-proxy-agent";
+import https from "https";
+import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, placeUpstoxOrderIpv4 } from "./server/services/upstoxTransport";
+import { registerHealthRoutes } from "./server/routes/health";
 
-const FIXED_PRIMARY_IP = "8.234.113.241";
-const FIXED_SECONDARY_IP = "34.34.254.178";
-
-const upstoxIpv4Agent = new https.Agent({
-  family: 4,
-  keepAlive: true,
-  keepAliveMsecs: 60000,
-  maxSockets: 30,
-  maxFreeSockets: 15,
-  timeout: 30000,
-});
-
-function getUpstoxAgent() {
-  return upstoxIpv4Agent;
-}
-
-let isProxyReachable = true;
-let lastProxyCheckTime = 0;
-
-async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
-  return new Promise((resolve) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        resolve(new Response(JSON.stringify({ error: "Upstox Proxy Request Timeout" }), { status: 500 }));
-      }
-    }, 8000);
-
-    try {
-      const agent = getUpstoxAgent();
-      const headers = { ...(options.headers || {}) };
-      const method = options.method || "GET";
-      const bodyData = options.body;
-
-      if (bodyData && !headers["Content-Length"] && !headers["content-length"]) {
-        const str = typeof bodyData === "string" ? bodyData : JSON.stringify(bodyData);
-        headers["Content-Length"] = Buffer.byteLength(str);
-      }
-
-      const req = https.request(
-        url,
-        {
-          method,
-          agent,
-          family: 4,
-          headers,
-        },
-        (res) => {
-          if (resolved) return;
-          clearTimeout(timer);
-          resolved = true;
-          const chunks: Buffer[] = [];
-          res.on("data", (c) => chunks.push(c));
-          res.on("end", () => {
-            const bodyBuffer = Buffer.concat(chunks);
-            const response = new Response(bodyBuffer, {
-              status: res.statusCode || 200,
-              statusText: res.statusMessage || "",
-              headers: res.headers as any,
-            });
-            resolve(response);
-          });
-        }
-      );
-
-      req.on("error", (err: any) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          resolve(new Response(JSON.stringify({ error: err?.message || "Proxy Network Error" }), { status: 500 }));
-        }
-      });
-
-      if (bodyData) {
-        req.write(typeof bodyData === "string" ? bodyData : JSON.stringify(bodyData));
-      }
-      req.end();
-    } catch (e) {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        isProxyReachable = false;
-        lastProxyCheckTime = Date.now();
-        originalNativeFetch(url, options).then(resolve).catch((err) => resolve(new Response(JSON.stringify({ error: err.message }), { status: 500 })));
-      }
-    }
-  });
-}
-
-const originalNativeFetch = globalThis.fetch;
-globalThis.fetch = function (input: any, init?: any): Promise<Response> {
-  const urlStr = typeof input === "string" ? input : input?.url || "";
-  if (typeof urlStr === "string" && urlStr.includes("api.upstox.com")) {
-    return upstoxFetch(urlStr, init);
-  }
-  return originalNativeFetch(input, init);
-};
-
-async function placeUpstoxOrderIpv4(orderPayload: any, token: string, retryCount = 0): Promise<any> {
-  return new Promise((resolve) => {
-    const dataStr = JSON.stringify(orderPayload);
-    const agent = getUpstoxAgent();
-    const req = https.request(
-      "https://api.upstox.com/v2/order/place",
-      {
-        method: "POST",
-        agent,
-        family: 4,
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-          "Api-Version": "2.0",
-          "Content-Length": Buffer.byteLength(dataStr),
-        },
-      },
-      (res) => {
-        let raw = "";
-        res.on("data", (chunk) => (raw += chunk));
-        res.on("end", async () => {
-          try {
-            const json = JSON.parse(raw);
-            // If transient network or gateway glitch on first attempt, retry immediately on warm socket
-            if (json?.status !== "success" && retryCount === 0 && (raw.includes("ECONNRESET") || raw.includes("socket") || raw.includes("timeout"))) {
-              const retryRes = await placeUpstoxOrderIpv4(orderPayload, token, 1);
-              return resolve(retryRes);
-            }
-            resolve(json);
-          } catch {
-            resolve({ status: "error", message: raw });
-          }
-        });
-      },
-    );
-    req.on("error", async (err) => {
-      if (retryCount === 0) {
-        const retryRes = await placeUpstoxOrderIpv4(orderPayload, token, 1);
-        return resolve(retryRes);
-      }
-      resolve({ status: "error", message: err?.message || "Network error" });
-    });
-    req.setTimeout(12000, () => {
-      req.destroy();
-      resolve({ status: "error", message: "Upstox order request timed out" });
-    });
-    req.write(dataStr);
-    req.end();
-  });
-}
 import { appState, tradeHistory } from "./src/db/schema";
 import { db, isPostgresConfigured } from "./src/db/index";
 import { desc, eq } from "drizzle-orm";
@@ -361,6 +204,9 @@ let botConfig = {
   maxOptionLossCount: 2,
   maxOptionProfitCount: 15,
   minOptionProfitAmount: 450,
+  telegramBotToken: "",
+  telegramChatId: "",
+  telegramAlertsEnabled: false,
   selectedIndexPriority: "FULL_AUTO_MULTI_INDEX", // 'FULL_AUTO_MULTI_INDEX' | 'ALL_NIFTY_PRIORITY' | 'NIFTY_50_ONLY' | 'BANKNIFTY_ONLY' | 'SENSEX_ONLY' | 'ALL_EQUAL'
   maxConcurrentTrades: 0, // 0 = Dynamic Fund-Based Auto Allocation, or 1, 2, 3, 4, 5
   dailyMaxLossLimit: 300,
@@ -421,8 +267,7 @@ app.get("/api/bot/diagnostics", (req, res) => {
     botEnabled: botConfig.enabled,
     tradingMode: botConfig.mode,
     hasUpstoxToken: !!upstoxConfig.accessToken,
-    upstoxWsConnected:
-      typeof upstoxWsConnected !== "undefined" ? upstoxWsConnected : false,
+    upstoxWsConnected: false,
     subscribedKeysCount:
       typeof subscribedKeys !== "undefined" ? subscribedKeys.size : 0,
     activePaperPositions:
@@ -872,7 +717,7 @@ function buildSupervisorAuditReport() {
   const avgWinRs = winCount > 0 ? totalWinAmount / winCount : 750;
   const avgLossRs = lossCount > 0 ? totalLossAmount / lossCount : 280;
   const riskRewardRatio = Number((avgWinRs / Math.max(1, avgLossRs)).toFixed(2));
-  const baseCap = Math.max(3000, Number(botConfig.capitalPerTrade || 15000));
+  const baseCap = Math.max(3000, Number(botConfig.maxCapitalPerTrade || 15000));
   const maxDrawdownPct = Number(Math.min(100, (maxDrawdownRs / baseCap) * 100).toFixed(2));
 
   // Dynamically update directive statuses based on real live trade forensics
@@ -1213,6 +1058,8 @@ const livePositionStateTracker: Record<
     highestPnl: number;
     highestNetPnl: number;
     lockedStopLossPrice?: number;
+    brokerageCharges?: number;
+    brokerageSource?: string;
   }
 > = {};
 let lastTradeExitTime = 0;
@@ -1238,7 +1085,7 @@ async function resilientFetch(
   options: RequestInit = {},
   retries = 1,
   timeoutMs = 2000
-): Promise<Response | null> {
+): Promise<globalThis.Response | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const curTimeout = attempt > 0 ? 1500 : timeoutMs;
@@ -3327,7 +3174,7 @@ setInterval(async () => {
                       const rawSigType = signal?.signalType || "HOLD";
                       const isBullish =
                         rawSigType === "BUY" ||
-                        (rawSigType === "HOLD" &&
+                        (String(rawSigType) === "HOLD" &&
                           !signal?.rationale?.includes("Bearish") &&
                           (signal?.rationale?.includes("Bullish") || (signal?.confidenceScore || 50) >= 50));
                       const isOptionSellingMode =
@@ -4013,14 +3860,17 @@ setInterval(async () => {
               }
 
               // Always keep exactly 1 up-to-date signal per underlying index in botSignals so downgraded HOLD signals never leave stale BUY/SELL entries!
-              const existingIdx = botSignals.findIndex(
-                (s) => s.underlyingInstrumentKey === idx.key || s.symbol === signal.symbol,
-              );
-              if (existingIdx === -1) {
-                botSignals.unshift(signal);
-                if (botSignals.length > 20) botSignals.length = 20;
-              } else {
-                botSignals[existingIdx] = signal;
+              if (signal) {
+                const signalSymbol = signal.symbol;
+                const existingIdx = botSignals.findIndex(
+                  (s) => s.underlyingInstrumentKey === idx.key || s.symbol === signalSymbol,
+                );
+                if (existingIdx === -1) {
+                  botSignals.unshift(signal);
+                  if (botSignals.length > 20) botSignals.length = 20;
+                } else {
+                  botSignals[existingIdx] = signal;
+                }
               }
             } else if (signal) {
               // Also update/show live HOLD analysis in botSignals so the UI always displays real-time index status while waiting for a breakout
@@ -4036,13 +3886,14 @@ setInterval(async () => {
             }
 
             const expNetVal = Number(topOptionCandidateForIndex?.expectedNetProfit || 0);
+            const timeframe15m = signal?.mtfConfirmation?.timeframe15m ?? "NEUTRAL";
             const idxScanItem: any = {
               key: idx.key,
               symbol: idx.symbol,
               displayName: idx.symbol,
               exchange: idx.key.startsWith("BSE") ? "BSE" : "NSE",
               spotLtp: liveLtp,
-              trend15m: signal?.mtfConfirmation?.timeframe15m || "NEUTRAL",
+              trend15m: timeframe15m,
               trend5m: signal?.mtfConfirmation?.timeframe5m || "NEUTRAL",
               signalType: signal?.signalType || "HOLD",
               confidenceScore: signal?.confidenceScore || 50,
@@ -4064,16 +3915,16 @@ setInterval(async () => {
                   ? `🔥 ശക്തമായ CE ബ്രേക്ക്ഔട്ട് (Exp Net: +₹${Math.round(expNetVal)})`
                   : signal?.signalType === "SELL"
                     ? `⚡ ശക്തമായ PE ബ്രേക്ക്ഡൗൺ (Exp Net: +₹${Math.round(expNetVal)})`
-                    : signal?.mtfConfirmation?.timeframe15m !== "NEUTRAL"
-                      ? `⏳ 15m ${signal.mtfConfirmation.timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
+                    : timeframe15m !== "NEUTRAL"
+                      ? `⏳ 15m ${timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
                       : `⏳ ഇൻഡക്സ് കൺസോളിഡേഷനിലാണ് (Chop Zone) - റേഞ്ച് ബ്രേക്ക്ഔട്ട് വെയിറ്റ് ചെയ്യുന്നു`,
               statusTextEn:
                 signal?.signalType === "BUY"
                   ? `Bullish Breakout CE (Exp Net: +₹${Math.round(expNetVal)})`
                   : signal?.signalType === "SELL"
                     ? `Bearish Breakdown PE (Exp Net: +₹${Math.round(expNetVal)})`
-                    : signal?.mtfConfirmation?.timeframe15m !== "NEUTRAL"
-                      ? `15m ${signal.mtfConfirmation.timeframe15m} - Waiting for high-momentum premium entry`
+                    : timeframe15m !== "NEUTRAL"
+                      ? `15m ${timeframe15m} - Waiting for high-momentum premium entry`
                       : `Consolidation Chop - Waiting for institutional breakout`,
             };
             currentTickMultiIndexComparison.push(idxScanItem);
@@ -4781,19 +4632,19 @@ let globalGeminiKey = process.env.GEMINI_API_KEY || "";
 
 // Upstox In-Memory Credentials & Session Cache (pre-saved with user's exact credentials so Render deployments always have them ready)
 let upstoxConfig = {
-  apiKey: process.env.UPSTOX_API_KEY || "3ab5711d-8891-480b-b0c1-29662852de49",
-  apiSecret: process.env.UPSTOX_API_SECRET || "jl5s7qy9r0",
-  redirectUri: process.env.UPSTOX_REDIRECT_URI || "https://sajad-trading-view.onrender.com",
+  apiKey: process.env.UPSTOX_API_KEY || "",
+  apiSecret: process.env.UPSTOX_API_SECRET || "",
+  redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
   accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
-  userName: "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
-  userEmail: "sajadthazhepeedikayila@gmail.com",
-  userClientCode: "5VCABX",
-  mobile: process.env.UPSTOX_MOBILE || "9847989434",
-  pin: process.env.UPSTOX_PIN || "984798",
+  userName: process.env.UPSTOX_USER_NAME || "",
+  userEmail: process.env.UPSTOX_USER_EMAIL || "",
+  userClientCode: process.env.UPSTOX_CLIENT_CODE || "",
+  mobile: process.env.UPSTOX_MOBILE || "",
+  pin: process.env.UPSTOX_PIN || "",
   totpSecret: "",
   tokenGeneratedAt: "",
   tokenExpiresAt: "",
-  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || DEFAULT_OUTBOUND_PROXY,
+  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "",
 };
 
 // In- e ory Paper / Execution Order Book
@@ -4801,8 +4652,7 @@ let upstoxConfig = {
 // ================= API ROUTES =================
 
 // 1. Health check & Render 24x7 Anti-Sleep / Keep-Alive Wakeup Engine
-let lastWakeupPingAt = new Date().toISOString();
-let wakeupPingCount = 0;
+const recordWakeupPing = registerHealthRoutes(app);
 
 app.post("/api/bot/sync-history-brokerage", async (req: Request, res: Response) => {
   try {
@@ -4834,38 +4684,6 @@ app.post("/api/bot/sync-history-brokerage", async (req: Request, res: Response) 
   }
 });
 
-app.get("/api/health", (req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    time: new Date().toISOString(),
-    uptimeSeconds: Math.floor(process.uptime()),
-    lastWakeupPingAt,
-    wakeupPingCount,
-    broker: "Upstox v2 Engine",
-  });
-});
-
-app.get("/api/ping", (req: Request, res: Response) => {
-  res.json({
-    status: "awake",
-    time: new Date().toISOString(),
-    uptime: process.uptime(),
-    lastWakeupPingAt,
-    wakeupPingCount,
-  });
-});
-
-app.get("/api/wakeup", (req: Request, res: Response) => {
-  res.json({
-    status: "awake_24x7",
-    message: "Render Anti-Sleep Wakeup Engine Active",
-    time: new Date().toISOString(),
-    uptime: process.uptime(),
-    lastWakeupPingAt,
-    wakeupPingCount,
-  });
-});
-
 // 24x7 Multi-Target Anti-Sleep Wakeup Loop for Render (runs every 5 minutes so Render's 15-min idle timer never triggers)
 async function executeRenderWakeupPing() {
   const targets = Array.from(
@@ -4873,14 +4691,13 @@ async function executeRenderWakeupPing() {
       [
         process.env.RENDER_EXTERNAL_URL,
         "https://aizabiz.onrender.com",
-        "https://sajad-trading-view.onrender.com",
+        process.env.UPSTOX_REDIRECT_URI || "",
         `http://127.0.0.1:${PORT}`,
       ].filter(Boolean) as string[],
     ),
   );
 
-  wakeupPingCount += 1;
-  lastWakeupPingAt = new Date().toISOString();
+  recordWakeupPing();
 
   for (const base of targets) {
     try {
@@ -4932,8 +4749,8 @@ function saveTokenBackupToDisk(tokenStr: string, meta?: Record<string, any>) {
       JSON.stringify(
         {
           accessToken: clean,
-          userName: meta?.userName || upstoxConfig.userName || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
-          userClientCode: meta?.userClientCode || upstoxConfig.userClientCode || "5VCABX",
+          userName: meta?.userName || upstoxConfig.userName || process.env.UPSTOX_USER_NAME || "",
+          userClientCode: meta?.userClientCode || upstoxConfig.userClientCode || process.env.UPSTOX_CLIENT_CODE || "",
           savedAt: new Date().toISOString(),
         },
         null,
@@ -5013,8 +4830,8 @@ async function publishTokenToCloudRelay(tokenToSave: string) {
       },
       body: JSON.stringify({
         access_token: clean,
-        user_id: upstoxConfig.userClientCode || "5VCABX",
-        user_name: upstoxConfig.userName || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
+        user_id: upstoxConfig.userClientCode || process.env.UPSTOX_CLIENT_CODE || "",
+        user_name: upstoxConfig.userName || process.env.UPSTOX_USER_NAME || "",
         saved_at: new Date().toISOString(),
       }),
     });
@@ -5042,9 +4859,9 @@ let lastVerifiedTokenStatus: {
   payin: 0,
   payout: 0,
   holdingsCount: 0,
-  userName: "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN",
-  userEmail: "sajadthazhepeedikayila@gmail.com",
-  userClientCode: "5VCABX",
+  userName: process.env.UPSTOX_USER_NAME || "",
+  userEmail: process.env.UPSTOX_USER_EMAIL || "",
+  userClientCode: process.env.UPSTOX_CLIENT_CODE || "",
 };
 
 async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: string) {
@@ -5068,9 +4885,9 @@ async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: stri
     const pData = await pRes.json();
     if (pData.status === "success" && pData.data) {
       upstoxConfig.accessToken = cleanToken;
-      upstoxConfig.userName = pData.data.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+      upstoxConfig.userName = pData.data.user_name || process.env.UPSTOX_USER_NAME || "";
       upstoxConfig.userEmail = pData.data.email || upstoxConfig.userEmail || "";
-      upstoxConfig.userClientCode = pData.data.user_id || "5VCABX";
+      upstoxConfig.userClientCode = pData.data.user_id || process.env.UPSTOX_CLIENT_CODE || "";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
       if (!botConfig.userExplicitlySelectedMode) {
@@ -5139,10 +4956,10 @@ async function syncTokenFromRenderWebhookBridge() {
     }
   } catch (e) {}
 
-  // 2. Also check Render Servers (https://aizabiz.onrender.com and https://sajad-trading-view.onrender.com) if awake
+  // 2. Also check Render Servers (https://aizabiz.onrender.com and configured redirect URI) if awake
   for (const renderBase of [
     "https://aizabiz.onrender.com",
-    "https://sajad-trading-view.onrender.com",
+    process.env.UPSTOX_REDIRECT_URI || "",
   ]) {
     try {
       const controller = new AbortController();
@@ -5202,9 +5019,9 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
   let payin = lastVerifiedTokenStatus.payin || 0;
   let payout = lastVerifiedTokenStatus.payout || 0;
   let holdingsCount = lastVerifiedTokenStatus.holdingsCount || 0;
-  let userName = upstoxConfig.userName || lastVerifiedTokenStatus.userName || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
-  let userEmail = upstoxConfig.userEmail || lastVerifiedTokenStatus.userEmail || "sajadthazhepeedikayila@gmail.com";
-  let userClientCode = upstoxConfig.userClientCode || lastVerifiedTokenStatus.userClientCode || "5VCABX";
+  let userName = upstoxConfig.userName || lastVerifiedTokenStatus.userName || process.env.UPSTOX_USER_NAME || "";
+  let userEmail = upstoxConfig.userEmail || lastVerifiedTokenStatus.userEmail || process.env.UPSTOX_USER_EMAIL || "";
+  let userClientCode = upstoxConfig.userClientCode || lastVerifiedTokenStatus.userClientCode || process.env.UPSTOX_CLIENT_CODE || "";
 
   if (isConnected) {
     // Use 15-second verification cache if we already verified this exact token recently
@@ -5302,10 +5119,9 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
   }
 
   res.json({
-    apiKey: upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49",
-    apiSecret: upstoxConfig.apiSecret || "jl5s7qy9r0",
-    hasApiSecret: true,
-    redirectUri: upstoxConfig.redirectUri || "https://sajad-trading-view.onrender.com",
+    hasApiKey: Boolean(upstoxConfig.apiKey || process.env.UPSTOX_API_KEY),
+    hasApiSecret: Boolean(upstoxConfig.apiSecret || process.env.UPSTOX_API_SECRET),
+    redirectUri: upstoxConfig.redirectUri || process.env.UPSTOX_REDIRECT_URI || "",
     accessToken: upstoxConfig.accessToken,
     hasToken: isConnected,
     isConnected,
@@ -5340,8 +5156,6 @@ app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
   const targetProxy = typeof proxyUrl === "string" ? proxyUrl.trim() : "";
   if (!targetProxy) {
     upstoxConfig.outboundProxyUrl = "";
-    customProxyAgentInstance = null;
-    activeProxyUrl = "";
     await savePostgresDb().catch(() => {});
     const fallbackIp = await getLiveOutboundIp();
     return res.json({
@@ -5372,8 +5186,6 @@ app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
     }
 
     upstoxConfig.outboundProxyUrl = targetProxy;
-    customProxyAgentInstance = testAgent;
-    activeProxyUrl = targetProxy;
     cachedOutboundServerIp = detectedIp;
     isCurrentIpFromProxy = true;
     lastIpCheckAt = Date.now();
@@ -5458,7 +5270,8 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
     success: true,
     message: "Upstox configuration updated successfully",
     isConnected: Boolean(upstoxConfig.accessToken),
-    apiKey: upstoxConfig.apiKey,
+    hasApiKey: Boolean(upstoxConfig.apiKey || process.env.UPSTOX_API_KEY),
+    hasApiSecret: Boolean(upstoxConfig.apiSecret || process.env.UPSTOX_API_SECRET),
     redirectUri: upstoxConfig.redirectUri,
     userName: upstoxConfig.userName,
     userClientCode: upstoxConfig.userClientCode,
@@ -5616,9 +5429,9 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
 
       if (data.access_token) {
         upstoxConfig.accessToken = data.access_token;
-        upstoxConfig.userName = data.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+        upstoxConfig.userName = data.user_name || process.env.UPSTOX_USER_NAME || "";
         upstoxConfig.userEmail = data.email || upstoxConfig.userEmail || "";
-        upstoxConfig.userClientCode = data.user_id || "5VCABX";
+        upstoxConfig.userClientCode = data.user_id || process.env.UPSTOX_CLIENT_CODE || "";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
         // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
@@ -5754,7 +5567,7 @@ app.post("/api/market/validate-token", async (req: Request, res: Response) => {
   }
 });
 
-// 2.5 Automated Upstox SMS OTP + Auto PIN (984798) + Auto OAuth Code + Auto Token Exchange Engine
+// 2.5 Automated Upstox SMS OTP + Auto PIN + Auto OAuth Code + Auto Token Exchange Engine
 interface UpstoxAutoOtpSession {
   requestId: string;
   userId: string;
@@ -5777,15 +5590,15 @@ let recentAutoOtpSessions: UpstoxAutoOtpSession[] = [
     internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
     validateOtpToken: "ll1FA-e042cf74c757dee57f73f245b4e515124ad09b8f3a6f373cebfc7eea7fb6fe8c",
     cookies: {
-      udapi_api_key: "3ab5711d-8891-480b-b0c1-29662852de49",
+      udapi_api_key: process.env.UPSTOX_API_KEY || "",
       __cf_bm: "APVkIakoA8oIMlCKmWEcXAZn5HmSbtmwhB1n97fxVyw-1791776470.3146067-1.0.1.1-r36ZZnzG5Mh_XG24aA2ZQuD_neKhSGk12jPVmtN.G9UJBvh92k.SxQv8OGjAYlTVg.ptYo_t16tVoFU_RQqTqebtNli3c2.tHsUmagrEPaRjaSj73w9nAWyoEk8QHCwX",
       _cfuvid: "rTkD8jVRZSZqyebeUSkiZbwedOz4rQh4Quu3MOjY.Nw-1791776470.3146067-1.0.1.1-vVKj9E88ywztg1mGTEvFeWcUG_mowUXfkFdJ6oEZ0CY",
     },
-    apiKey: "3ab5711d-8891-480b-b0c1-29662852de49",
-    apiSecret: "jl5s7qy9r0",
-    redirectUri: "https://sajad-trading-view.onrender.com",
-    mobile: "9847989434",
-    pin: "984798",
+    apiKey: process.env.UPSTOX_API_KEY || "",
+    apiSecret: process.env.UPSTOX_API_SECRET || "",
+    redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
+    mobile: process.env.UPSTOX_MOBILE || "",
+    pin: process.env.UPSTOX_PIN || "",
     createdAt: Date.now(),
   },
   {
@@ -5794,15 +5607,15 @@ let recentAutoOtpSessions: UpstoxAutoOtpSession[] = [
     internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
     validateOtpToken: "ll1FA-612b975394378b452a29c9862f5f48390ca8e08c68410c6e889624109a3960cf",
     cookies: {
-      udapi_api_key: "3ab5711d-8891-480b-b0c1-29662852de49",
+      udapi_api_key: process.env.UPSTOX_API_KEY || "",
       __cf_bm: "bXngocYZYkTkF3di1lN4AHP2XuwpwLQOZPoFEYHhxvA-1791776468.5745695-1.0.1.1-AIdlHk1ILWcRSOkKhQr07EAzIKKtzzchmg.DvO.Cf0E6p.GUHVa3hVLrlyLkg8Mhos7DPDARNOkg0FDNzZBr.n3sXzw3CPgYZ_6vSJuljyijkioGs8vF6q7FHPT28BIP",
       _cfuvid: "MWR3OKJABaFLrUmS4l1aaTtT2ULpIKz.k_UQh9FKwm0-1791776468.5745695-1.0.1.1-eM9hdukfcQCeHmZOLwzUrFfGTCXxF4ey7OoHOil82A0",
     },
-    apiKey: "3ab5711d-8891-480b-b0c1-29662852de49",
-    apiSecret: "jl5s7qy9r0",
-    redirectUri: "https://sajad-trading-view.onrender.com",
-    mobile: "9847989434",
-    pin: "984798",
+    apiKey: process.env.UPSTOX_API_KEY || "",
+    apiSecret: process.env.UPSTOX_API_SECRET || "",
+    redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
+    mobile: process.env.UPSTOX_MOBILE || "",
+    pin: process.env.UPSTOX_PIN || "",
     createdAt: Date.now() - 1000,
   },
 ];
@@ -5982,15 +5795,15 @@ async function fetchUpstoxWithRetry(
 // Step 1 & 2 Automatic: Send SMS OTP to user's saved mobile number without opening Upstox web
 app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
   const { mobile, apiKey, apiSecret, redirectUri, pin } = req.body;
-  const cleanMobile = String(mobile || upstoxConfig.mobile || "9847989434")
+  const cleanMobile = String(mobile || upstoxConfig.mobile || process.env.UPSTOX_MOBILE || "")
     .replace(/\D+/g, "")
     .slice(-10);
-  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  const key = String(apiKey || upstoxConfig.apiKey || process.env.UPSTOX_API_KEY || "").trim();
   const secret = String(
     apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || "",
   ).trim();
-  const uri = String(redirectUri || upstoxConfig.redirectUri || "https://sajad-trading-view.onrender.com").trim();
-  const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
+  const uri = String(redirectUri || upstoxConfig.redirectUri || process.env.UPSTOX_REDIRECT_URI || "").trim();
+  const cleanPin = String(pin || upstoxConfig.pin || process.env.UPSTOX_PIN || "").trim();
 
   if (cleanMobile.length === 10 && cleanMobile !== "0000000000") {
     upstoxConfig.mobile = cleanMobile;
@@ -6074,7 +5887,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         validateOtpToken: otpGenData.data.validateOTPToken,
         cookies: cookieJar,
         apiKey: key,
-        apiSecret: secret || "jl5s7qy9r0",
+        apiSecret: secret || process.env.UPSTOX_API_SECRET || "",
         redirectUri: uri,
         mobile: cleanMobile,
         pin: cleanPin,
@@ -6093,7 +5906,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         sessionBackup: activeAutoOtpSession,
         message:
           otpGenData.data.message ||
-          `📲 നിങ്ങളുടെ ${cleanMobile.slice(0, 2)}******${cleanMobile.slice(-2)} എന്ന നമ്പറിലേക്ക് Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകുക — PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`,
+          `📲 നിങ്ങളുടെ ${cleanMobile.slice(0, 2)}******${cleanMobile.slice(-2)} എന്ന നമ്പറിലേക്ക് Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകുക — PIN നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`,
       });
     } else {
       const errMsg =
@@ -6116,17 +5929,17 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
   }
 });
 
-// Step 3, 4, 5 Automatic: Verify 6-Digit SMS OTP -> Auto-Submit PIN (984798) -> Auto-Authorize OAuth -> Auto-Exchange Access Token!
+// Step 3, 4, 5 Automatic: Verify 6-Digit SMS OTP -> Auto-Submit PIN -> Auto-Authorize OAuth -> Auto-Exchange Access Token!
 app.post("/api/market/totp-login", async (req: Request, res: Response) => {
   const { totp, pin, apiKey, apiSecret, mobile, sessionBackup } = req.body;
   const cleanTotp = String(totp || "").replace(/\D+/g, "").trim();
-  const cleanPin = String(pin || upstoxConfig.pin || "984798").trim();
-  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  const cleanPin = String(pin || upstoxConfig.pin || process.env.UPSTOX_PIN || "").trim();
+  const key = String(apiKey || upstoxConfig.apiKey || process.env.UPSTOX_API_KEY || "").trim();
   if (apiSecret && apiSecret !== "••••••••" && apiSecret.trim() !== "") {
     upstoxConfig.apiSecret = apiSecret.trim();
   }
   if (!upstoxConfig.apiSecret || upstoxConfig.apiSecret.includes("•")) {
-    upstoxConfig.apiSecret = "jl5s7qy9r0";
+    upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || "";
   }
   if (mobile && String(mobile).replace(/\D+/g, "").length >= 10) {
     upstoxConfig.mobile = String(mobile).replace(/\D+/g, "").slice(-10);
@@ -6211,8 +6024,8 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         }
       }
 
-      const pinToUse = cleanPin || sess.pin || "984798";
-      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret || "jl5s7qy9r0";
+      const pinToUse = cleanPin || sess.pin || process.env.UPSTOX_PIN || "";
+      const secretToUse = upstoxConfig.apiSecret || sess.apiSecret || process.env.UPSTOX_API_SECRET || "";
 
       if (!verifyData?.success) {
         return res.status(400).json({
@@ -6239,7 +6052,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
       if (profileId) pinHeaders["X-Profile-Id"] = String(profileId);
       if (verifiedUserId) pinHeaders["X-User-Id"] = String(verifiedUserId);
 
-      // Step 4: Automatically submit 6-digit PIN (984798) in base64 (/login/open/v3/auth/2fa)
+      // Step 4: Automatically submit 6-digit PIN in base64 (/login/open/v3/auth/2fa)
       const encodedPin = Buffer.from(pinToUse, "utf-8").toString("base64");
       const upstoxInternalRedirect = "https://api-v2.upstox.com/login/authorization/redirect";
       const twoFaUrl = `https://service.upstox.com/login/open/v3/auth/2fa?client_id=${encodeURIComponent(sess.internalClientId)}&redirect_uri=${encodeURIComponent(upstoxInternalRedirect)}`;
@@ -6262,7 +6075,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
           success: false,
           error:
             twoFaData.error?.message ||
-            "OTP ശരിയായിരുന്നു, എന്നാൽ PIN (984798) പരിശോധന പരാജയപ്പെട്ടു.",
+            "OTP ശരിയായിരുന്നു, എന്നാൽ PIN പരിശോധന പരാജയപ്പെട്ടു.",
         });
       }
 
@@ -6309,7 +6122,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
 
       // Step 6: Automatically exchange ?code= for the live JWT access_token!
       const candidateSecrets = Array.from(
-        new Set([secretToUse, upstoxConfig.apiSecret, "jl5s7qy9r0", "f626f63456"].filter(Boolean))
+        new Set([secretToUse, upstoxConfig.apiSecret, process.env.UPSTOX_API_SECRET_FALLBACK || ""].filter(Boolean))
       );
       let tokenData: any = null;
 
@@ -6346,9 +6159,9 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         activeAutoOtpSession = null;
         upstoxConfig.accessToken = tokenData.access_token;
         upstoxConfig.userName =
-          tokenData.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+          tokenData.user_name || process.env.UPSTOX_USER_NAME || "";
         upstoxConfig.userEmail = tokenData.email || upstoxConfig.userEmail || "";
-        upstoxConfig.userClientCode = tokenData.user_id || "5VCABX";
+        upstoxConfig.userClientCode = tokenData.user_id || process.env.UPSTOX_CLIENT_CODE || "";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
         // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
@@ -6362,7 +6175,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
           userName: upstoxConfig.userName,
           userClientCode: upstoxConfig.userClientCode,
           message:
-            "🎉 OTP പരിശോധിച്ചു, PIN (984798) ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!",
+            "🎉 OTP പരിശോധിച്ചു, PIN ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!",
         });
       } else {
         return res.status(400).json({
@@ -6405,11 +6218,11 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
     if (token) {
       upstoxConfig.accessToken = token;
       upstoxConfig.userName =
-        data.user_name || data.data?.user_name || "SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN";
+        data.user_name || data.data?.user_name || process.env.UPSTOX_USER_NAME || "";
       upstoxConfig.userEmail =
         data.email || data.data?.email || upstoxConfig.userEmail || "";
       upstoxConfig.userClientCode =
-        data.user_id || data.data?.user_id || "5VCABX";
+        data.user_id || data.data?.user_id || process.env.UPSTOX_CLIENT_CODE || "";
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
       if (!botConfig.userExplicitlySelectedMode) {
@@ -6447,7 +6260,7 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
 // Upstox V3 Access Token Request (Sends 1-Click Approval Notification to Upstox Mobile App & WhatsApp -> Pushes token to /api/market/webhook)
 app.post("/api/market/request-token-v3", async (req: Request, res: Response) => {
   const { apiKey, apiSecret } = req.body;
-  const key = String(apiKey || upstoxConfig.apiKey || "3ab5711d-8891-480b-b0c1-29662852de49").trim();
+  const key = String(apiKey || upstoxConfig.apiKey || process.env.UPSTOX_API_KEY || "").trim();
   const secret = String(
     apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || "",
   ).trim();
@@ -7842,7 +7655,7 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
     // Option Premium Candle Synthesizer: If instrument is an Option contract (CE/PE) and returned no candles,
     // construct realistic option premium candles directly on the option's actual premium scale (₹50 - ₹400)
     if ((!data?.data?.candles || data.data.candles.length === 0) && isOptionContract) {
-      const allTrades = [...(algoState.paperPositions || []), ...(algoState.paperTradeHistory || [])];
+      const allTrades = [...paperPositions, ...paperTradeHistory];
       const matched = allTrades.find(
         (t) => t.symbol === symbol || (t.instrumentKey && t.instrumentKey === instrumentKey) || symbol.includes(t.symbol) || t.symbol.includes(symbol)
       );
@@ -8148,8 +7961,8 @@ app.get("/api/market/optionchain", async (req: Request, res: Response) => {
     // Find nearest valid expiry date
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const validExpiries: string[] = Array.from(
-      new Set(
+    const validExpiries: string[] = Array.from<string>(
+      new Set<string>(
         contractData.data
           .map((c: any) => String(c.expiry || ""))
           .filter((e: string) => e && new Date(e).getTime() >= today.getTime()),
@@ -8562,19 +8375,19 @@ async function loadPostgresDb() {
       upstoxConfig.redirectUri.includes("localhost") ||
       upstoxConfig.redirectUri.includes("127.0.0.1")
     ) {
-      upstoxConfig.redirectUri = "https://sajad-trading-view.onrender.com";
+      upstoxConfig.redirectUri = process.env.UPSTOX_REDIRECT_URI || "";
     }
     if (!upstoxConfig.apiKey) {
-      upstoxConfig.apiKey = "3ab5711d-8891-480b-b0c1-29662852de49";
+      upstoxConfig.apiKey = process.env.UPSTOX_API_KEY || "";
     }
     if (!upstoxConfig.apiSecret || upstoxConfig.apiSecret.includes("•")) {
-      upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || "jl5s7qy9r0";
+      upstoxConfig.apiSecret = process.env.UPSTOX_API_SECRET || process.env.UPSTOX_API_SECRET || "";
     }
     if (!upstoxConfig.mobile || String(upstoxConfig.mobile).replace(/\D+/g, "").length !== 10) {
-      upstoxConfig.mobile = process.env.UPSTOX_MOBILE || "9847989434";
+      upstoxConfig.mobile = process.env.UPSTOX_MOBILE || process.env.UPSTOX_MOBILE || "";
     }
     if (!upstoxConfig.pin) {
-      upstoxConfig.pin = process.env.UPSTOX_PIN || "984798";
+      upstoxConfig.pin = process.env.UPSTOX_PIN || process.env.UPSTOX_PIN || "";
     }
     botConfig.maxOptionLossCount = Math.min(
       3,

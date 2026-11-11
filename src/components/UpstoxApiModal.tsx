@@ -26,10 +26,10 @@ interface UpstoxApiModalProps {
   onRefreshPortfolio?: () => void;
 }
 
-const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
-const DEFAULT_API_SECRET = 'jl5s7qy9r0';
-const DEFAULT_MOBILE = '9847989434';
-const DEFAULT_REDIRECT_URI = 'https://sajad-trading-view.onrender.com';
+const DEFAULT_API_KEY = '';
+const DEFAULT_API_SECRET = '';
+const DEFAULT_MOBILE = '';
+const DEFAULT_REDIRECT_URI = '';
 
 export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   isOpen,
@@ -62,7 +62,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       : DEFAULT_REDIRECT_URI
   );
 
-  // Saved mobile number (pre-saved with user's 9847989434)
+  // Saved mobile number (configured on the server)
   const [savedMobile, setSavedMobile] = useState(() => {
     try {
       const m = localStorage.getItem('upstox_saved_mobile');
@@ -174,8 +174,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             onSaveConfig({
               accessToken: data.accessToken,
               isConnected: true,
-              userName: data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-              userClientCode: data.userClientCode || '5VCABX',
+              userName: data.userName || '',
+              userClientCode: data.userClientCode || '',
               availableMargin: data.availableMargin || 0,
               usedMargin: data.usedMargin || 0,
               todayTokenValid: true,
@@ -218,8 +218,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
-            userName: data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-            userClientCode: data.userClientCode || '5VCABX',
+            userName: data.userName || '',
+            userClientCode: data.userClientCode || '',
             availableMargin: data.availableMargin || 0,
             usedMargin: data.usedMargin || 0,
             todayTokenValid: true,
@@ -251,8 +251,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         await onSaveConfig({
           accessToken: token,
           isConnected: true,
-          userName: event.data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-          userClientCode: event.data.userClientCode || '5VCABX',
+          userName: event.data.userName || '',
+          userClientCode: event.data.userClientCode || '',
           todayTokenValid: true,
         });
         if (onRefreshPortfolio) onRefreshPortfolio();
@@ -298,8 +298,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         await onSaveConfig({
           isConnected: true,
           accessToken: data.accessToken,
-          userName: data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-          userClientCode: data.userClientCode || '5VCABX',
+          userName: data.userName || '',
+          userClientCode: data.userClientCode || '',
           availableMargin: data.availableMargin || 0,
           usedMargin: data.usedMargin || 0,
           todayTokenValid: true,
@@ -376,8 +376,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         await onSaveConfig({
           accessToken: cleanToken,
           isConnected: true,
-          userName: data.profile?.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-          userClientCode: data.profile?.userClientCode || '5VCABX',
+          userName: data.profile?.userName || '',
+          userClientCode: data.profile?.userClientCode || '',
           tokenGeneratedAt: data.profile?.tokenGeneratedAt || new Date().toLocaleTimeString('en-IN'),
           tokenExpiresAt: data.profile?.tokenExpiresAt || 'Tomorrow 03:30 AM',
           todayTokenValid: true,
@@ -388,7 +388,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           type: 'success',
           text:
             language === 'ml'
-              ? `✅ ടോക്കൺ പരിശോധിച്ചു! ${data.profile?.userName || 'Sajad'} (${data.profile?.userClientCode || '5VCABX'}) അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!`
+              ? `✅ ടോക്കൺ പരിശോധിച്ചു! ${data.profile?.userName || 'Sajad'} (${data.profile?.userClientCode || ''}) അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!`
               : `✅ Token Verified! Connected live to ${data.profile?.userName || 'Upstox Account'}.`,
         });
       } else {
@@ -469,7 +469,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         apiKey: cleanKey,
         apiSecret: apiSecret || DEFAULT_API_SECRET,
         redirectUri: cleanUri,
-        pin: '984798',
+        pin: '',
       });
       if (ok && otpData.success) {
         setOtpInput('');
@@ -502,7 +502,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
   // Tab 2: Single Automatic Handler for:
   // 1) Auto-sending SMS OTP using saved mobile number
-  // 2) Verifying 6-digit SMS OTP -> Auto-submitting PIN (984798) -> Auto-generating Token!
+  // 2) Verifying 6-digit SMS OTP -> Auto-submitting PIN -> Auto-generating Token!
   const handleOtpOrAutoConnect = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setLoading(true);
@@ -526,7 +526,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           apiKey: cleanKey,
           apiSecret,
           redirectUri: cleanUri,
-          pin: '984798',
+          pin: '',
         });
         if (ok && otpData.success) {
           setOtpInput('');
@@ -552,7 +552,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         return;
       }
 
-      // CASE B: User entered the 6-digit OTP -> Verify OTP + Auto-enter PIN 984798 + Auto-generate Access Token!
+      // CASE B: User entered the 6-digit OTP -> Verify OTP + Auto-enter PIN  + Auto-generate Access Token!
       if (/^\d{6}$/.test(digitsOnly)) {
         let backupToUse = otpSessionBackup;
         if (!backupToUse) {
@@ -563,7 +563,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         }
         const { ok, data } = await postWithAutoRetryAndRelay('/api/market/totp-login', {
           totp: digitsOnly,
-          pin: '984798',
+          pin: '',
           mobile: savedMobile || DEFAULT_MOBILE,
           apiKey: cleanKey,
           apiSecret: apiSecret || DEFAULT_API_SECRET,
@@ -582,8 +582,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
-            userName: data.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-            userClientCode: data.userClientCode || '5VCABX',
+            userName: data.userName || '',
+            userClientCode: data.userClientCode || '',
             todayTokenValid: true,
           });
           if (onRefreshPortfolio) onRefreshPortfolio();
@@ -592,8 +592,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             text:
               data.message ||
               (language === 'ml'
-                ? '🎉 OTP പരിശോധിച്ചു, PIN (984798) ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!'
-                : '🎉 OTP Verified, PIN (984798) auto-submitted, and Upstox account connected live!'),
+                ? '🎉 OTP പരിശോധിച്ചു, PIN ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!'
+                : '🎉 OTP Verified, PIN auto-submitted, and Upstox account connected live!'),
           });
           setLoading(false);
           return;
@@ -620,8 +620,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
-            userName: data.user_name || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN',
-            userClientCode: data.user_id || '5VCABX',
+            userName: data.user_name || '',
+            userClientCode: data.user_id || '',
             todayTokenValid: true,
           });
           if (onRefreshPortfolio) onRefreshPortfolio();
@@ -647,7 +647,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           apiKey: cleanKey,
           apiSecret: apiSecret || DEFAULT_API_SECRET,
           redirectUri: cleanUri,
-          pin: '984798',
+          pin: '',
         });
         if (ok && otpData.success) {
           setOtpRequested(true);
@@ -661,7 +661,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             type: 'success',
             text:
               language === 'ml'
-                ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകി വീണ്ടും ബട്ടൺ അമർത്തുക — PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`
+                ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകി വീണ്ടും ബട്ടൺ അമർത്തുക — PIN നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`
                 : '📲 6-digit SMS OTP sent to your phone! Enter the OTP below and tap Save & Connect!',
           });
           setLoading(false);
@@ -806,8 +806,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   </span>
                   <span className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 mt-0.5">
                     <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>{config.userName || 'SAJAD THAZHEPEEDIKAYIL ABDULRAHIMAN'}</span>
-                    <span className="text-slate-400">({config.userClientCode || '5VCABX'})</span>
+                    <span>{config.userName || ''}</span>
+                    <span className="text-slate-400">({config.userClientCode || ''})</span>
                   </span>
                 </div>
               </div>
@@ -1257,7 +1257,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                       </span>
                     )}
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                      PIN: 984798 Auto
+                      PIN: Auto
                     </span>
                     {savedMobile.length === 10 && (
                       <button
@@ -1294,14 +1294,14 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   {savedMobile.length === 10
                     ? otpRequested
                       ? language === 'ml'
-                        ? '📲 ഫോണിൽ വന്ന 6-അക്ക SMS OTP മുകളിലെ ബോക്സിൽ നൽകി താഴെയുള്ള പച്ച ബട്ടൺ അമർത്തുക. PIN (984798) നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!'
-                        : '📲 Enter the 6-digit SMS OTP received on your phone and tap the green button below. PIN (984798) and token generation are 100% automatic!'
+                        ? '📲 ഫോണിൽ വന്ന 6-അക്ക SMS OTP മുകളിലെ ബോക്സിൽ നൽകി താഴെയുള്ള പച്ച ബട്ടൺ അമർത്തുക. PIN നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!'
+                        : '📲 Enter the 6-digit SMS OTP received on your phone and tap the green button below. PIN and token generation are 100% automatic!'
                       : language === 'ml'
-                      ? '1️⃣ ആദ്യം മുകളിലെ ബോക്സ് ഒഴിച്ചിട്ട് താഴെയുള്ള പച്ച ബട്ടൺ അമർത്തുമ്പോൾ ഫോണിലേക്ക് SMS OTP വരും. 2️⃣ ആ 6-അക്ക OTP മുകളിൽ നൽകി വീണ്ടും ബട്ടൺ അമർത്തിയാൽ PIN (984798) തനിയെ എടുത്ത് കണക്റ്റ് ആകും!'
-                      : '1️⃣ Tap the green button below with the box empty to receive SMS OTP. 2️⃣ Enter the 6-digit OTP and tap again — PIN (984798) and token connection happen automatically!'
+                      ? '1️⃣ ആദ്യം മുകളിലെ ബോക്സ് ഒഴിച്ചിട്ട് താഴെയുള്ള പച്ച ബട്ടൺ അമർത്തുമ്പോൾ ഫോണിലേക്ക് SMS OTP വരും. 2️⃣ ആ 6-അക്ക OTP മുകളിൽ നൽകി വീണ്ടും ബട്ടൺ അമർത്തിയാൽ PIN തനിയെ എടുത്ത് കണക്റ്റ് ആകും!'
+                      : '1️⃣ Tap the green button below with the box empty to receive SMS OTP. 2️⃣ Enter the 6-digit OTP and tap again — PIN and token connection happen automatically!'
                     : language === 'ml'
-                    ? 'നിങ്ങളുടെ API Key, Secret, PIN (984798) എന്നിവ സേവ് ചെയ്തിട്ടുണ്ട്. ആദ്യ തവണ മാത്രം നിങ്ങളുടെ 10-അക്ക Upstox മൊബൈൽ നമ്പർ മുകളിൽ നൽകി പച്ച ബട്ടൺ അമർത്തുക — നമ്പർ സ്ഥിരമായി സേവ് ആവുകയും ഫോണിലേക്ക് ഉടൻ SMS OTP വരികയും ചെയ്യും!'
-                    : 'Your API Key, Secret & PIN (984798) are pre-saved. Enter your 10-digit Upstox mobile number once and tap the green button — it will save permanently and send your SMS OTP immediately!'}
+                    ? 'നിങ്ങളുടെ API Key, Secret, PIN എന്നിവ സേവ് ചെയ്തിട്ടുണ്ട്. ആദ്യ തവണ മാത്രം നിങ്ങളുടെ 10-അക്ക Upstox മൊബൈൽ നമ്പർ മുകളിൽ നൽകി പച്ച ബട്ടൺ അമർത്തുക — നമ്പർ സ്ഥിരമായി സേവ് ആവുകയും ഫോണിലേക്ക് ഉടൻ SMS OTP വരികയും ചെയ്യും!'
+                    : 'Your API Key, Secret & PIN are pre-saved. Enter your 10-digit Upstox mobile number once and tap the green button — it will save permanently and send your SMS OTP immediately!'}
                 </p>
               </div>
 
