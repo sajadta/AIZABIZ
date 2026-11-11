@@ -40,17 +40,21 @@ try {
     create: async (d: any) => d?.data ?? {},
     update: async (d: any) => d?.data ?? {}, 
     delete: async () => ({}),
-    select: () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) })
+    select: () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) }),
+    insert: () => ({ values: () => ({ returning: () => [] }) }),
+    query: new Proxy({}, { get: () => ({ findMany: async () => [], findFirst: async () => null }) })
   };
   db = new Proxy({}, {
     get: (_, prop) => {
-      if (prop === 'query') return new Proxy({}, { get: () => noOp });
-      if (prop === 'select') return () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) });
-      if (prop === 'delete') return () => ({});
-      if (prop === 'insert') return () => ({ values: () => ({ returning: () => [] }) });
+      if (prop === 'query') return noOp.query;
+      if (prop === 'select') return noOp.select;
+      if (prop === 'delete') return noOp.delete;
+      if (prop === 'insert') return noOp.insert;
+      if (typeof noOp[prop as keyof typeof noOp] === 'function') return noOp[prop as keyof typeof noOp];
       return async () => [];
     },
   });
 }
 
 export { db };
+
