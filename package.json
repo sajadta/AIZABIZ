@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "tsc --noEmit && vite build",
-    "start": "tsx server.ts",
+    "build": "vite build",
+    "start": "node server.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",

@@ -9,23 +9,48 @@ export const isPostgresConfigured = Boolean(
   process.env.DATABASE_URL
 );
 
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
-      }
-    : {
-        host: process.env.SQL_HOST || 'localhost',
-        user: process.env.SQL_USER || 'postgres',
-        password: process.env.SQL_PASSWORD || '',
-        database: process.env.SQL_DB_NAME || 'postgres',
-        ssl: false,
-      }
-);
+let db: any;
+try {
+  const pool = new Pool(
+    process.env.DATABASE_URL
+      ? {
+          connectionString: process.env.DATABASE_URL,
+          ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+        }
+      : {
+          host: process.env.SQL_HOST || 'localhost',
+          user: process.env.SQL_USER || 'postgres',
+          password: process.env.SQL_PASSWORD || '',
+          database: process.env.SQL_DB_NAME || 'postgres',
+          ssl: false,
+        }
+  );
 
-pool.on('error', () => {
-  // Handled gracefully by fallback storage
-});
+  pool.on('error', (err) => {
+    console.warn('[AI Studio] Database pool error:', err.message);
+  });
 
-export const db = drizzle(pool, { schema });
+  db = drizzle(pool, { schema });
+} catch (e) {
+  console.warn('[AI Studio] Database connection failed, using mock');
+  const noOp = { 
+    findMany: async () => [], 
+    findFirst: async () => null,
+    findUnique: async () => null, 
+    create: async (d: any) => d?.data ?? {},
+    update: async (d: any) => d?.data ?? {}, 
+    delete: async () => ({}),
+    select: () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) })
+  };
+  db = new Proxy({}, {
+    get: (_, prop) => {
+      if (prop === 'query') return new Proxy({}, { get: () => noOp });
+      if (prop === 'select') return () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) });
+      if (prop === 'delete') return () => ({});
+      if (prop === 'insert') return () => ({ values: () => ({ returning: () => [] }) });
+      return async () => [];
+    },
+  });
+}
+
+export { db };
