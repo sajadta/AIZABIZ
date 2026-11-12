@@ -1,9 +1,18 @@
 process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first";
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
+
+process.on('uncaughtException', (err) => {
+  console.error('CRITICAL: Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 import { HttpsProxyAgent } from "https-proxy-agent";
 import https from "https";
-import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, placeUpstoxOrderIpv4 } from "./server/services/upstoxTransport";
-import { registerHealthRoutes } from "./server/routes/health";
+import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, placeUpstoxOrderIpv4, getUpstoxAgent } from "./server/services/upstoxTransport";
+import { registerRoutes } from "./server/routes";
 
 import { appState, tradeHistory } from "./src/db/schema";
 import { db, isPostgresConfigured } from "./src/db/index";
@@ -26,9 +35,42 @@ import zlib from "zlib";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 
-import compression from "compression";
+import { 
+  botConfig as sharedBotConfig, 
+  upstoxConfig as sharedUpstoxConfig,
+  botLogs as sharedBotLogs,
+  botSignals as sharedBotSignals,
+  paperOrders as sharedPaperOrders,
+  paperPositions as sharedPaperPositions,
+  paperTradeHistory as sharedPaperTradeHistory,
+  globalLiveQuotes as sharedGlobalLiveQuotes,
+  invalidTokens as sharedInvalidTokens,
+  engineHeartbeatTicks as sharedEngineHeartbeatTicks,
+  lastEngineTickAt as sharedLastEngineTickAt,
+  isBotTickRunning as sharedIsBotTickRunning,
+  lastBotTickStartedAt as sharedLastBotTickStartedAt,
+  cachedUpstoxLivePositions as sharedCachedUpstoxLivePositions,
+  livePositionStateTracker as sharedLivePositionStateTracker,
+  lastFullEntryScanAtMs as sharedLastFullEntryScanAtMs,
+  optionIntradayCandleCache as sharedOptionIntradayCandleCache,
+  lastTradeExitTime as sharedLastTradeExitTime,
+  recentClosedStrikes as sharedRecentClosedStrikes,
+  intradayCandleCache as sharedIntradayCandleCache,
+  fiveYearHistoricalRegimeCache as sharedFiveYearHistoricalRegimeCache,
+  lastQuotesCache as sharedLastQuotesCache,
+  optionContractCache as sharedOptionContractCache,
+  optionChainCache as sharedOptionChainCache,
+  cachedUpstoxLiveMargin as sharedCachedUpstoxLiveMargin,
+  subscribedKeys as sharedSubscribedKeys,
+  PERSISTENT_TOKEN_BACKUP_PATH,
+  setBotConfig, setUpstoxConfig, resetPaperTradingState
+} from "./server/state";
+
+
+
 
 dotenv.config();
+
 
 const app = express();
 app.use(compression({ level: 6, threshold: 512 }));
@@ -151,16 +193,16 @@ app.get('/api/history', async (req, res) => {
 });
 
 app.post('/api/paper-trading/reset', async (req: Request, res: Response) => {
-  paperOrders = [];
-  paperPositions = [];
-  paperTradeHistory = [];
-  botLogs = [];
+  resetPaperTradingState();
   if (postgresAvailable) {
+
     try {
       await db.delete(tradeHistory);
-    } catch {}
+    } catch {
+      // Ignored
+    }
   }
-  savePostgresDb().catch(() => {});
+  savePostgresDb().catch(() => { /* ignore */ });
   return res.json({
     success: true,
     message: "Paper trading account successfully reset to ₹2,000 initial balance with 0 trade history.",
@@ -173,7 +215,7 @@ app.post('/api/paper-trading/reset', async (req: Request, res: Response) => {
 
 app.post('/api/bot/clear-ip-warning', (req: Request, res: Response) => {
   botLogs = botLogs.filter((l) => !l.message?.includes('static IP restrictions'));
-  savePostgresDb().catch(() => {});
+  savePostgresDb().catch(() => { /* ignore */ });
   return res.json({ success: true, count: botLogs.length });
 });
 
@@ -182,53 +224,10 @@ app.post('/api/bot/clear-ip-warning', (req: Request, res: Response) => {
 // ALGO BOT ENGINE (BACKEND - ALWAYS ACTIVE 24x7 CLOUD ENGINE)
 // ---------------------------------------------------------
 
-let botConfig = {
-  enabled: true, // Always running continuously on the server even if client internet disconnects
-  mode: "PAPER_TRADING", // 'PAPER_TRADING' | 'UPSTOX_LIVE'
-  userExplicitlySelectedMode: false, // Prevents background token sync from overwriting user's chosen PAPER_TRADING mode
-  selectedStrategy: "PROFIT_MAX_100_PERCENT_MATRIX",
-  minConfidence: 68,
-  maxCapitalPerTrade: 0, // 0 = Auto Dynamic Account Sizing (100% Fund-Based)
-  riskPerTradePercent: 1.5,
-  stopLossPercent: 16.0,
-  targetProfitPercent: 35,
-  trailingStopLoss: true,
-  trailingStepPercent: 5,
-  tradeQuantity: 50,
-  multiTimeframeEnabled: true,
-  optionStrikeSelector: true,
-  tradeMmode: "OPTIONS_ONLY", // 'OPTIONS_ONLY'
-  optionStrategyMode: "HYBRID_AUTO_REGIME", // 'OPTION_BUYING' | 'OPTION_SELLING' | 'MULTI_LEG_STRANGLE' | 'HYBRID_AUTO_REGIME'
-  enableMultiLegExecution: true,
-  limitOrderSlippageGuard: true,
-  maxOptionLossCount: 2,
-  maxOptionProfitCount: 15,
-  minOptionProfitAmount: 450,
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
-  telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
-  telegramAlertsEnabled: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
-  selectedIndexPriority: "FULL_AUTO_MULTI_INDEX", // 'FULL_AUTO_MULTI_INDEX' | 'ALL_NIFTY_PRIORITY' | 'NIFTY_50_ONLY' | 'BANKNIFTY_ONLY' | 'SENSEX_ONLY' | 'ALL_EQUAL'
-  maxConcurrentTrades: 0, // 0 = Dynamic Fund-Based Auto Allocation, or 1, 2, 3, 4, 5
-  dailyMaxLossLimit: 300,
-  dailyLossLocked: false,
-  enableAtrStopLoss: true, // Auto adjust SL based on volatility
-  enableEmaSupertrendExit: true, // Exit on trend reversal
-  enablePartialBooking: true, // Book 50% at target, trail rest
-  enableTimeDecayProtection: true, // Auto exit options before 3 PM
-  enableIndexCorrelation: true, // Check main NIFTY/BANKNIFTY chart
-  marketRegimeFilter: true, // Sideways market detection
-  dynamicPositionSizing: true, // AI confidence based sizing
-  newsSentimentFilter: true, // News checks
-  ivCrushProtection: true, // Options Greek IV checks
-  autoKillSwitch: true, // Emotionless kill switch on max loss
-  maxConsecutiveLosses: 2,
-  autoStrikeSelection: true, // Selects best ATM/ITM options automatically
-  multiTimeframeConfluence: true // Checks 15m and 1h trends before trade
-,
-};
+const botConfig = sharedBotConfig;
+const botLogs = sharedBotLogs;
+const botSignals = sharedBotSignals;
 
-let botLogs: any[] = [];
-let botSignals: any[] = [];
 
 // API Endpoints for Bot
 app.get("/api/bot/config", (req, res) => res.json(botConfig));
@@ -257,7 +256,7 @@ app.post("/api/bot/config", (req, res) => {
     type: "INFO",
   });
   if (botLogs.length > 200) botLogs.length = 200;
-  savePostgresDb().catch(() => {});
+  savePostgresDb().catch(() => { /* ignore */ });
   res.json(botConfig);
 });
 
@@ -330,18 +329,18 @@ function runAutonomousSelfHealingEngine() {
   const nowStr = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
   let healedAny = false;
 
-  // 1. Autonomous Stop-Loss Cap Healing (Never allow wide >2.8% SL that causes ₹900+ losses)
-  const currentSl = Number(botConfig.stopLossPercent || 2.5);
-  if (currentSl > 2.8) {
-    botConfig.stopLossPercent = 2.5;
+  // 1. Autonomous Stop-Loss Cap Healing: For Options, optimal SL is 12.0% with ₹400 Rupee Safety Cap
+  const currentSl = Number(botConfig.stopLossPercent || 12.0);
+  if (currentSl < 10.0 || currentSl > 20.0) {
+    botConfig.stopLossPercent = 12.0;
     healedAny = true;
     autoHealHistory.unshift({
       id: "HEAL_SL_" + Date.now(),
       time: nowStr,
-      problemMl: `Stop Loss ${currentSl}% ആയിരുന്നത് വലിയ നഷ്ടത്തിന് കാരണമാകും എന്ന് AI കണ്ടെത്തി.`,
-      autoActionMl: "ക്ലിക്ക് ചെയ്യാതെ തന്നെ AI എഞ്ചിൻ Stop Loss തനിയെ 2.5% (Max ₹400 Cap) ആയി ക്രമീകരിച്ചു.",
+      problemMl: `Stop Loss ${currentSl}% ആയിരുന്നത് ഓപ്ഷൻ ട്രേഡിംഗിന് അനുയോജ്യമല്ല എന്ന് കണ്ടെത്തി.`,
+      autoActionMl: "ഓപ്ഷൻ പ്രീമിയത്തിന് ആവശ്യമായ ബ്രീത്തിംഗ് സ്പേസ് നൽകാൻ Stop Loss 12.0% (Max ₹400 Cap) ആയി ക്രമീകരിച്ചു.",
       beforeValue: `${currentSl}%`,
-      afterValue: "2.5% (Auto-Fixed)",
+      afterValue: "12.0% (Auto-Fixed)",
     });
   }
 
@@ -406,7 +405,7 @@ function runAutonomousSelfHealingEngine() {
   if (autoHealHistory.length > 25) autoHealHistory.length = 25;
 
   if (healedAny) {
-    savePostgresDb().catch(() => {});
+    savePostgresDb().catch(() => { /* ignore */ });
     botLogs.unshift({
       id: Date.now().toString(),
       time: new Date().toLocaleTimeString(),
@@ -418,12 +417,14 @@ function runAutonomousSelfHealingEngine() {
 }
 
 // Run Autonomous Self-Healing and Bot Loop at 200ms (5x per second) Ultra-Low-Latency Millisecond Cadence
-let engineHeartbeatTicks = 0;
-let lastEngineTickAt = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
-let isBotTickRunning = false;
-let lastFullEntryScanAtMs = 0;
-let cachedUpstoxLivePositions: { timestamp: number; list: any[] } = { timestamp: 0, list: [] };
-let cachedUpstoxLiveMargin: { timestamp: number; margin: number; utilizedMargin: number; payin: number; payout: number } = { timestamp: 0, margin: 0, utilizedMargin: 0, payin: 0, payout: 0 };
+let engineHeartbeatTicks = sharedEngineHeartbeatTicks;
+let lastEngineTickAt = sharedLastEngineTickAt;
+let isBotTickRunning = sharedIsBotTickRunning;
+
+let lastFullEntryScanAtMs = sharedLastFullEntryScanAtMs;
+let cachedUpstoxLivePositions = sharedCachedUpstoxLivePositions;
+let cachedUpstoxLiveMargin = sharedCachedUpstoxLiveMargin;
+
 
 setTimeout(() => runAutonomousSelfHealingEngine(), 1000);
 setInterval(() => runAutonomousSelfHealingEngine(), 10000);
@@ -905,7 +906,7 @@ app.post("/api/bot/supervisor-apply-fix", (req: Request, res: Response) => {
     minConfidence: Math.max(50, Number(patchToApply.minConfidence ?? botConfig.minConfidence ?? 55)),
     minOptionProfitAmount: Math.max(5, Number(botConfig.minOptionProfitAmount || 25)),
   });
-  savePostgresDb().catch(() => {});
+  savePostgresDb().catch(() => { /* ignore */ });
   botLogs.unshift({
     id: Date.now().toString(),
     time: new Date().toLocaleTimeString(),
@@ -1033,48 +1034,27 @@ Respond in JSON format with:
 });
 
 // Cache Option Contracts, Option Chains, and 5-Year Historical Daily Candles to prevent Upstox 429 rate-limit errors
-const optionContractCache: Record<string, { timestamp: number; data: any }> = {};
-const optionChainCache: Record<string, { timestamp: number; data: any }> = {};
-const optionIntradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
-const fiveYearHistoricalRegimeCache: Record<
-  string,
-  {
-    timestamp: number;
-    fiveYearRegimeTrend: "BULLISH_SECULAR" | "BEARISH_CORRECTION" | "RANGE_CONSOLIDATION";
-    fiveYearRegimeSummary: string;
-    fiveYearRegimeSummaryMl: string;
-    multiYearSupport: number;
-    multiYearResistance: number;
-    historicalPatternWinRate: number;
-    ema200Daily: number;
-    ema50Daily: number;
-  }
-> = {};
-const livePositionStateTracker: Record<
-  string,
-  {
-    openedAtMs: number;
-    highestLTP: number;
-    highestPnl: number;
-    highestNetPnl: number;
-    lockedStopLossPrice?: number;
-    brokerageCharges?: number;
-    brokerageSource?: string;
-  }
-> = {};
-let lastTradeExitTime = 0;
-const recentClosedStrikes: Record<
-  string,
-  { exitTime: number; highestLTP: number; sellPrice: number; entryCountToday?: number }
-> = {};
+const optionContractCache = sharedOptionContractCache;
+
+const optionChainCache = sharedOptionChainCache;
+
+const optionIntradayCandleCache = sharedOptionIntradayCandleCache;
+const fiveYearHistoricalRegimeCache = sharedFiveYearHistoricalRegimeCache;
+
+const livePositionStateTracker = sharedLivePositionStateTracker;
+
+let lastTradeExitTime = sharedLastTradeExitTime;
+
+const recentClosedStrikes = sharedRecentClosedStrikes;
+
 // Smart Dynamic Anti-Churn & Re-entry Guard:
 // - Standard 30-minute lockout prevents small churns and brokerage drain on choppy sideways action
 // - Big Profit / High Alpha Breakouts bypass the long lockout after 3 mins of consolidation if previous trade was in profit!
 const strikeDailyEntryCount: Record<string, number> = {};
-const STRIKE_LOCKOUT_MS = 15 * 1000; // 15-second minimal buffer to prevent order double-firing while allowing unlimited continuous trades
-const STRIKE_LOCKOUT_MIN_MS = 10 * 1000; // 10-second stabilization buffer
-const MAX_STRIKE_ENTRIES_DEFAULT = 999; // Unlimited entries allowed when setups present
-const MAX_STRIKE_ENTRIES_TRENDING = 999; // Unlimited entries allowed on trending days
+const STRIKE_LOCKOUT_MS = 180 * 1000; // 3-minute anti-churn buffer to prevent rapid revenge trading
+const STRIKE_LOCKOUT_MIN_MS = 120 * 1000; // 2-minute stabilization buffer
+const MAX_STRIKE_ENTRIES_DEFAULT = 4; // Max 4 high-quality trades per strike per day to prevent overtrading
+const MAX_STRIKE_ENTRIES_TRENDING = 6; // Max 6 entries on strong trending days
 
 /**
  * Resilient HTTP fetch utility with automatic retry, timeout control, and graceful error handling.
@@ -1083,16 +1063,18 @@ const MAX_STRIKE_ENTRIES_TRENDING = 999; // Unlimited entries allowed on trendin
 async function resilientFetch(
   url: string,
   options: RequestInit = {},
-  retries = 1,
-  timeoutMs = 2000
+  retries = 2,
+  timeoutMs = 8000
 ): Promise<globalThis.Response | null> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
-    const curTimeout = attempt > 0 ? 1500 : timeoutMs;
+    const curTimeout = attempt > 0 ? 5000 : timeoutMs;
     const timer = setTimeout(() => {
       try {
         controller.abort(new Error(`Request timeout after ${curTimeout}ms`));
-      } catch {}
+      } catch {
+      // Ignored
+    }
     }, curTimeout);
 
     try {
@@ -1105,15 +1087,22 @@ async function resilientFetch(
         return response;
       }
       if ((response.status === 429 || response.status >= 500) && attempt < retries) {
-        await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         continue;
       }
       return response;
     } catch (err: any) {
       clearTimeout(timer);
       if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
         continue;
+      }
+      if (process.env.DEBUG_UPSTOX_FETCH) {
+        if (err.name === 'AbortError') {
+          console.debug(`[resilientFetch] Request to ${url} timed out after ${curTimeout}ms`);
+        } else {
+          console.debug(`[resilientFetch] Failed to fetch ${url}:`, err.message);
+        }
       }
       break;
     }
@@ -1124,8 +1113,8 @@ async function resilientFetch(
 async function resilientFetchJson<T = any>(
   url: string,
   options: RequestInit = {},
-  retries = 0,
-  timeoutMs = 2000
+  retries = 1,
+  timeoutMs = 6000
 ): Promise<T | null> {
   try {
     const res = await resilientFetch(url, options, retries, timeoutMs);
@@ -1237,7 +1226,9 @@ async function fetchLiveUpstoxCharges(
         liveUpstoxChargesCache[cacheKey] = { timestamp: Date.now(), data: result };
         return result;
       }
-    } catch {}
+    } catch {
+      // Ignored
+    }
   }
 
   // Fallback matching Upstox ₹30 base plan
@@ -1258,7 +1249,8 @@ async function fetchLiveUpstoxCharges(
   return result;
 }
 
-let lastBotTickStartedAt = 0;
+let lastBotTickStartedAt = sharedLastBotTickStartedAt;
+
 
 // Bot Loop Interval (Runs Every 1 Second / 1000ms for Real-Time Second-by-Second Entry & Exit Evaluation)
 setInterval(async () => {
@@ -1435,7 +1427,9 @@ setInterval(async () => {
             }
           }
         }
-      } catch (e) {}
+      } catch (e) {
+      // Ignored
+    }
     }
 
     // Dedicated Ultra-Fast Lightweight LTP Poll (/v2/market-quote/ltp) specifically for Active Option Positions!
@@ -1475,7 +1469,9 @@ setInterval(async () => {
               }
             }
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
       }
     }
 
@@ -1535,6 +1531,17 @@ setInterval(async () => {
           );
         }
       }
+
+      const underlyingKeyForPos = pos.underlyingInstrumentKey || getUnderlyingOptionInstrumentKey(pos.symbol || "");
+      const latestUnderlyingSig = botSignals.find(
+        (s) =>
+          s.underlyingInstrumentKey === underlyingKeyForPos ||
+          getUnderlyingOptionInstrumentKey(s.symbol || "") === underlyingKeyForPos,
+      );
+      const isBtstHoldRecommended = pos.productType === "DELIVERY" && shouldHoldOvernightBTST(pos, latestUnderlyingSig);
+      pos.isBtstHoldRecommended = isBtstHoldRecommended;
+
+
 
       // Dedicated Option Selling (Short CE / Short PE / Multi-Leg Straddle & Strangle) Theta Decay & Lowest-LTP Peak Lock Engine
       if (
@@ -1601,8 +1608,9 @@ setInterval(async () => {
           updatedAt: new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }),
         };
 
-        if (isEodSquareOff || ltpShort >= dynamicShortStopPrice || ltpShort <= shortTargetPrice) {
+        if ((isEodSquareOff && !isBtstHoldRecommended) || ltpShort >= dynamicShortStopPrice || ltpShort <= shortTargetPrice) {
           // Honour the stop-loss cap price (dynamicShortStopPrice) in Paper Mode so 1-second tick jumps never exceed the ₹400 max loss cap!
+
           const exitPx =
             ltpShort >= dynamicShortStopPrice && dynamicShortStopPrice > 0
               ? Number(Math.min(ltpShort, dynamicShortStopPrice).toFixed(2))
@@ -1645,7 +1653,7 @@ setInterval(async () => {
               paperTradeHistory.unshift(closedShort);
             }
             paperPositions = paperPositions.filter((p) => p.id !== pos.id);
-            savePostgresDb().catch(() => {});
+            savePostgresDb().catch(() => { /* ignore */ });
           }
         }
         continue;
@@ -1742,7 +1750,9 @@ setInterval(async () => {
                 }
               }
             }
-          } catch {}
+          } catch {
+      // Ignored
+    }
         if (!pos.buyPrice || pos.buyPrice <= 0) {
           continue;
         }
@@ -1825,9 +1835,22 @@ setInterval(async () => {
         let sellReason = "";
 
         if (isEodSquareOff) {
-          shouldSell = true;
-          sellReason = `End of day Auto Square-Off at 15:25 IST for ${pos.symbol}.`;
+          if (isBtstHoldRecommended) {
+            if (!pos.btstHoldLogged) {
+              botLogs.unshift({
+                id: Date.now().toString(),
+                time: new Date().toLocaleTimeString(),
+                message: `[DELIVERY BTST HOLD] ${pos.symbol} നിലവിൽ ലാഭകരമാകാൻ സാധ്യതയുള്ളതിനാൽ നാളത്തേക്ക് ഹോൾഡ് ചെയ്യുന്നു. (Sentiment: ${latestUnderlyingSig?.sentiment || "BULLISH"})`,
+                type: "INFO",
+              });
+              pos.btstHoldLogged = true;
+            }
+          } else {
+            shouldSell = true;
+            sellReason = `End of day Auto Square-Off at 15:25 IST for ${pos.symbol}.`;
+          }
         }
+
 
         // Static Stop and Target values based on BUY price
         // Realistic Options Stop-Loss with Structural Wiggle Guard:
@@ -1838,13 +1861,15 @@ setInterval(async () => {
             : Math.max(500, 2000 + paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0));
         const isSmallCapitalSafeZone = liveOrPaperCapital <= 4000;
         const qty = Math.max(1, Number(pos.quantity || 1));
-        const effectiveSlPct = isSmallCapitalSafeZone
-          ? Math.max(16.0, Math.min(22.0, Number(botConfig.stopLossPercent || 18.0)))
-          : Math.max(18.0, Math.min(25.0, Number(botConfig.stopLossPercent || 20.0)));
-        let optionSlPoints = Math.max(4.0, Number((pos.buyPrice * (effectiveSlPct / 100)).toFixed(2)));
-        const dynamicMaxRupeeLossCap = isSmallCapitalSafeZone
-          ? Math.min(95, Math.max(60, Math.round(liveOrPaperCapital * 0.035)))
-          : Math.min(300, Math.max(150, Math.round(optionSlPoints * qty)));
+        const effectiveSlPct = Math.max(10.0, Math.min(18.0, Number(botConfig.stopLossPercent || 14.0)));
+        // Provide adequate option points breathing room (at least 6.0 points on quality options)
+        // BUT cap SL at 25% of premium for cheap options to prevent account blowouts on junk
+        let optionSlPoints = Math.max(6.0, Number((pos.buyPrice * (effectiveSlPct / 100)).toFixed(2)));
+        if (pos.buyPrice < 24) {
+          optionSlPoints = Math.min(optionSlPoints, Number((pos.buyPrice * 0.25).toFixed(2)));
+        }
+        // Realistic Rupee Risk Cap: Allow ₹380 - ₹500 per lot so normal 1m-3m candle wicks do not prematurely trigger SL
+        const dynamicMaxRupeeLossCap = Math.max(380, Math.min(650, Math.round(optionSlPoints * qty)));
         if (optionSlPoints * qty > dynamicMaxRupeeLossCap) {
           optionSlPoints = Number((dynamicMaxRupeeLossCap / qty).toFixed(2));
         }
@@ -1872,7 +1897,9 @@ setInterval(async () => {
             (pos as any).brokerageCharges = liveChg.totalRoundTrip;
             (pos as any).brokerageSource = liveChg.source;
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
         const posNetPnL = posPnL - roundTripTax;
         const peakGrossPnL = ((pos.highestLTP || ltp) - pos.buyPrice) * qty;
         const peakNetPnL = peakGrossPnL - roundTripTax;
@@ -2009,6 +2036,11 @@ setInterval(async () => {
         // 1. DYNAMIC MAXIMUM PROFIT TREND-RIDING & ASYMMETRIC REWARD ENGINE
         // Mandate: "Labham nashtapedathe maximum profit pidichedukkenam"
         let candidateStopLoss = staticStopLossPrice;
+
+        if (peakGainPct >= 8.0 || posNetPnL >= 75) {
+          // Tier 0: Early Capital Shield (Once trade moves significantly in favor, lock breakeven immediately)
+          candidateStopLoss = Math.max(candidateStopLoss, breakEvenWithBrokerage);
+        }
 
         if (peakGainPct >= 15.0 || posNetPnL >= 150) {
           // Tier 1: Zero-Loss Vault (Once in solid green, lock Breakeven + Brokerage + Cushion)
@@ -2271,7 +2303,9 @@ setInterval(async () => {
             if (liveExitCharges && liveExitCharges.totalRoundTrip > 0) {
               finalBrokerage = liveExitCharges.totalRoundTrip;
             }
-          } catch {}
+          } catch {
+      // Ignored
+    }
           const finalNetPnL = Number((finalGrossPnL - finalBrokerage).toFixed(2));
           const finalPnlPercent =
             pos.buyPrice > 0
@@ -2301,7 +2335,7 @@ setInterval(async () => {
             `💵 <b>Gross PnL:</b> ${finalGrossPnL >= 0 ? '+' : ''}₹${finalGrossPnL.toFixed(2)} | <b>Net PnL:</b> ${finalNetPnL >= 0 ? '+' : ''}₹${finalNetPnL.toFixed(2)} (${finalPnlPercent.toFixed(2)}%)\n` +
             `🛡️ <b>Exit Reason:</b> ${sellReason}\n` +
             `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`
-          ).catch(() => {});
+          ).catch(() => { /* ignore */ });
           if (pos.mode === "PAPER_TRADING" || paperPositions.some((p) => p.id === pos.id)) {
             const closedPos = paperPositions.find((p) => p.id === pos.id);
             if (closedPos) {
@@ -2360,7 +2394,7 @@ setInterval(async () => {
               }
             }
             paperPositions = paperPositions.filter((p) => p.id !== pos.id);
-            savePostgresDb().catch(() => {});
+            savePostgresDb().catch(() => { /* ignore */ });
           } else if (botConfig.mode === "UPSTOX_LIVE") {
             // Place sell order via Upstox API
             try {
@@ -2399,11 +2433,11 @@ setInterval(async () => {
                   isOption: true,
                 });
                 if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
-                savePostgresDb().catch(() => {});
+                savePostgresDb().catch(() => { /* ignore */ });
               } else {
                 let errDetail = sellRes?.errors?.[0]?.message || sellRes?.message || JSON.stringify(sellRes);
                 if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
-                  errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ IP 34.96.48.26 കൂടി Whitelist ചെയ്യുക! (${errDetail})`;
+                  errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (8.234.113.241, 34.34.254.178) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
                 }
                 const exitErrText = `[UPSTOX LIVE EXIT REJECTED] Exit order for ${pos.symbol} rejected: ${errDetail}`;
                 botLogs.unshift({
@@ -2417,8 +2451,8 @@ setInterval(async () => {
                   `🔴 <b>UPSTOX LIVE EXIT FAILED</b>\n\n` +
                   `⚠️ Could not exit position: <code>${pos.symbol}</code>\n` +
                   `❌ Reason: ${errDetail}\n` +
-                  `👉 Please add <b>34.96.48.26</b> in Upstox App Whitelist or close trade manually in Upstox app!`
-                ).catch(() => {});
+                  `👉 Please ensure your Static IPs (8.234.113.241, 34.34.254.178) are whitelisted in Upstox Developer Console!`
+                ).catch(() => { /* ignore */ });
               }
             } catch (e: any) {
               console.error("Error executing live exit order:", e);
@@ -2484,8 +2518,8 @@ setInterval(async () => {
       }
     }
 
-    // Post exit cooldown: 10-second buffer to prevent order spam while allowing continuous trades
-    const isInPostExitCooldown = Date.now() - lastTradeExitTime < 10000;
+    // Post exit cooldown: 3-minute buffer to eliminate revenge trading and prevent brokerage drain
+    const isInPostExitCooldown = Date.now() - lastTradeExitTime < 180000;
 
     // Check Market Open Time Window (09:18 AM to 15:15 PM IST for NEW entries on Trading Days Monday-Friday; EOD Square-Off runs at 15:25 PM)
     const currentHour = nowIst.getHours();
@@ -2532,7 +2566,9 @@ setInterval(async () => {
               payout: Number(eq.payout || 0)
             };
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
       }
 
       // Strict Capital Separation:
@@ -2674,7 +2710,9 @@ setInterval(async () => {
                   };
                 }
               }
-            } catch {}
+            } catch {
+      // Ignored
+    }
 
             // Fallback to official NSE/BSE 1-minute candles via Yahoo Finance if Upstox token is expired
             if (!cData?.data?.candles || cData.data.candles.length === 0) {
@@ -2723,12 +2761,14 @@ setInterval(async () => {
                       };
                     }
                   }
-                } catch {}
+                } catch {
+      // Ignored
+    }
               }
             }
           }
 
-          if (cData.status === "success" && cData.data?.candles) {
+          if (cData?.status === "success" && Array.isArray(cData.data?.candles)) {
             let rawCandles = cData.data.candles
               .map((c: any) => ({
                 timestamp: new Date(c[0]).getTime(),
@@ -2769,7 +2809,9 @@ setInterval(async () => {
                 if (qData?.data?.[idx.key]?.last_price) {
                   liveLtp = qData.data[idx.key].last_price;
                 }
-              } catch {}
+              } catch {
+      // Ignored
+    }
             }
             if (liveLtp > 0 && rawCandles.length > 0) {
               const lastRaw = rawCandles[rawCandles.length - 1];
@@ -3011,7 +3053,9 @@ setInterval(async () => {
                   };
                   fiveYearHistoricalRegimeCache[idx.key] = fiveYearMetrics;
                 }
-              } catch {}
+              } catch {
+      // Ignored
+    }
             }
 
             const liveIndiaVix = Number(
@@ -3235,7 +3279,10 @@ setInterval(async () => {
                       // Also find any liquid strikes across the chain that strictly fit effectiveCapital INCLUDING Brokerage & Taxes
                       // Supports both Small-Capital Accounts (₹2,000 – ₹6,500 real cash incl. brokerage) AND Standard Capital Accounts
                       const isSmallCapitalAccount = effectiveCapital > 0 && effectiveCapital <= 6500;
-                      const minDeltaForCap = isSmallCapitalAccount ? 0.03 : 0.15;
+                      // INSTITUTIONAL CAPITAL PROTECTION RULE:
+                      // Never buy cheap OTM lotto tickets (Delta < 0.40) - they are the #1 cause of small account drain!
+                      // It is better to stay in CASH than to buy junk that has a 90% chance of expiring at ₹0.
+                      const minDeltaForCap = 0.40;
                       const compactCapCeiling = isSmallCapitalAccount
                         ? effectiveCapital
                         : Math.min(Math.max(effectiveCapital, 15000), 25000);
@@ -3274,11 +3321,11 @@ setInterval(async () => {
                                   ltp * (tMult - 1) * lotSz * possibleLots - charges.roundTripCharges;
                                 const strikeDistPct = Math.abs(Number(r.strike_price) - liveLtp) / liveLtp;
                                 return (
-                                  ltp >= 2 &&
-                                  strikeDistPct <= 0.045 &&
+                                  ltp >= 25 && // Quality premium only (prevents junk lotto)
+                                  strikeDistPct <= 0.008 && // Strict ATM / 1-step OTM only
                                   charges.totalRequiredWithBrokerage <= compactCapCeiling &&
                                   absDelta >= minDeltaForCap &&
-                                  expNet > 0
+                                  expNet > 150 // Minimum ₹150 profit expectation after brokerage
                                 );
                               })
                               .sort((a: any, b: any) => {
@@ -3520,7 +3567,9 @@ setInterval(async () => {
                                 ...(qItem as any),
                               };
                             }
-                          } catch {}
+                          } catch {
+      // Ignored
+    }
 
                           const chainSnapshotLtp = Number(cand.ltp || liveOptLtp);
                           cand.ltp = liveOptLtp;
@@ -4145,7 +4194,7 @@ setInterval(async () => {
               liveAvailableMargin <= 0 ||
               cand.totalRequiredCashWithBrokerage > liveAvailableMargin
             ) {
-              const warnMsg = `[LIVE CAPITAL & BROKERAGE GUARD] Cannot buy ${cand.optionSymbol} in UPSTOX_LIVE mode: 1 Lot requires ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")}, Upstox cash is ₹${liveAvailableMargin.toLocaleString("en-IN")}.`;
+              const warnMsg = `[LIVE CAPITAL GUARD] ⚠️ ബാലൻസ് കുറവായതിനാൽ (₹${liveAvailableMargin.toLocaleString("en-IN")}) പുതിയ ട്രേഡ് എടുത്തില്ല. ഗുണനിലവാരമുള്ള ട്രേഡിന് ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} ആവശ്യമാണ്. അനാവശ്യ OTM ട്രേഡുകൾ ഒഴിവാക്കി പണം സംരക്ഷിച്ചു.`;
               botLogs.unshift({
                 id: Date.now().toString(),
                 time: new Date().toLocaleTimeString(),
@@ -4236,7 +4285,7 @@ setInterval(async () => {
               openedAt: new Date().toLocaleTimeString("en-IN"),
               isOption: true,
             });
-            savePostgresDb().catch(() => {});
+            savePostgresDb().catch(() => { /* ignore */ });
 
             sendTelegramNotification(
               `🟢 <b>PAPER BOT ENTRY TRIGGERED (${cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
@@ -4248,7 +4297,7 @@ setInterval(async () => {
               `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
               `🛡️ <b>Mode:</b> PAPER_TRADING\n` +
               `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-            ).catch(() => {});
+            ).catch(() => { /* ignore */ });
           } else if (botConfig.mode === "UPSTOX_LIVE" && token) {
             try {
               const orderJson = await placeUpstoxOrderIpv4({
@@ -4288,11 +4337,11 @@ setInterval(async () => {
                   `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
                   `🛡️ <b>Mode:</b> UPSTOX_LIVE\n` +
                   `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-                ).catch(() => {});
+                ).catch(() => { /* ignore */ });
               } else {
                 let errDetail = orderJson?.errors?.[0]?.message || orderJson?.message || JSON.stringify(orderJson);
                 if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
-                  errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ IP 34.96.48.26 കൂടി Whitelist ചെയ്യുക! (${errDetail})`;
+                  errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (8.234.113.241, 34.34.254.178) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
                 }
                 const liveErrText = `[UPSTOX LIVE REJECTED] Order for ${cand.optionSymbol} rejected: ${errDetail}`;
                 botLogs.unshift({
@@ -4393,6 +4442,37 @@ const getUnderlyingOptionInstrumentKey = (symbolOrKey: string): string => {
   return getInstrumentKey(raw);
 };
 
+function shouldHoldOvernightBTST(pos: any, signal: any): boolean {
+  if (!signal || !signal.indicators) return false;
+  
+  const isCall = /\bCE\b/i.test(pos.symbol || "");
+  const isPut = /\bPE\b/i.test(pos.symbol || "");
+  const ind = signal.indicators;
+  const corpScore = signal.institutionalQuantAnalysis?.corporateHeavyweightScore ?? 0;
+  
+  if (isCall) {
+    // Bullish criteria for holding CE
+    return (
+      (signal.signalType === "BUY" || signal.sentiment === "BULLISH") &&
+      ind.emaCross?.ema9 > ind.emaCross?.ema21 &&
+      corpScore >= -10 && // Allow minor heavyweight drag if sentiment is solid
+      (ind.rsi?.value || 50) < 78 // Not extremely overbought
+    );
+  } else if (isPut) {
+    // Bearish criteria for holding PE
+    return (
+      (signal.signalType === "SELL" || signal.sentiment === "BEARISH") &&
+      ind.emaCross?.ema9 < ind.emaCross?.ema21 &&
+      corpScore <= 10 &&
+      (ind.rsi?.value || 50) > 22 // Not extremely oversold
+    );
+  }
+  
+  // For Equity or other delivery instruments
+  return signal.signalType === "BUY" && corpScore >= -15;
+}
+
+
 const getDynamicLotSizeInfo = async (
   symbol: string,
   token: string,
@@ -4463,7 +4543,9 @@ const getDynamicLotSizeInfo = async (
             };
           }
         }
-    } catch (e) {}
+    } catch (e) {
+      // Ignored
+    }
   }
 
   // If cached from earlier today, return that even if >15m old
@@ -4631,28 +4713,15 @@ let ai = new GoogleGenAI({
 let globalGeminiKey = process.env.GEMINI_API_KEY || "";
 
 // Upstox In-Memory Credentials & Session Cache (pre-saved with user's exact credentials so Render deployments always have them ready)
-let upstoxConfig = {
-  apiKey: process.env.UPSTOX_API_KEY || "",
-  apiSecret: process.env.UPSTOX_API_SECRET || "",
-  redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
-  accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
-  userName: process.env.UPSTOX_USER_NAME || "",
-  userEmail: process.env.UPSTOX_USER_EMAIL || "",
-  userClientCode: process.env.UPSTOX_CLIENT_CODE || process.env.UPSTOX_ID || "",
-  mobile: process.env.UPSTOX_MOBILE || "",
-  pin: process.env.UPSTOX_PIN || "",
-  totpSecret: process.env.UPSTOX_TOTP_SECRET || process.env.TOTP_SECRET_KEY || "",
-  tokenGeneratedAt: "",
-  tokenExpiresAt: "",
-  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "",
-};
+const upstoxConfig = sharedUpstoxConfig;
+
 
 // In- e ory Paper / Execution Order Book
 
 // ================= API ROUTES =================
 
 // 1. Health check & Render 24x7 Anti-Sleep / Keep-Alive Wakeup Engine
-const recordWakeupPing = registerHealthRoutes(app);
+registerRoutes(app);
 
 app.post("/api/bot/sync-history-brokerage", async (req: Request, res: Response) => {
   try {
@@ -4677,7 +4746,7 @@ app.post("/api/bot/sync-history-brokerage", async (req: Request, res: Response) 
         }
       }
     }
-    savePostgresDb().catch(() => {});
+    savePostgresDb().catch(() => { /* ignore */ });
     return res.json({ success: true, updatedCount });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
@@ -4697,7 +4766,7 @@ async function executeRenderWakeupPing() {
     ),
   );
 
-  recordWakeupPing();
+
 
   for (const base of targets) {
     try {
@@ -4774,7 +4843,8 @@ function loadTokenBackupFromDisk(): string {
   } catch {}
   return "";
 }
-const invalidTokens = new Set<string>();
+const invalidTokens = sharedInvalidTokens;
+
 
 function isUpstoxAuthFailureError(resStatus: number, data: any): boolean {
   if (resStatus === 401) return true;
@@ -4801,15 +4871,21 @@ app.use(["/api/market", "/api/instrument", "/api/trading", "/api/bot"], (req, re
       !invalidTokens.has(token) &&
       !isJwtTokenActuallyExpired(token)
     ) {
-      if (upstoxConfig.accessToken !== token) {
-        upstoxConfig.accessToken = token;
-        saveTokenBackupToDisk(token);
-        savePostgresDb().catch(() => {});
+      // Logic Fix: Only adopt token from client if server's current token is missing or expired.
+      // This prevents stale localStorage tokens from overwriting a fresh server-synced token.
+      const currentToken = upstoxConfig.accessToken;
+      if (!currentToken || isJwtTokenActuallyExpired(currentToken) || invalidTokens.has(currentToken)) {
+        if (currentToken !== token) {
+          upstoxConfig.accessToken = token;
+          saveTokenBackupToDisk(token);
+          savePostgresDb().catch(() => { /* ignore */ });
+        }
       }
     }
   }
   next();
 });
+
 
 // Auto-Sync Approved Token from Public Webhook Relay (ntfy.sh) & Render Bridge
 let lastWebhookDiagnostic = "";
@@ -4895,7 +4971,7 @@ async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: stri
       }
       lastWebhookDiagnostic = `✅ Token auto-activated via ${sourceLabel} at ${upstoxConfig.tokenGeneratedAt}`;
       saveTokenBackupToDisk(cleanToken, upstoxConfig);
-      await savePostgresDb().catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
       return true;
     } else if (isUpstoxAuthFailureError(pRes.status, pData) && isJwtTokenActuallyExpired(cleanToken)) {
       invalidTokens.add(cleanToken);
@@ -4951,7 +5027,9 @@ async function syncTokenFromRenderWebhookBridge() {
             const ok = await activateDiscoveredToken(innerJwt[0], "Cloud Token Backup Relay");
             if (ok) return true;
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
       }
     }
   } catch (e) {}
@@ -4977,25 +5055,78 @@ async function syncTokenFromRenderWebhookBridge() {
           if (ok) return true;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Ignored
+    }
   }
   return false;
 }
 
-let cachedOutboundServerIp = FIXED_PRIMARY_IP;
-let lastIpCheckAt = Date.now();
-let isCurrentIpFromProxy = true;
+let lastIpCheckResult: { detectedIp: string; isProxy: boolean } | null = null;
+let lastIpCheckTimestamp = 0;
 
 async function getLiveOutboundIp(): Promise<{ ip: string; secondaryIp: string; isFixedProxy: boolean; actualDetectedIp: string; mismatch: boolean }> {
-  // Always return the fixed static IPs immediately so /api/market/config responds instantly (<20ms)
+  const proxyUrl = process.env.UPSTOX_PROXY_URL;
+  const now = Date.now();
+  
+  // Cache for 5 minutes
+  if (lastIpCheckResult && (now - lastIpCheckTimestamp < 5 * 60 * 1000)) {
+    const mismatch = lastIpCheckResult.detectedIp !== FIXED_PRIMARY_IP && lastIpCheckResult.detectedIp !== FIXED_SECONDARY_IP;
+    return { 
+      ip: FIXED_PRIMARY_IP, 
+      secondaryIp: FIXED_SECONDARY_IP, 
+      isFixedProxy: lastIpCheckResult.isProxy, 
+      actualDetectedIp: lastIpCheckResult.detectedIp || "Unknown",
+      mismatch: mismatch
+    };
+  }
+
+  let detectedIp = "";
+  let isProxy = false;
+
+  try {
+    const controller = new AbortController();
+    // Increase timeout to 8 seconds for slow proxy/network
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const options: any = { signal: controller.signal };
+    
+    const res = await fetch("https://api.ipify.org?format=json", options);
+    clearTimeout(timeout);
+    
+    if (res.ok) {
+      const data = await res.json();
+      detectedIp = data.ip;
+      isProxy = !!proxyUrl;
+      
+      // Update cache
+      lastIpCheckResult = { detectedIp, isProxy };
+      lastIpCheckTimestamp = now;
+    }
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      console.warn("[IP Check Timeout] api.ipify.org took too long (>8s)");
+    } else {
+      console.error("[IP Check Error]", e);
+    }
+    // Use fallback from previous check if available even if expired
+    if (lastIpCheckResult) {
+       detectedIp = lastIpCheckResult.detectedIp;
+       isProxy = lastIpCheckResult.isProxy;
+    }
+  }
+
+  const mismatch = detectedIp !== FIXED_PRIMARY_IP && detectedIp !== FIXED_SECONDARY_IP;
+
   return { 
     ip: FIXED_PRIMARY_IP, 
     secondaryIp: FIXED_SECONDARY_IP, 
-    isFixedProxy: true, 
-    actualDetectedIp: cachedOutboundServerIp || FIXED_PRIMARY_IP,
-    mismatch: false 
+    isFixedProxy: isProxy, 
+    actualDetectedIp: detectedIp || "Unknown",
+    mismatch: mismatch
   };
 }
+
+
 
 app.get("/api/market/config", async (req: Request, res: Response) => {
   const ipResult = await getLiveOutboundIp();
@@ -5024,10 +5155,10 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
   let userClientCode = upstoxConfig.userClientCode || lastVerifiedTokenStatus.userClientCode || process.env.UPSTOX_CLIENT_CODE || "";
 
   if (isConnected) {
-    // Use 15-second verification cache if we already verified this exact token recently
+    // Use 30-second verification cache to reduce API overhead and transient 429/401 errors
     if (
       lastVerifiedTokenStatus.token === upstoxConfig.accessToken &&
-      Date.now() - lastVerifiedTokenStatus.verifiedAt < 15000
+      Date.now() - lastVerifiedTokenStatus.verifiedAt < 30000
     ) {
       isConnected = true;
     } else {
@@ -5103,9 +5234,17 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
           profileData &&
           isUpstoxAuthFailureError(profileRes.status, profileData) &&
           (isJwtTokenActuallyExpired(upstoxConfig.accessToken) ||
-            Date.now() - lastVerifiedTokenStatus.verifiedAt > 5 * 60 * 1000)
+            Date.now() - lastVerifiedTokenStatus.verifiedAt > 10 * 60 * 1000)
         ) {
-          // Only mark expired if Upstox explicitly returned 401/UDAPI100050 AND JWT is expired or unverified for >5m
+          // Logic Fix: Only mark expired if Upstox explicitly returned 401/UDAPI100050 AND JWT is truly expired or unverified for >10m
+          const reason = isJwtTokenActuallyExpired(upstoxConfig.accessToken) ? "JWT Expired" : "Upstox 401 Auth Failure";
+          botLogs.unshift({
+            id: Date.now().toString(),
+            time: new Date().toLocaleTimeString(),
+            message: `⚠️ Upstox Token disconnected (${reason}). Please reconnect.`,
+            messageMalayalam: `⚠️ Upstox ടോക്കൺ കാലാവധി കഴിഞ്ഞു (${reason === "JWT Expired" ? "സമയപരിധി കഴിഞ്ഞു" : "അംഗീകാരം റദ്ദാക്കപ്പെട്ടു"}). ദയവായി വീണ്ടും കണക്ട് ചെയ്യുക.`,
+            type: "ERROR",
+          });
           invalidTokens.add(upstoxConfig.accessToken);
           upstoxConfig.accessToken = "";
           isConnected = false;
@@ -5117,6 +5256,7 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
       }
     }
   }
+
 
   res.json({
     hasApiKey: Boolean(upstoxConfig.apiKey || process.env.UPSTOX_API_KEY),
@@ -5156,7 +5296,7 @@ app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
   const targetProxy = typeof proxyUrl === "string" ? proxyUrl.trim() : "";
   if (!targetProxy) {
     upstoxConfig.outboundProxyUrl = "";
-    await savePostgresDb().catch(() => {});
+    await savePostgresDb().catch(() => { /* ignore */ });
     const fallbackIp = await getLiveOutboundIp();
     return res.json({
       success: true,
@@ -5189,7 +5329,7 @@ app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
     cachedOutboundServerIp = detectedIp;
     isCurrentIpFromProxy = true;
     lastIpCheckAt = Date.now();
-    await savePostgresDb().catch(() => {});
+    await savePostgresDb().catch(() => { /* ignore */ });
 
     return res.json({
       success: true,
@@ -5219,13 +5359,12 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
     let token = accessToken.trim();
     if (token.startsWith("Bearer ")) token = token.replace("Bearer ", "").trim();
     if (token) {
+      // If the user explicitly posts a token, we remove it from invalidTokens to allow re-validation.
+      // This helps in cases where a transient error might have incorrectly flagged a valid token.
       if (invalidTokens.has(token)) {
-        upstoxConfig.accessToken = "";
-        return res.status(401).json({
-          success: false,
-          error: "Upstox token has expired or is invalid. Please generate a new daily token.",
-        });
+        invalidTokens.delete(token);
       }
+
       try {
         const response = await fetch("https://api.upstox.com/v2/user/profile", {
           headers: {
@@ -5244,8 +5383,8 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
             "en-IN",
           );
           upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
-          await savePostgresDb().catch(() => {});
-          publishTokenToCloudRelay(token).catch(() => {});
+          await savePostgresDb().catch(() => { /* ignore */ });
+          publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
         } else if (isUpstoxAuthFailureError(response.status, data)) {
           invalidTokens.add(token);
           upstoxConfig.accessToken = "";
@@ -5264,7 +5403,7 @@ app.post("/api/market/config", async (req: Request, res: Response) => {
     }
   }
 
-  await savePostgresDb().catch(() => {});
+  await savePostgresDb().catch(() => { /* ignore */ });
 
   res.json({
     success: true,
@@ -5292,10 +5431,10 @@ app.post("/api/market/save-config", (req: Request, res: Response) => {
     const cleanToken = accessToken.trim();
     upstoxConfig.accessToken = cleanToken;
     invalidTokens.delete(cleanToken);
-    publishTokenToCloudRelay(cleanToken).catch(() => {});
+    publishTokenToCloudRelay(cleanToken).catch(() => { /* ignore */ });
   }
 
-  savePostgresDb().catch(() => {});
+  savePostgresDb().catch(() => { /* ignore */ });
 
   res.json({
     success: true,
@@ -5349,8 +5488,8 @@ app.post("/api/market/daily-token", async (req: Request, res: Response) => {
         botConfig.mode = "UPSTOX_LIVE";
       }
       invalidTokens.delete(token);
-      await savePostgresDb().catch(() => {});
-      publishTokenToCloudRelay(token).catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
+      publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
 
       return res.json({
         success: true,
@@ -5436,8 +5575,8 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
         // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
         invalidTokens.delete(data.access_token);
-        await savePostgresDb().catch(() => {});
-        publishTokenToCloudRelay(data.access_token).catch(() => {});
+        await savePostgresDb().catch(() => { /* ignore */ });
+        publishTokenToCloudRelay(data.access_token).catch(() => { /* ignore */ });
 
         return res.send(`
           <html><body style="background:#0b0f19;color:#34d399;font-family:sans-serif;padding:40px;text-align:center;">
@@ -5503,7 +5642,7 @@ const handleUpstoxWebhook = async (req: Request, res: Response) => {
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
       // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
       invalidTokens.delete(cleanToken);
-      await savePostgresDb().catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
       botLogs.unshift({
         id: Date.now().toString(),
         time: new Date().toLocaleTimeString(),
@@ -5695,6 +5834,8 @@ function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, timeoutMs =
       rawHeaders["content-length"] = String(Buffer.byteLength(bodyStr, "utf-8"));
     }
 
+    const reqAgent = parsed.hostname.includes("upstox") ? getUpstoxAgent() : ipv4HttpsAgent;
+
     const req = https.request(
       {
         protocol: parsed.protocol,
@@ -5703,7 +5844,7 @@ function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, timeoutMs =
         path: parsed.pathname + parsed.search,
         method,
         headers: rawHeaders,
-        agent: ipv4HttpsAgent,
+        agent: reqAgent,
         family: 4,
         timeout: timeoutMs,
       },
@@ -5717,7 +5858,9 @@ function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, timeoutMs =
             if (enc === "gzip") buffer = zlib.gunzipSync(buffer);
             else if (enc === "deflate") buffer = zlib.inflateSync(buffer);
             else if (enc === "br") buffer = zlib.brotliDecompressSync(buffer);
-          } catch {}
+          } catch {
+      // Ignored
+    }
           const textBody = buffer.toString("utf-8");
           const status = res.statusCode || 200;
           const setCookies: string[] = Array.isArray(res.headers["set-cookie"])
@@ -5812,7 +5955,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
   if (secret) upstoxConfig.apiSecret = secret;
   if (uri) upstoxConfig.redirectUri = uri;
   if (cleanPin) upstoxConfig.pin = cleanPin;
-  await savePostgresDb().catch(() => {});
+  await savePostgresDb().catch(() => { /* ignore */ });
 
   if (cleanMobile.length !== 10) {
     return res.status(400).json({
@@ -5845,7 +5988,9 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         const parsedLoc = new URL(loc);
         userId = parsedLoc.searchParams.get("user_id") || "";
         internalClientId = parsedLoc.searchParams.get("client_id") || "";
-      } catch {}
+      } catch {
+      // Ignored
+    }
     }
 
     // High-Resilience Fallback: If Upstox dialog was Cloudflare-throttled, use known credentials for user's App
@@ -5898,7 +6043,7 @@ app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
         newSess,
         ...recentAutoOtpSessions.filter((s) => s.validateOtpToken !== newSess.validateOtpToken),
       ].slice(0, 10);
-      await savePostgresDb().catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
 
       return res.json({
         success: true,
@@ -6152,7 +6297,9 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
           } else {
             tokenData = resJson;
           }
-        } catch (e) {}
+        } catch (e) {
+      // Ignored
+    }
       }
 
       if (tokenData.access_token) {
@@ -6166,8 +6313,8 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
         // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
         invalidTokens.delete(tokenData.access_token);
-        await savePostgresDb().catch(() => {});
-        publishTokenToCloudRelay(tokenData.access_token).catch(() => {});
+        await savePostgresDb().catch(() => { /* ignore */ });
+        publishTokenToCloudRelay(tokenData.access_token).catch(() => { /* ignore */ });
 
         return res.json({
           success: true,
@@ -6229,8 +6376,8 @@ app.post("/api/market/totp-login", async (req: Request, res: Response) => {
         botConfig.mode = "UPSTOX_LIVE";
       }
       invalidTokens.delete(token);
-      await savePostgresDb().catch(() => {});
-      publishTokenToCloudRelay(token).catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
+      publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
 
       return res.json({
         success: true,
@@ -6274,7 +6421,7 @@ app.post("/api/market/request-token-v3", async (req: Request, res: Response) => 
 
   upstoxConfig.apiKey = key;
   upstoxConfig.apiSecret = secret;
-  await savePostgresDb().catch(() => {});
+  await savePostgresDb().catch(() => { /* ignore */ });
 
   try {
     const response = await fetch(
@@ -6401,7 +6548,7 @@ app.post("/api/market/token", async (req: Request, res: Response) => {
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
       invalidTokens.delete(data.access_token);
       savePostgresDb();
-      publishTokenToCloudRelay(data.access_token).catch(() => {});
+      publishTokenToCloudRelay(data.access_token).catch(() => { /* ignore */ });
 
       return res.json({
         success: true,
@@ -6492,7 +6639,9 @@ app.get("/api/market/callback", async (req: Request, res: Response) => {
               } else {
                 setTimeout(() => { window.location.href = '/'; }, 1500);
               }
-            } catch (e) {}
+            } catch (e) {
+      // Ignored
+    }
           </script>
         </body></html>
       `);
@@ -6516,70 +6665,9 @@ app.get("/api/market/callback", async (req: Request, res: Response) => {
   }
 });
 
+
 // 3. User Profile & Margin
-app.get("/api/market/profile", async (req: Request, res: Response) => {
-  const token =
-    req.headers.authorization?.replace("Bearer ", "") ||
-    upstoxConfig.accessToken;
-  if (!token) {
-    return res.status(401).json({ error: "Not authenticated with Upstox" });
-  }
-
-  try {
-    const profileRes = await fetch("https://api.upstox.com/v2/user/profile", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-        "Api-Version": "2.0",
-      },
-    });
-    const profileData = await profileRes.json();
-
-    const fundsRes = await fetch(
-      "https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Api-Version": "2.0",
-        },
-      },
-    );
-    const fundsData = await fundsRes.json();
-
-    let availableMargin = 0;
-    let usedMargin = 0;
-
-    if (
-      fundsData.status === "success" &&
-      fundsData.data &&
-      fundsData.data.equity
-    ) {
-      availableMargin = fundsData.data.equity.available_margin || 0;
-      usedMargin = fundsData.data.equity.used_margin || 0;
-    }
-
-    if (profileData.status === "success" && profileData.data) {
-      return res.json({
-        isConnected: true,
-        userName: profileData.data.user_name || "Live Trader",
-        userEmail: profileData.data.email || "trader@upstox.com",
-        broker: "Upstox Securities Pvt Ltd",
-        availableMargin,
-        usedMargin,
-      });
-    } else {
-      return res
-        .status(401)
-        .json({
-          error: "Failed to fetch Upstox profile",
-          details: profileData,
-        });
-    }
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message });
-  }
-});
+// Profile route moved to server/routes/upstox.ts
 
 // Real-time Upstox Positions
 app.get("/api/market/positions", async (req: Request, res: Response) => {
@@ -6809,7 +6897,9 @@ app.get("/api/market/holdings", async (req: Request, res: Response) => {
                   candles: dailyCandles,
                 };
               }
-            } catch {}
+            } catch {
+      // Ignored
+    }
           }
 
           let ema20 = ltp;
@@ -7118,13 +7208,11 @@ app.get("/api/market/brokerage", async (req: Request, res: Response) => {
   });
 });
 
-let lastQuotesCache: { timestamp: number; data: any; quotes: any[] } = {
-  timestamp: 0,
-  data: {},
-  quotes: [],
-};
+let lastQuotesCache = sharedLastQuotesCache;
+
 let isFetchingCentralQuotes = false;
-const intradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
+const intradayCandleCache = sharedIntradayCandleCache;
+
 
 function formatUpstoxQuotesToStandardList(upstoxData: any) {
   const list: any[] = [];
@@ -7579,8 +7667,8 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
             "Api-Version": "2.0",
           },
         });
-        const histData = await histRes.json();
-        if (histData.status === "success" && histData.data?.candles?.length > 0) {
+        const histData = await histRes.json().catch(() => null);
+        if (histData?.status === "success" && histData?.data?.candles?.length > 0) {
           data.status = "success";
           data.data = histData.data;
         } else if (normInterval !== "1d") {
@@ -7593,8 +7681,8 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
               "Api-Version": "2.0",
             },
           });
-          const hist30Data = await hist30Res.json();
-          if (hist30Data.status === "success" && hist30Data.data?.candles?.length > 0) {
+          const hist30Data = await hist30Res.json().catch(() => null);
+          if (hist30Data?.status === "success" && hist30Data?.data?.candles?.length > 0) {
             data.status = "success";
             data.data = hist30Data.data;
           }
@@ -7649,7 +7737,9 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
             data = { status: "success", data: { candles: yCandles } };
           }
         }
-      } catch {}
+      } catch {
+      // Ignored
+    }
     }
 
     // Option Premium Candle Synthesizer: If instrument is an Option contract (CE/PE) and returned no candles,
@@ -7756,7 +7846,9 @@ app.get("/api/market/candles", async (req: Request, res: Response) => {
               globalLiveQuotes[instrumentKey] = { last_price: liveTickPrice };
             }
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
       }
 
       if (liveTickPrice > 0 && candles.length > 0) {
@@ -8197,7 +8289,7 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
         isOption: /\b(CE|PE)\b/i.test(symbol || "") || String(resolvedKey).includes("FO"),
       });
     }
-    savePostgresDb().catch(() => {});
+    savePostgresDb().catch(() => { /* ignore */ });
     return res.json({ success: true, order: newOrder });
   }
   if (mode === "UPSTOX_LIVE") {
@@ -8238,7 +8330,9 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
               instrKey = matchedH.instrument_token;
             }
           }
-        } catch {}
+        } catch {
+      // Ignored
+    }
       }
 
       const upstoxProduct = productType === "INTRADAY" ? "I" : "D";
@@ -8277,9 +8371,10 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
   res.json({ success: false, error: "Invalid mode" });
 });
 
-let paperOrders: any[] = [];
-let paperPositions: any[] = [];
-let paperTradeHistory: any[] = [];
+const paperOrders = sharedPaperOrders;
+const paperPositions = sharedPaperPositions;
+const paperTradeHistory = sharedPaperTradeHistory;
+
 let customHoldingBuyPrices: Record<string, number> = {
   "SUMEETINDS": 10.50,
   "INE235C01036": 10.50,
@@ -8566,7 +8661,7 @@ loadPostgresDb().then(() => {
   // Continuously poll public webhook relay & Render bridge every 6 seconds when not connected
   setInterval(() => {
     if (!upstoxConfig.accessToken || invalidTokens.has(upstoxConfig.accessToken)) {
-      syncTokenFromRenderWebhookBridge().catch(() => {});
+      syncTokenFromRenderWebhookBridge().catch(() => { /* ignore */ });
     }
   }, 6000);
 });
@@ -8842,7 +8937,7 @@ app.post(
           time: new Date().toISOString(),
           mode: "PAPER_TRADING",
         });
-        savePostgresDb().catch(() => {});
+        savePostgresDb().catch(() => { /* ignore */ });
         return res.json({ success: true, closedPosition: closedPos });
       }
       return res.json({ success: true });
@@ -8904,7 +8999,7 @@ app.post("/api/trading/squareoff-all", async (req: Request, res: Response) => {
       if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
     });
     paperPositions = [];
-    savePostgresDb().catch(() => {});
+    savePostgresDb().catch(() => { /* ignore */ });
     return res.json({ success: true });
   }
 
@@ -8948,7 +9043,7 @@ app.post("/api/trading/squareoff-all", async (req: Request, res: Response) => {
         disclosed_quantity: 0,
         trigger_price: 0,
         is_amo: false,
-      }, token).catch(() => {});
+      }, token).catch(() => { /* ignore */ });
     }
     cachedUpstoxLivePositions = { timestamp: 0, list: [] };
     return res.json({ success: true, squaredOffCount: openList.length });
@@ -9252,7 +9347,7 @@ app.post("/api/telegram/test-alert", async (req: Request, res: Response) => {
       botConfig.telegramBotToken = token;
       botConfig.telegramChatId = chat;
       botConfig.telegramAlertsEnabled = true;
-      await savePostgresDb().catch(() => {});
+      await savePostgresDb().catch(() => { /* ignore */ });
       return res.json({
         success: true,
         message: "Test message sent to Telegram successfully! Configuration saved permanently.",
@@ -9314,7 +9409,9 @@ app.get("/api/stream/quotes", (req, res) => {
           `data: ${JSON.stringify({ type: "QUOTES", data: result.quotes })}\n\n`,
         );
       }
-    } catch (err) {}
+    } catch (err) {
+      // Quietly ignored
+    }
   };
 
   const quoteInterval = setInterval(fetchAndPushQuotes, 1000);
@@ -9371,7 +9468,9 @@ wss.on("connection", (ws) => {
         });
         broadcastUpstoxQuotesToWs();
       }
-    } catch (e) {}
+    } catch (e) {
+      // Ignored
+    }
   });
 });
 
@@ -9399,7 +9498,7 @@ app.get("/api/debug-state", (req, res) => {
 });
 
 async function setupVite() {
-  await loadPostgresDb().catch(() => {});
+  await loadPostgresDb().catch(() => { /* ignore */ });
   if (!upstoxConfig.accessToken) {
     syncTokenFromRenderWebhookBridge().catch(() => {});
   }

@@ -13,6 +13,8 @@ import {
   ChevronDown,
   ChevronUp,
   Settings,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { UpstoxApiConfig, Language } from '../types';
 import { translations } from '../translations';
@@ -29,7 +31,13 @@ interface UpstoxApiModalProps {
 const DEFAULT_API_KEY = '';
 const DEFAULT_API_SECRET = '';
 const DEFAULT_MOBILE = '';
-const DEFAULT_REDIRECT_URI = '';
+
+const getFallbackRedirectUri = (): string => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}/api/market/callback`;
+  }
+  return 'http://localhost:3000/api/market/callback';
+};
 
 export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   isOpen,
@@ -57,9 +65,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   );
   const [accessToken, setAccessToken] = useState(config.accessToken || '');
   const [redirectUri, setRedirectUri] = useState(
-    config.redirectUri && !config.redirectUri.includes('localhost') && !config.redirectUri.includes('127.0.0.1')
-      ? config.redirectUri
-      : DEFAULT_REDIRECT_URI
+    config.redirectUri && config.redirectUri.trim() !== ''
+      ? config.redirectUri.trim()
+      : getFallbackRedirectUri()
   );
 
   // Saved mobile number (configured on the server)
@@ -106,18 +114,25 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (data.success) {
         setIsFixedProxyActive(Boolean(data.isFixedProxy));
         if (remove) setProxyUrlInput('');
-        if (data.serverOutboundIp) setServerStaticIp(data.serverOutboundIp);
+        if (data.serverOutboundIp) {
+          setServerStaticIp(data.serverOutboundIp);
+          setActualDetectedIp(data.serverOutboundIp);
+        }
         setStatusMsg({
           type: 'success',
           text: data.message || `✅ Proxy Updated! Static IP: ${data.serverOutboundIp}`,
         });
       } else {
+        setIsFixedProxyActive(false);
+        setActualDetectedIp('34.34.244.48');
         setStatusMsg({
           type: 'error',
-          text: data.error || 'Failed to connect to proxy',
+          text: (data.error || 'Failed to connect to proxy') + (data.suggestedFix ? ` — ${data.suggestedFix}` : ''),
         });
       }
     } catch (e: any) {
+      setIsFixedProxyActive(false);
+      setActualDetectedIp('34.34.244.48');
       setStatusMsg({
         type: 'error',
         text: 'Proxy test network error: ' + (e?.message || 'Failed'),
@@ -144,9 +159,9 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         setActiveTab('DAILY_TOKEN');
       }
       const cleanUri =
-        config.redirectUri && !config.redirectUri.includes('localhost') && !config.redirectUri.includes('127.0.0.1')
-          ? config.redirectUri
-          : DEFAULT_REDIRECT_URI;
+        config.redirectUri && config.redirectUri.trim() !== ''
+          ? config.redirectUri.trim()
+          : getFallbackRedirectUri();
       setRedirectUri(cleanUri);
       setStatusMsg(null);
 
@@ -164,8 +179,19 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           }
           setServerStaticIp('8.234.113.241');
           setServerSecondaryIp('34.34.254.178');
-          setIsFixedProxyActive(true);
           setProxyUrlInput('http://8.234.113.241:8888');
+
+          fetch('/api/market/proxy-status')
+            .then((pr) => pr.json())
+            .then((pData) => {
+              if (pData.success) {
+                setIsFixedProxyActive(Boolean(pData.isProxyActive));
+                if (pData.activeIp) setActualDetectedIp(pData.activeIp);
+                if (pData.configuredProxy) setProxyUrlInput(pData.configuredProxy);
+              }
+            })
+            .catch(() => {});
+
           if (data.apiSecret && data.apiSecret !== '••••••••') {
             setApiSecret(String(data.apiSecret));
           }
@@ -404,55 +430,33 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     }
   };
 
-  // Resilient POST helper: retries local endpoint and automatically falls back to high-speed Cloud Relay if ETIMEDOUT occurs
+  // Resilient POST helper for local API calls
   const postWithAutoRetryAndRelay = async (endpoint: string, payload: any) => {
-    const origins = [
-      '',
-      '',
-      'https://ais-pre-2kuhbzz5qyj5zbysxk6da3-173711515136.asia-southeast1.run.app',
-      'https://aizabiz.onrender.com',
-    ];
-    let lastError = 'Connection failed';
-    let lastJson: any = null;
-
-    for (let i = 0; i < origins.length; i++) {
-      const base = origins[i];
-      if (base && typeof window !== 'undefined' && window.location.origin === base) continue;
-      try {
-        const res = await fetch(`${base}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        lastJson = data;
-        if (res.ok && (data.success || data.accessToken)) {
-          // If token was obtained via backup relay origin, sync it to local server too
-          if (base && data.accessToken) {
-            fetch('/api/market/daily-token', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ accessToken: data.accessToken }),
-            }).catch(() => {});
-          }
-          return { ok: true, data };
-        }
-        const errStr = String(data.error || '');
-        lastError = errStr || lastError;
-        // Only fail over to next origin if it was a network/timeout error (ETIMEDOUT / fetch failed / 500)
-        const isTimeoutOr500 =
-          res.status >= 500 ||
-          errStr.includes('ETIMEDOUT') ||
-          errStr.includes('fetch failed') ||
-          errStr.includes('തടസ്സപ്പെട്ടു');
-        if (!isTimeoutOr500) {
-          return { ok: false, data };
-        }
-      } catch (err: any) {
-        lastError = err.message || lastError;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data && (data.success || data.accessToken)) {
+        return { ok: true, data };
       }
+      const errStr = data?.error || (res.ok ? 'Operation failed' : `Server error (${res.status})`);
+      return { ok: false, data: data || { success: false, error: errStr } };
+    } catch (err: any) {
+      return {
+        ok: false,
+        data: {
+          success: false,
+          error:
+            err.message ||
+            (language === 'ml'
+              ? 'നെറ്റ്‌വർക്ക് കണക്ഷൻ തടസ്സപ്പെട്ടു. വീണ്ടും ശ്രമിക്കുക.'
+              : 'Network connection error. Please retry.'),
+        },
+      };
     }
-    return { ok: false, data: lastJson || { success: false, error: lastError } };
   };
 
   // Dedicated 1-click SMS OTP sender (works even if OTP box has text)
@@ -460,7 +464,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     setLoading(true);
     setStatusMsg(null);
     const cleanKey = (apiKey || DEFAULT_API_KEY).trim();
-    const cleanUri = (redirectUri || DEFAULT_REDIRECT_URI).trim();
+    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
     const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
 
     try {
@@ -509,7 +513,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     setStatusMsg(null);
 
     const cleanKey = (apiKey || DEFAULT_API_KEY).trim();
-    const cleanUri = (redirectUri || DEFAULT_REDIRECT_URI).trim();
+    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
     const trimmedInput = otpInput.trim();
     const digitsOnly = trimmedInput.replace(/\D+/g, '');
 
@@ -936,7 +940,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const allThree = '8.234.113.241, 34.34.254.178, 34.96.48.26';
+                      const allThree = '8.234.113.241, 34.34.254.178, 34.34.244.48';
                       navigator.clipboard?.writeText(allThree);
                       setStatusMsg({
                         type: 'success',
@@ -961,12 +965,25 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               </div>
 
               {/* Primary, Secondary & Container IP 3-Column Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
+                  isFixedProxyActive ? 'bg-emerald-950/40 border-emerald-500/60 shadow-sm' : 'bg-slate-900/90 border-slate-800'
+                }`}>
                   <div>
-                    <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
-                      1. PRIMARY STATIC IP
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
+                        1. PRIMARY STATIC IP
+                      </span>
+                      {isFixedProxyActive ? (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                          🟢 LIVE ROUTE
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          🟡 TIMEOUT
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs font-mono font-black text-emerald-400">
                       8.234.113.241
                     </span>
@@ -988,50 +1005,37 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   </button>
                 </div>
 
-                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+                <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
+                  !isFixedProxyActive ? 'bg-cyan-950/40 border-cyan-500/60 shadow-sm' : 'bg-slate-900/90 border-slate-800'
+                }`}>
                   <div>
-                    <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
-                      2. SECONDARY STATIC IP
-                    </span>
-                    <span className="text-xs font-mono font-black text-cyan-400">
-                      34.34.254.178
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText('34.34.254.178');
-                      setStatusMsg({
-                        type: 'success',
-                        text: language === 'ml'
-                          ? `📋 Secondary IP (34.34.254.178) കോപ്പി ചെയ്തു!`
-                          : `📋 Copied Secondary IP (34.34.254.178)!`,
-                      });
-                    }}
-                    className="px-2 py-1 rounded bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 border border-cyan-500/50 text-[10px] font-bold transition active:scale-95"
-                  >
-                    {language === 'ml' ? 'കോപ്പി' : 'Copy'}
-                  </button>
-                </div>
-
-                <div className="bg-slate-900/90 p-2.5 rounded-lg border border-amber-500/40 flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] text-amber-400 block font-bold tracking-wider">
-                      3. CONTAINER DIRECT IP
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] text-amber-400 block font-bold tracking-wider">
+                        2. CONTAINER IP (AI STUDIO)
+                      </span>
+                      {!isFixedProxyActive ? (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">
+                          🟢 LIVE ROUTE
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                          ⚪ BACKUP
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs font-mono font-black text-amber-300">
-                      34.96.48.26
+                      34.34.244.48
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard?.writeText('34.96.48.26');
+                      navigator.clipboard?.writeText('34.34.244.48');
                       setStatusMsg({
                         type: 'success',
                         text: language === 'ml'
-                          ? `📋 Direct IP (34.96.48.26) കോപ്പി ചെയ്തു! Upstox-ൽ നൽകുക.`
-                          : `📋 Copied Direct Container IP (34.96.48.26)!`,
+                          ? `📋 Current IP (34.34.244.48) കോപ്പി ചെയ്തു! ഇത് Upstox-ൽ Whitelist ചെയ്യുക.`
+                          : `📋 Copied Current IP (34.34.244.48)! Whitelist this in Upstox if not using a proxy.`,
                       });
                     }}
                     className="px-2 py-1 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition active:scale-95"
@@ -1040,6 +1044,35 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Troubleshooting hint when proxy VM is timed out */}
+              {!isFixedProxyActive && (
+                <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 text-[10px] space-y-1.5">
+                  <div className="flex items-center justify-between text-amber-300 font-bold">
+                    <span>💡 പ്രോക്സി വി.എം കണക്റ്റ് ചെയ്യാൻ ഈ കമാൻഡ് VM-ൽ റൺ ചെയ്യുക:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cmd = "sudo sed -i 's/^Listen /#Listen /' /etc/tinyproxy/tinyproxy.conf && sudo sed -i 's/^Allow /#Allow /' /etc/tinyproxy/tinyproxy.conf && sudo systemctl restart tinyproxy";
+                        navigator.clipboard?.writeText(cmd);
+                        setStatusMsg({
+                          type: 'success',
+                          text: '📋 കമാൻഡ് കോപ്പി ചെയ്തു! ഗൂഗിൾ ക്ലൗഡ് SSH ടർമിനലിൽ പേസ്റ്റ് ചെയ്യുക.',
+                        });
+                      }}
+                      className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[9px] font-bold"
+                    >
+                      കോപ്പി കമാൻഡ്
+                    </button>
+                  </div>
+                  <p className="text-slate-400 font-mono text-[9px] break-all bg-black/40 p-1.5 rounded border border-slate-800">
+                    sudo sed -i &apos;s/^Listen /#Listen /&apos; /etc/tinyproxy/tinyproxy.conf &amp;&amp; sudo sed -i &apos;s/^Allow /#Allow /&apos; /etc/tinyproxy/tinyproxy.conf &amp;&amp; sudo systemctl restart tinyproxy
+                  </p>
+                  <p className="text-slate-400 text-[9px]">
+                    (നിലവിൽ തടസ്സമില്ലാതെ ട്രേഡിങ് നടക്കാൻ കണ്ടെയ്‌നർ IP: <b>34.34.244.48</b> തനിയെ സജീവമാക്കിയിട്ടുണ്ട്).
+                  </p>
+                </div>
+              )}
 
               {/* Manual IP / Proxy Override Input (User Request) */}
               <div className="pt-2 border-t border-slate-800/50 space-y-2">
@@ -1167,7 +1200,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                   <a
                     href={`https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(
                       (apiKey || DEFAULT_API_KEY).trim()
-                    )}&redirect_uri=${encodeURIComponent((redirectUri || DEFAULT_REDIRECT_URI).trim())}`}
+                    )}&redirect_uri=${encodeURIComponent((redirectUri || getFallbackRedirectUri()).trim())}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold transition shadow"
@@ -1183,7 +1216,31 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
 
           {/* TAB 1: DAILY MANUAL TOKEN INPUT */}
           {activeTab === 'DAILY_TOKEN' && (
-            <form onSubmit={handleDailyTokenSubmit} className="space-y-4">
+            <div className="space-y-4">
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-indigo-950/60 to-purple-950/60 border border-indigo-500/40 space-y-2 text-center">
+                <div className="flex items-center justify-center gap-2 text-xs font-black text-indigo-300">
+                  <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+                  <span>{language === 'ml' ? '1-ക്ലിക്ക് ഓട്ടോമാറ്റിക് Upstox ലോഗിൻ (ഏറ്റവും എളുപ്പവഴി)' : '1-Click Automatic Upstox Login'}</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-snug">
+                  {language === 'ml'
+                    ? 'OTP കാത്തുനിൽക്കേണ്ടതില്ല! താഴെയുള്ള ബട്ടൺ അമർത്തി Upstox ഫിംഗർപ്രിന്റ്/ആപ്പ് വഴി ഒരൊറ്റ ക്ലിക്കിൽ ലൈവ് ആവുക:'
+                    : 'No need to wait for SMS OTP! Connect instantly via Upstox fingerprint or App:'}
+                </p>
+                <a
+                  href={`https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(
+                    (apiKey || DEFAULT_API_KEY).trim()
+                  )}&redirect_uri=${encodeURIComponent((redirectUri || getFallbackRedirectUri()).trim())}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white text-xs font-black transition shadow-lg flex items-center justify-center gap-2 active:scale-95 touch-manipulation"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>{language === 'ml' ? '🔗 1-ക്ലിക്ക് Upstox ലോഗിൻ (തൽക്ഷണം കണക്റ്റ് ചെയ്യാം)' : '🔗 1-Click Upstox Login (Instant)'}</span>
+                </a>
+              </div>
+
+              <form onSubmit={handleDailyTokenSubmit} className="space-y-4">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-200">
@@ -1230,7 +1287,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                 </button>
               </div>
             </form>
-          )}
+          </div>
+        )}
 
           {/* TAB 2: ONLY OTP INPUT & AUTOMATIC CONNECTION (ALL UNNECESSARY OPTIONS REMOVED) */}
           {activeTab === 'API_KEYS' && (

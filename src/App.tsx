@@ -102,7 +102,9 @@ export const App: React.FC = () => {
       if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
         return savedMode;
       }
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
     return 'PAPER_TRADING';
   });
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -143,8 +145,8 @@ export const App: React.FC = () => {
     maxCapitalPerTrade: 0, // 0 = Auto Dynamic Funds (100% Real Account Margin Sizing)
     maxTradesPerDay: 8,
     riskPerTradePercent: 1.5,
-    stopLossPercent: 16.0,
-    targetProfitPercent: 35.0,
+    stopLossPercent: 12.0,
+    targetProfitPercent: 30.0,
     trailingStopLoss: true,
     trailingStepPercent: 5,
     dailyMaxLossLimit: 2000,
@@ -178,7 +180,9 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
     return [];
   });
   const [holdings, setHoldings] = useState<Holding[]>([]);
@@ -189,7 +193,9 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
     return [];
   });
 
@@ -197,7 +203,9 @@ export const App: React.FC = () => {
     if (orders.length > 0) {
       try {
         localStorage.setItem('aizabiz_persisted_orders_v2', JSON.stringify(orders));
-      } catch {}
+      } catch (e) {
+      // Ignored
+    }
     }
   }, [orders]);
 
@@ -205,7 +213,9 @@ export const App: React.FC = () => {
     if (tradeHistory.length > 0) {
       try {
         localStorage.setItem('aizabiz_persisted_trade_history_v2', JSON.stringify(tradeHistory));
-      } catch {}
+      } catch (e) {
+      // Ignored
+    }
     }
   }, [tradeHistory]);
 
@@ -265,9 +275,9 @@ export const App: React.FC = () => {
   // 0. 24x7 Render Anti-Sleep Wakeup Heartbeat (keeps Render server awake continuously)
   useEffect(() => {
     const triggerWakeup = () => {
-      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => {});
+      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => { /* ignore */ });
       if (typeof window !== 'undefined' && !window.location.hostname.includes('aizabiz.onrender.com')) {
-        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' }).catch(() => { /* ignore */ });
       }
     };
     triggerWakeup();
@@ -299,13 +309,17 @@ export const App: React.FC = () => {
               localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
               window.history.replaceState({}, document.title, window.location.pathname);
             }
-          } catch (e) {}
+          } catch (e) {
+        // Silently ignored
+      }
         }
 
         let savedDailyToken = '';
         try {
           savedDailyToken = localStorage.getItem('upstox_daily_token') || '';
-        } catch (e) {}
+        } catch (e) {
+        // Silently ignored
+      }
 
         const headers: Record<string, string> = {};
         if (savedDailyToken) {
@@ -325,10 +339,12 @@ export const App: React.FC = () => {
             if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
               preferredMode = saved as ExecutionMode;
             }
-          } catch {}
-          function savedModeIsValid(v: string | null): v is ExecutionMode {
+          } catch (e) {
+      // Ignored
+    }
+          const savedModeIsValid = (v: string | null): v is ExecutionMode => {
             return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
-          }
+          };
           const finalMode: ExecutionMode =
             preferredMode ||
             (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE'
@@ -341,7 +357,7 @@ export const App: React.FC = () => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ...botRes.value, mode: preferredMode }),
-            }).catch(() => {});
+            }).catch(() => { /* ignore */ });
           }
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
@@ -357,17 +373,23 @@ export const App: React.FC = () => {
                   isJwtExpired = true;
                 }
               }
-            } catch {}
+            } catch (e) {
+      // Ignored
+    }
           }
           if (cfg.tokenExpired && isJwtExpired) {
             try {
               localStorage.removeItem('upstox_daily_token');
-            } catch (e) {}
+            } catch (e) {
+        // Silently ignored
+      }
             cfg.accessToken = '';
           } else if (cfg.isConnected && cfg.accessToken) {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
-            } catch (e) {}
+            } catch (e) {
+        // Silently ignored
+      }
           } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
             cfg.accessToken = savedDailyToken;
             cfg.isConnected = true;
@@ -391,7 +413,9 @@ export const App: React.FC = () => {
             if (cfg.isConnected && cfg.accessToken) {
               try {
                 localStorage.setItem('upstox_daily_token', cfg.accessToken);
-              } catch {}
+              } catch (e) {
+      // Ignored
+    }
             }
             setApiConfig(prev => ({
               ...prev,
@@ -410,7 +434,9 @@ export const App: React.FC = () => {
             }));
           }
         }
-      } catch {}
+      } catch (e) {
+      // Ignored
+    }
     }, 4000);
     return () => clearInterval(configSyncInterval);
   }, []);
@@ -424,7 +450,9 @@ export const App: React.FC = () => {
         if (!token) {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
-          } catch (e) {}
+          } catch (e) {
+        // Silently ignored
+      }
         }
 
         const headers: Record<string, string> = {};
@@ -468,9 +496,13 @@ export const App: React.FC = () => {
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
           }
-        } catch {}
+        } catch (e) {
+      // Ignored
+    }
       };
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
 
     return () => {
       isMounted = false;
@@ -485,7 +517,9 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {}
+      } catch (e) {
+        // Silently ignored
+      }
     }
 
     const headers: Record<string, string> = {};
@@ -825,7 +859,9 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {}
+      } catch (e) {
+        // Silently ignored
+      }
     }
 
     const headers: Record<string, string> = {};
@@ -860,7 +896,9 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {}
+      } catch (e) {
+        // Silently ignored
+      }
     }
 
     const headers: Record<string, string> = {};
@@ -917,7 +955,9 @@ export const App: React.FC = () => {
           });
         }
       }
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
   }, []);
 
   // Fetch real Upstox live positions AND Paper Trading positions/orders from backend
@@ -926,7 +966,9 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {}
+      } catch (e) {
+        // Silently ignored
+      }
     }
 
     const headers: Record<string, string> = {};
@@ -1059,7 +1101,9 @@ export const App: React.FC = () => {
               });
             }
           }
-        } catch {}
+        } catch (e) {
+      // Ignored
+    }
       }
     } catch (e) {
       console.warn('Positions fetch notice:', e);
@@ -1241,7 +1285,9 @@ export const App: React.FC = () => {
         ]);
         return;
       }
-    } catch {}
+    } catch (e) {
+      // Ignored
+    }
 
     const closedPos: Position = {
       ...pos,
@@ -1329,7 +1375,9 @@ export const App: React.FC = () => {
         try {
           localStorage.removeItem('aizabiz_persisted_orders_v2');
           localStorage.removeItem('aizabiz_persisted_trade_history_v2');
-        } catch {}
+        } catch (e) {
+      // Ignored
+    }
         alert(language === 'ml' ? 'അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു!' : 'Account reset successfully!');
         window.location.reload();
       }
@@ -1396,7 +1444,9 @@ export const App: React.FC = () => {
             liveLot = Number(data.lotSize);
           }
         }
-      } catch {}
+      } catch (e) {
+      // Ignored
+    }
     }
 
     const baseLot = liveLot > 0 ? liveLot : 1;
@@ -1618,7 +1668,9 @@ export const App: React.FC = () => {
         if (!token) {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
-          } catch {}
+          } catch (e) {
+      // Ignored
+    }
         }
         const headers: Record<string, string> = {};
         if (token) {
@@ -1653,7 +1705,9 @@ export const App: React.FC = () => {
           );
           setActiveSignal(matchingSig || sigsRes.value[0]);
         }
-      } catch {}
+      } catch (e) {
+      // Ignored
+    }
       fetchLivePositions();
     };
 
@@ -1829,7 +1883,9 @@ export const App: React.FC = () => {
         setMode={(newMode) => {
           try {
             localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
-          } catch {}
+          } catch (e) {
+      // Ignored
+    }
           setMode(newMode);
           setBotConfig(prev => {
             const updated = { ...prev, mode: newMode };
@@ -1837,7 +1893,7 @@ export const App: React.FC = () => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updated),
-            }).catch(() => {});
+            }).catch(() => { /* ignore */ });
             return updated;
           });
         }}
@@ -1865,7 +1921,7 @@ export const App: React.FC = () => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updated),
-            }).catch(() => {});
+            }).catch(() => { /* ignore */ });
             return updated;
           });
         }}
@@ -1991,7 +2047,7 @@ export const App: React.FC = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updated),
-              }).catch(() => {});
+              }).catch(() => { /* ignore */ });
               return updated;
             });
           }
@@ -2036,15 +2092,16 @@ export const App: React.FC = () => {
               </span>
               <span className="text-slate-300 text-[11px]">
                 {language === 'ml'
-                  ? `Upstox Developer Console-ൽ 8.234.113.241, 34.34.254.178, 34.96.48.26 എന്നീ 3 IP-കളും Whitelist ചെയ്യുക.`
-                  : `Please ensure IPs (8.234.113.241, 34.34.254.178, 34.96.48.26) are saved in Upstox Developer Console.`}
+                  ? `Upstox Developer Console-ൽ 8.234.113.241, 34.34.254.178, 34.34.244.48 എന്നീ 3 IP-കളും Whitelist ചെയ്യുക.`
+                  : `Please ensure IPs (8.234.113.241, 34.34.254.178, 34.34.244.48) are saved in Upstox Developer Console.`}
               </span>
+
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => {
-                const allThree = '8.234.113.241, 34.34.254.178, 34.96.48.26';
+                const allThree = '8.234.113.241, 34.34.254.178, 34.34.244.48';
                 navigator.clipboard?.writeText(allThree);
                 setIpCopiedNotice(true);
                 setTimeout(() => setIpCopiedNotice(false), 3000);
@@ -2392,7 +2449,9 @@ export const App: React.FC = () => {
                     if (cfg.mode) {
                       try {
                         localStorage.setItem('aizabiz_preferred_trading_mode', cfg.mode);
-                      } catch {}
+                      } catch (e) {
+      // Ignored
+    }
                       setMode(cfg.mode);
                     }
                     setBotConfig(prev => {
@@ -2401,7 +2460,7 @@ export const App: React.FC = () => {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(updated),
-                      }).catch(() => {});
+                      }).catch(() => { /* ignore */ });
                       return updated;
                     });
                   }}
@@ -2676,7 +2735,9 @@ export const App: React.FC = () => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(cfg),
             });
-          } catch {}
+          } catch (e) {
+      // Ignored
+    }
         }}
         language={language}
       />

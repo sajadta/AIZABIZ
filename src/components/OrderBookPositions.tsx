@@ -386,9 +386,15 @@ const PositionItem: React.FC<{
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-800/40 px-2 py-0.5 rounded">
                     {pos.productType === 'DELIVERY' ? 'Delivery' : 'Intraday'}
                   </span>
+                  {pos.isBtstHoldRecommended && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" /> BTST HOLD
+                    </span>
+                  )}
                   <span className="text-[10px] font-mono text-cyan-400 font-bold">
                     Qty: {pos.quantity}
                   </span>
+
                 </div>
               </div>
             </div>

@@ -71,7 +71,10 @@ export interface Position {
   openedAtMs?: number;
   isOption?: boolean;
   type?: string;
+  isBtstHoldRecommended?: boolean;
+  btstHoldLogged?: boolean;
   netPnl?: number;
+
   taxes?: {
     brokerage: number;
     stt: number;

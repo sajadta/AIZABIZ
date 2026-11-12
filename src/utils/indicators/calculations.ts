@@ -122,8 +122,8 @@ export function calculateSupertrend(
 
   for (let i = 0; i < candles.length; i++) {
     const hl2 = (candles[i].high + candles[i].low) / 2;
-    let basicUpper = hl2 + multiplier * atr[i];
-    let basicLower = hl2 - multiplier * atr[i];
+    const basicUpper = hl2 + multiplier * atr[i];
+    const basicLower = hl2 - multiplier * atr[i];
 
     let finalUpper = basicUpper;
     let finalLower = basicLower;
