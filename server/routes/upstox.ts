@@ -1,7 +1,9 @@
 import express from 'express';
+import fsSync from 'fs';
 import { 
   upstoxConfig, setUpstoxConfig, invalidTokens, cachedUpstoxLivePositions, 
-  activeAutoOtpSession, setActiveAutoOtpSession, customHoldingBuyPrices
+  activeAutoOtpSession, setActiveAutoOtpSession, customHoldingBuyPrices,
+  PERSISTENT_TOKEN_BACKUP_PATH
 } from '../state';
 import { 
   resilientFetchJson, isUpstoxAuthFailureError, isJwtTokenActuallyExpired, 

@@ -1,6 +1,6 @@
-import type { Express } from "express";
+import express from "express";
 
-export function registerHealthRoutes(app: Express) {
+export function registerHealthRoutes(app: express.Application) {
   let lastWakeupPingAt = new Date().toISOString();
   let wakeupPingCount = 0;
 

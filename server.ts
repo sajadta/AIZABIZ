@@ -28,6 +28,7 @@ import {
   calculateAffordableLotsWithBrokerage,
 } from "./src/utils/indicators";
 import express from "express";
+import compression from "compression";
 import type { Request, Response } from "express";
 import path from "path";
 import dotenv from "dotenv";
@@ -214,7 +215,7 @@ app.post('/api/paper-trading/reset', async (req: Request, res: Response) => {
 });
 
 app.post('/api/bot/clear-ip-warning', (req: Request, res: Response) => {
-  botLogs = botLogs.filter((l) => !l.message?.includes('static IP restrictions'));
+  botLogs.splice(0, botLogs.length, ...botLogs.filter((l) => !l.message?.includes('static IP restrictions')));
   savePostgresDb().catch(() => { /* ignore */ });
   return res.json({ success: true, count: botLogs.length });
 });
@@ -240,7 +241,7 @@ app.post("/api/bot/config", (req, res) => {
   if (incoming.mode === "PAPER_TRADING" || incoming.mode === "UPSTOX_LIVE") {
     incoming.userExplicitlySelectedMode = true;
   }
-  botConfig = { ...botConfig, ...incoming };
+  Object.assign(botConfig, incoming);
   botConfig.maxCapitalPerTrade = 0; // 100% Full Dynamic Account Margin (Zero artificial caps)
   if (!botConfig.selectedIndexPriority) {
     botConfig.selectedIndexPriority = "FULL_AUTO_MULTI_INDEX";
@@ -1492,13 +1493,13 @@ setInterval(async () => {
     }
 
     // Sanitize paperPositions: remove any corrupted position that accidentally got an INDEX key or dummy ₹100 price
-    paperPositions = paperPositions.filter(
+    paperPositions.splice(0, paperPositions.length, ...paperPositions.filter(
       (p) =>
         p &&
         p.instrumentKey &&
         !String(p.instrumentKey).includes("INDEX") &&
         !(p.buyPrice === 100 && p.currentLTP === 100),
-    );
+    ));
 
     const nowIst = new Date(
       new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
@@ -1652,7 +1653,7 @@ setInterval(async () => {
               closedShort.closeTime = new Date().toISOString();
               paperTradeHistory.unshift(closedShort);
             }
-            paperPositions = paperPositions.filter((p) => p.id !== pos.id);
+            paperPositions.splice(0, paperPositions.length, ...paperPositions.filter((p) => p.id !== pos.id));
             savePostgresDb().catch(() => { /* ignore */ });
           }
         }
@@ -1918,13 +1919,6 @@ setInterval(async () => {
 
         // LIVE UNDERLYING INDEX PARAMETER RADAR (Checks live signal & indicators for the underlying index of this option!)
         const isCallOption = /\bCE\b/i.test(pos.symbol || "");
-        const underlyingKeyForPos =
-          pos.underlyingInstrumentKey || getUnderlyingOptionInstrumentKey(pos.symbol || "");
-        const latestUnderlyingSig = botSignals.find(
-          (s) =>
-            s.underlyingInstrumentKey === underlyingKeyForPos ||
-            getUnderlyingOptionInstrumentKey(s.symbol || "") === underlyingKeyForPos,
-        );
         let isUnderlyingParametersReversing = false;
         let underlyingReversalDetails = "";
         if (latestUnderlyingSig && latestUnderlyingSig.indicators) {
@@ -2393,7 +2387,7 @@ setInterval(async () => {
                 matchingBuyOrder.netRealizedPnL = finalNetPnL;
               }
             }
-            paperPositions = paperPositions.filter((p) => p.id !== pos.id);
+            paperPositions.splice(0, paperPositions.length, ...paperPositions.filter((p) => p.id !== pos.id));
             savePostgresDb().catch(() => { /* ignore */ });
           } else if (botConfig.mode === "UPSTOX_LIVE") {
             // Place sell order via Upstox API
@@ -4793,7 +4787,7 @@ setTimeout(executeRenderWakeupPing, 15 * 1000);
 setInterval(executeRenderWakeupPing, 5 * 60 * 1000);
 
 // Persistent Token Backup File inside project directory so restarts never lose today's valid token
-const PERSISTENT_TOKEN_BACKUP_PATH = path.join(process.cwd(), ".upstox_token_backup.json");
+// PERSISTENT_TOKEN_BACKUP_PATH is imported from ./server/state
 
 function isJwtTokenActuallyExpired(tokenStr: string): boolean {
   try {
@@ -5290,6 +5284,10 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     lastWebhookDiagnostic,
   });
 });
+
+let cachedOutboundServerIp = "";
+let isCurrentIpFromProxy = false;
+let lastIpCheckAt = 0;
 
 app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
   const { proxyUrl } = req.body;
@@ -8394,9 +8392,9 @@ const DEFAULT_PRESERVED_TRADES: any[] = [];
 const DEFAULT_PRESERVED_ORDERS: any[] = [];
 
 app.post("/api/paper/reset", async (req: Request, res: Response) => {
-  paperOrders = [];
-  paperPositions = [];
-  paperTradeHistory = [];
+  paperOrders.length = 0;
+  paperPositions.length = 0;
+  paperTradeHistory.length = 0;
   const requestedCapital = Number(req.body?.initialCapital);
   if (requestedCapital > 0) {
     paperInitialCapital = requestedCapital;
@@ -8421,8 +8419,6 @@ app.post("/api/paper/capital", async (req: Request, res: Response) => {
 });
 
 async function savePostgresDb() {
-  if (!paperTradeHistory) paperTradeHistory = [];
-  if (!paperOrders) paperOrders = [];
 
   const dbData = {
     botConfig,
@@ -8490,16 +8486,16 @@ async function loadPostgresDb() {
     );
     // Maintain clean position state
       if (Array.isArray(paperPositions)) {
-        paperPositions = paperPositions.filter(
+        paperPositions.splice(0, paperPositions.length, ...paperPositions.filter(
           (p) =>
             p &&
             p.instrumentKey &&
             !String(p.instrumentKey).includes("INDEX") &&
             !(p.buyPrice === 100 && p.currentLTP === 100)
-        );
+        ));
       }
     if (Array.isArray(paperTradeHistory)) {
-      paperTradeHistory = paperTradeHistory.filter((t) => t && Number(t.quantity || 0) > 0);
+      paperTradeHistory.splice(0, paperTradeHistory.length, ...paperTradeHistory.filter((t) => t && Number(t.quantity || 0) > 0));
       paperTradeHistory.forEach((t) => {
         // Ensure every closed trade has live Upstox brokerageCharges and netRealizedPnL populated
         const qty = Math.max(1, Number(t.quantity || 1));
@@ -8525,14 +8521,14 @@ async function loadPostgresDb() {
         "ORD1791183660094",
       ]);
       // Also purge any dummy ₹100 option orders (like NIFTY 22700 PE @ ₹100.00 created by old client loop before 9:15 AM)
-      paperOrders = paperOrders.filter(
+      paperOrders.splice(0, paperOrders.length, ...paperOrders.filter(
         (o) =>
           o &&
           !glitchOrderIds.has(o.id) &&
           !(Number(o.price) === 100 && /\b(CE|PE)\b/i.test(String(o.symbol || ""))) &&
           !String(o.symbol || "").includes("22700 PE") &&
           !String(o.symbol || "").includes("SENSEX 72600 PE"),
-      );
+      ));
       paperOrders.forEach((o) => {
         if (o.symbol === "MIDCPNIFTY 13725 PE" && o.type === "SELL" && o.id === "ORD1791360347709") {
           o.price = 207.6;
@@ -8603,29 +8599,29 @@ async function loadPostgresDb() {
       const raw = fsSync.readFileSync(dbFileToLoad, "utf-8");
       const data = JSON.parse(raw);
       if (data.botConfig) {
-        botConfig = { ...botConfig, ...data.botConfig };
+        Object.assign(botConfig, data.botConfig);
         botConfig.maxCapitalPerTrade = 0;
         botConfig.selectedIndexPriority = "FULL_AUTO_MULTI_INDEX";
       }
-      if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
+      if (data.upstoxConfig) Object.assign(upstoxConfig, data.upstoxConfig);
       if (data.activeAutoOtpSession) activeAutoOtpSession = data.activeAutoOtpSession;
-      if (data.paperOrders && data.paperOrders.length > 0) paperOrders = data.paperOrders;
-      else paperOrders = [...DEFAULT_PRESERVED_ORDERS];
-      if (data.paperPositions) paperPositions = data.paperPositions;
-      if (data.paperTradeHistory && data.paperTradeHistory.length > 0) paperTradeHistory = data.paperTradeHistory;
-      else paperTradeHistory = [...DEFAULT_PRESERVED_TRADES];
+      if (data.paperOrders && data.paperOrders.length > 0) paperOrders.splice(0, paperOrders.length, ...data.paperOrders);
+      else paperOrders.length = 0;
+      if (data.paperPositions) paperPositions.splice(0, paperPositions.length, ...data.paperPositions);
+      if (data.paperTradeHistory && data.paperTradeHistory.length > 0) paperTradeHistory.splice(0, paperTradeHistory.length, ...data.paperTradeHistory);
+      else paperTradeHistory.length = 0;
       if (data.customHoldingBuyPrices && typeof data.customHoldingBuyPrices === 'object') {
-        customHoldingBuyPrices = { ...customHoldingBuyPrices, ...data.customHoldingBuyPrices };
+        Object.assign(customHoldingBuyPrices, data.customHoldingBuyPrices);
       }
       normalizeUpstoxCfg();
     } else {
-      paperTradeHistory = [...DEFAULT_PRESERVED_TRADES];
-      paperOrders = [...DEFAULT_PRESERVED_ORDERS];
+      paperTradeHistory.length = 0;
+      paperOrders.length = 0;
       normalizeUpstoxCfg();
     }
   } catch (err) {
-    if (!paperTradeHistory || paperTradeHistory.length === 0) paperTradeHistory = [...DEFAULT_PRESERVED_TRADES];
-    if (!paperOrders || paperOrders.length === 0) paperOrders = [...DEFAULT_PRESERVED_ORDERS];
+    if (!paperTradeHistory || paperTradeHistory.length === 0) paperTradeHistory.length = 0;
+    if (!paperOrders || paperOrders.length === 0) paperOrders.length = 0;
     normalizeUpstoxCfg();
   }
 
@@ -8636,17 +8632,17 @@ async function loadPostgresDb() {
     if (rows && rows.length > 0) {
       const data = rows[0].data as any;
       if (data.botConfig) {
-        botConfig = { ...botConfig, ...data.botConfig };
+        Object.assign(botConfig, data.botConfig);
         botConfig.maxCapitalPerTrade = 0;
         botConfig.selectedIndexPriority = "FULL_AUTO_MULTI_INDEX";
       }
-      if (data.upstoxConfig) upstoxConfig = { ...upstoxConfig, ...data.upstoxConfig };
+      if (data.upstoxConfig) Object.assign(upstoxConfig, data.upstoxConfig);
       if (data.activeAutoOtpSession) activeAutoOtpSession = data.activeAutoOtpSession;
-      if (data.paperOrders) paperOrders = data.paperOrders;
-      if (data.paperPositions) paperPositions = data.paperPositions;
-      if (data.paperTradeHistory) paperTradeHistory = data.paperTradeHistory;
+      if (data.paperOrders) paperOrders.splice(0, paperOrders.length, ...data.paperOrders);
+      if (data.paperPositions) paperPositions.splice(0, paperPositions.length, ...data.paperPositions);
+      if (data.paperTradeHistory) paperTradeHistory.splice(0, paperTradeHistory.length, ...data.paperTradeHistory);
       if (data.customHoldingBuyPrices && typeof data.customHoldingBuyPrices === 'object') {
-        customHoldingBuyPrices = { ...customHoldingBuyPrices, ...data.customHoldingBuyPrices };
+        Object.assign(customHoldingBuyPrices, data.customHoldingBuyPrices);
       }
       normalizeUpstoxCfg();
       console.log("Loaded persistent data from PostgreSQL Cloud SQL!");
@@ -8998,7 +8994,7 @@ app.post("/api/trading/squareoff-all", async (req: Request, res: Response) => {
       paperTradeHistory.unshift(p);
       if (paperTradeHistory.length > 200) paperTradeHistory.length = 200;
     });
-    paperPositions = [];
+    paperPositions.length = 0;
     savePostgresDb().catch(() => { /* ignore */ });
     return res.json({ success: true });
   }
@@ -9058,7 +9054,7 @@ app.post("/api/trading/squareoff-all", async (req: Request, res: Response) => {
 app.post("/api/trading/paper-sync", (req: Request, res: Response) => {
   const { quotes } = req.body;
   if (quotes && Array.isArray(quotes)) {
-    paperPositions = paperPositions.map((pos) => {
+    paperPositions.splice(0, paperPositions.length, ...paperPositions.map((pos) => {
       const q = quotes.find((x: any) => x.instrumentKey === pos.instrumentKey);
       if (q) {
         if (pos.isOption && q.ltp > pos.buyPrice * 50) {
@@ -9070,7 +9066,7 @@ app.post("/api/trading/paper-sync", (req: Request, res: Response) => {
         }
       }
       return pos;
-    });
+    }));
   }
   res.json({ success: true });
 });

@@ -106,7 +106,7 @@ export let lastTradeExitTime = 0;
 export const recentClosedStrikes: Record<string, any> = {};
 export const intradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
 export const fiveYearHistoricalRegimeCache: Record<string, { timestamp: number; [key: string]: any }> = {};
-export let lastQuotesCache: { timestamp: number; data: Record<string, any> } = { timestamp: 0, data: {} };
+export let lastQuotesCache: { timestamp: number; data: Record<string, any>; quotes: any[] } = { timestamp: 0, data: {}, quotes: [] };
 export const optionContractCache: Record<string, { timestamp: number; data: any }> = {};
 export const optionChainCache: Record<string, { timestamp: number; data: any }> = {};
 export let cachedUpstoxLiveMargin: { timestamp: number; margin: number; utilizedMargin: number; payin: number; payout: number } = { timestamp: 0, margin: 0, utilizedMargin: 0, payin: 0, payout: 0 };
@@ -122,6 +122,10 @@ export const setBotConfig = (newConfig: any) => {
 
 export const setUpstoxConfig = (newConfig: any) => {
   Object.assign(upstoxConfig, newConfig);
+};
+
+export const setActiveAutoOtpSession = (session: UpstoxAutoOtpSession | null) => {
+  activeAutoOtpSession = session;
 };
 
 export const resetPaperTradingState = () => {

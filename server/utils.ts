@@ -1,4 +1,4 @@
-import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, upstoxConfig, PUBLIC_WEBHOOK_RELAY_URL } from "./state";
+import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, upstoxConfig, PUBLIC_WEBHOOK_RELAY_URL, PERSISTENT_TOKEN_BACKUP_PATH } from "./state";
 import fsSync from "fs";
 import path from "path";
 import os from "os";
