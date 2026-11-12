@@ -116,6 +116,10 @@ export const invalidTokens = new Set<string>();
 export let subscribedKeys: Set<string> = new Set();
 export let paperBalance = 2000; // Initial mock balance
 
+export let lastWebhookDiagnostic = "";
+export const setLastWebhookDiagnostic = (v: string) => { lastWebhookDiagnostic = v; };
+export const getLastWebhookDiagnostic = () => lastWebhookDiagnostic;
+
 export const setBotConfig = (newConfig: any) => {
   Object.assign(botConfig, newConfig);
 };
