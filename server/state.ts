@@ -128,6 +128,33 @@ export const setActiveAutoOtpSession = (session: UpstoxAutoOtpSession | null) =>
   activeAutoOtpSession = session;
 };
 
+// Setters for module-level `let` bindings that are reassigned by the bot engine
+// and other services. Kept here so importers can mutate shared state without
+// depending on the (read-only) live binding of a namespace import.
+export const setEngineHeartbeatTicks = (v: number) => { engineHeartbeatTicks = v; };
+export const setLastEngineTickAt = (v: string) => { lastEngineTickAt = v; };
+export const setIsBotTickRunning = (v: boolean) => { isBotTickRunning = v; };
+export const setLastBotTickStartedAt = (v: number) => { lastBotTickStartedAt = v; };
+export const setLastFullEntryScanAtMs = (v: number) => { lastFullEntryScanAtMs = v; };
+export const setLastTradeExitTime = (v: number) => { lastTradeExitTime = v; };
+export const setCachedUpstoxLivePositions = (v: { timestamp: number; list: any[] }) => { cachedUpstoxLivePositions = v; };
+export const setCachedUpstoxLiveMargin = (v: typeof cachedUpstoxLiveMargin) => { cachedUpstoxLiveMargin = v; };
+export const setLatestMultiIndexAlphaMatrix = (v: any[]) => { latestMultiIndexAlphaMatrix = v; };
+export const setLastQuotesCache = (v: typeof lastQuotesCache) => { lastQuotesCache = v; };
+export const setSubscribedKeys = (v: Set<string>) => { subscribedKeys = v; };
+
+export const getEngineHeartbeatTicks = () => engineHeartbeatTicks;
+export const getLastEngineTickAt = () => lastEngineTickAt;
+export const getIsBotTickRunning = () => isBotTickRunning;
+export const getLastBotTickStartedAt = () => lastBotTickStartedAt;
+export const getLastFullEntryScanAtMs = () => lastFullEntryScanAtMs;
+export const getLastTradeExitTime = () => lastTradeExitTime;
+export const getCachedUpstoxLivePositions = () => cachedUpstoxLivePositions;
+export const getCachedUpstoxLiveMargin = () => cachedUpstoxLiveMargin;
+export const getLatestMultiIndexAlphaMatrix = () => latestMultiIndexAlphaMatrix;
+export const getLastQuotesCache = () => lastQuotesCache;
+export const getSubscribedKeys = () => subscribedKeys;
+
 export const resetPaperTradingState = () => {
   paperOrders.length = 0;
   paperPositions.length = 0;
