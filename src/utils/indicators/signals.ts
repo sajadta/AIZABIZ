@@ -2,6 +2,7 @@ import type { CandleData, IndicatorReadings, StrategyKey, TradingSignal } from '
 import type { RealOptionMetrics } from './optionTypes';
 import { calculateATR } from './calculations';
 import { calculateTradeCharges } from './tradeMath';
+import { selectSessionCandles, computeSessionVwap } from './session';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -30,40 +31,9 @@ export function analyzeTradingSignals(
   const atrSeries = calculateATR(candles, 14);
   const atr14 = atrSeries.length > 0 ? atrSeries[atrSeries.length - 1] : Math.max(1, last.high - last.low);
 
-  // Identify today's intraday session candles (matching the IST date of the latest candle)
-  // so yesterday's warmup candles never corrupt today's Session Open or Intraday VWAP!
-  const getIstDateKey = (ts: number) =>
-    ts > 0
-      ? new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
-      : "";
-  const latestDateKey = getIstDateKey(Number(last.timestamp || 0));
-  const todaySessionCandles =
-    latestDateKey
-      ? candles.filter((c) => getIstDateKey(Number(c.timestamp || 0)) === latestDateKey)
-      : [];
-  const sessionCandles =
-    todaySessionCandles.length >= 3
-      ? todaySessionCandles
-      : candles.slice(-Math.min(75, candles.length));
-
-  // Compute Intraday VWAP: For Index spot candles where Upstox volume is 0, use Range-Weighted Typical Price VWAP across today's session candles!
-  const totalSessionVol = sessionCandles.reduce((acc, c) => acc + Number(c.volume || 0), 0);
-  const computedVwap =
-    totalSessionVol > 0
-      ? sessionCandles.reduce(
-          (acc, c) => acc + ((c.high + c.low + c.close) / 3) * Number(c.volume || 0),
-          0,
-        ) / totalSessionVol
-      : sessionCandles.reduce((acc, c) => {
-          const tp = (c.high + c.low + c.close) / 3;
-          const weight = Math.max(0.05, c.high - c.low);
-          return acc + tp * weight;
-        }, 0) /
-        Math.max(
-          0.05,
-          sessionCandles.reduce((acc, c) => acc + Math.max(0.05, c.high - c.low), 0),
-        );
-  const vwapPrice = Number((computedVwap > 0 ? computedVwap : currentLtp).toFixed(2));
+  // Identify today's intraday session candles and compute the intraday VWAP.
+  const sessionCandles = selectSessionCandles(candles);
+  const vwapPrice = computeSessionVwap(sessionCandles, currentLtp);
 
   // Evaluate individual indicator signals
   const readings: IndicatorReadings = {
