@@ -10,11 +10,9 @@ import {
 } from 'lucide-react';
 import { formatTradeDateTime, getTradeDuration, translateExitReason } from './tradeUtils';
 import { calculateTradeCharges } from '../../utils/indicators';
-import type { Order, Position, Holding, Language } from '../../types';
-import type { Translations, ViewChartFn } from './types';
-
+import type { Order, Position, Language } from '../../types';
+import type { ViewChartFn } from './types';
 interface OrdersTabProps {
-  t: Translations;
   positions: Position[];
   orders: Order[];
   tradeHistory: Position[];
@@ -24,9 +22,7 @@ interface OrdersTabProps {
   ordersViewMode: 'PAIRED' | 'INDIVIDUAL';
   setOrdersViewMode: (v: 'PAIRED' | 'INDIVIDUAL') => void;
 }
-
 export const OrdersTab: React.FC<OrdersTabProps> = ({
-  t,
   positions,
   orders,
   tradeHistory,
@@ -55,7 +51,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
               : 'View paired round-trip trades or raw broker executions.'}
           </p>
         </div>
-
         <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-slate-800 shrink-0">
           <button
             type="button"
@@ -83,7 +78,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
           </button>
         </div>
       </div>
-
       {/* If PAIRED mode is active, display the completed paired trades with date & buy+sell together */}
       {ordersViewMode === 'PAIRED' ? (
         tradeHistory.length === 0 ? (
@@ -113,7 +107,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0),
                   ).roundTripCharges;
             const net = gross - estCharges;
-
             const entryDt = formatTradeDateTime(pos.openedAtMs || pos.openedAt, language);
             const exitDt = formatTradeDateTime(pos.closeTime, language);
             const tradeDateLabel =
@@ -128,11 +121,9 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
               language,
             );
             const exitReason = translateExitReason(pos.exitReason, language, net, gross);
-
             const buyPx = Number(pos.buyPrice || 0);
             const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
             const qty = Math.max(1, Number(pos.quantity || 1));
-
             return (
               <div
                 key={`paired_${pos.id}`}
@@ -142,7 +133,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                 <div
                   className={`h-[2px] w-full absolute top-0 left-0 ${net >= 0 ? 'bg-gradient-to-r from-emerald-500/60 via-cyan-400/40 to-transparent' : 'bg-gradient-to-r from-rose-500/60 via-amber-400/40 to-transparent'}`}
                 />
-
                 {/* Header Row: Symbol, Date, Chart Action, and Net P&L */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-800/60">
                   <div className="flex items-center gap-2.5 flex-wrap">
@@ -160,7 +150,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                       <span className="text-[10px] text-slate-400 font-mono">({duration})</span>
                     )}
                   </div>
-
                   <div className="flex items-center gap-3">
                     {onViewChart && (
                       <button
@@ -202,7 +191,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     </div>
                   </div>
                 </div>
-
                 {/* Execution Details: Seamless Horizontal Flow (Light lines, no rigid box clutter) */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono pt-1">
                   <div className="flex items-center gap-3 sm:gap-5 flex-wrap">
@@ -215,9 +203,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                         ({entryDt.timeStr || pos.openedAt || '—'})
                       </span>
                     </div>
-
                     <span className="text-slate-600 font-bold hidden sm:inline">→</span>
-
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] font-black text-rose-400 uppercase bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
                         SELL
@@ -233,7 +219,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                       </span>
                     </div>
                   </div>
-
                   {/* Financial charges & Exit reason */}
                   <div className="flex items-center gap-2.5 flex-wrap justify-between sm:justify-end">
                     <span className="text-[11px] text-slate-400 font-sans">
@@ -286,7 +271,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
               if (!isBuy && Math.abs(Number(t.sellPrice || 0) - execPx) < 0.05) return true;
               return false;
             }) || tradeHistory.find((t) => t.symbol === ord.symbol);
-
           const entryPx = Number(
             (ord as any).buyPrice ||
               matchingOpenPos?.buyPrice ||
@@ -314,12 +298,10 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
             !matchingOpenPos && (ord as any).netRealizedPnL !== undefined
               ? Number((ord as any).netRealizedPnL)
               : Number((grossPnl - roundTripTax).toFixed(2));
-
           const orderFormattedDate = formatTradeDateTime(
             (ord as any).time || ord.timestamp,
             language,
           );
-
           return (
             <div
               key={ord.id}
@@ -383,7 +365,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     </div>
                   </div>
                 </div>
-
                 <div className="text-right flex flex-col items-end gap-1 shrink-0">
                   <div className="text-white font-black text-sm sm:text-base font-mono">
                     ₹{execPx.toFixed(2)}
@@ -419,7 +400,6 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   </div>
                 </div>
               </div>
-
               {/* Seamless execution breakdown row with light line separation */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-800/50 text-[11px] font-mono text-slate-400">
                 <div className="flex items-center gap-3 sm:gap-4 flex-wrap">

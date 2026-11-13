@@ -2,7 +2,6 @@ import React from 'react';
 import { Briefcase, CheckCheck } from 'lucide-react';
 import type { Order, Position, Holding, Language } from '../../types';
 import type { TabKey, Translations } from './types';
-
 interface OrderBookHeaderProps {
   t: Translations;
   activeTab: TabKey;
@@ -15,7 +14,6 @@ interface OrderBookHeaderProps {
   onSquareOffAll: () => void;
   totalPnL: number;
 }
-
 export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
   t,
   activeTab,
@@ -40,7 +38,6 @@ export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
             {t.ordersPositions}
           </h3>
         </div>
-
         {positions.length > 0 && (
           <div className="flex sm:hidden items-center gap-1.5">
             <div
@@ -63,7 +60,6 @@ export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
           </div>
         )}
       </div>
-
       {/* Sub Tabs Pill Row with horizontal scroll on small devices */}
       <div className="w-full sm:w-auto overflow-x-auto no-scrollbar py-0.5">
         <div className="flex bg-black/40 p-1 rounded-xl border border-slate-800 text-xs font-black shadow-inner min-w-max gap-1">
@@ -82,7 +78,6 @@ export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
               {positions.length}
             </span>
           </button>
-
           <button
             onClick={() => setActiveTab('HOLDINGS')}
             className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap text-xs flex items-center gap-1.5 ${
@@ -98,7 +93,6 @@ export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
               {holdings.length}
             </span>
           </button>
-
           <button
             onClick={() => setActiveTab('ORDERS')}
             className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap text-xs flex items-center gap-1.5 ${
@@ -114,7 +108,6 @@ export const OrderBookHeader: React.FC<OrderBookHeaderProps> = ({
               {orders.length}
             </span>
           </button>
-
           <button
             onClick={() => setActiveTab('TRADE_HISTORY')}
             className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap text-xs flex items-center gap-1.5 ${

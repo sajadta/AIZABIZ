@@ -2,7 +2,6 @@ import React from 'react';
 import { Briefcase, TrendingUp, TrendingDown, Clock, BarChart2, Zap, Target } from 'lucide-react';
 import type { Position, Language } from '../../types';
 import { calculateTradeCharges } from '../../utils/indicators';
-
 export const PositionItem: React.FC<{
   pos: Position;
   onSquareOff: (id: string) => void;
@@ -14,7 +13,6 @@ export const PositionItem: React.FC<{
   const buyPx = Math.max(0, Number(pos.buyPrice || 0));
   const curPx = Number(pos.currentLTP || buyPx);
   const qty = Math.max(1, Number(pos.quantity || 1));
-
   // Immediate, reliable local charges calculation (zero network delay or failure risk)
   const defaultCharges = React.useMemo(() => {
     const breakdown = calculateTradeCharges(buyPx, qty, isOpt, curPx);
@@ -30,17 +28,14 @@ export const PositionItem: React.FC<{
       },
     };
   }, [buyPx, qty, isOpt, curPx]);
-
   const [apiCharges, setApiCharges] = React.useState<{
     total: number;
     details: any;
     isLiveUpstox?: boolean;
   } | null>(null);
   const [showTaxBreakdown, setShowTaxBreakdown] = React.useState(false);
-
   const estCharges = apiCharges?.total ?? defaultCharges.total;
   const chargeDetails = apiCharges?.details ?? defaultCharges.details;
-
   React.useEffect(() => {
     let isMounted = true;
     const fetchCharges = async () => {
@@ -50,7 +45,6 @@ export const PositionItem: React.FC<{
           pos.instrumentKey || (pos.isOption ? 'NSE_FO|' + pos.symbol : 'NSE_EQ|' + pos.symbol);
         const prod = pos.productType || 'D';
         const currentPx = pos.currentLTP || pos.buyPrice;
-
         // Fetch Live Round-Trip Brokerage & Taxes directly from Upstox API via server cache
         const r = await fetch(
           `/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&buyPrice=${pos.buyPrice}&sellPrice=${currentPx}&roundTrip=true`,
@@ -87,7 +81,6 @@ export const PositionItem: React.FC<{
       isMounted = false;
     };
   }, [pos.symbol, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
-
   const gross = pos.pnl || 0;
   const net = estCharges !== null ? gross - estCharges : gross;
   const target50Px = Number((buyPx * 1.5).toFixed(2));
@@ -95,7 +88,6 @@ export const PositionItem: React.FC<{
   const progressTo50 =
     buyPx > 0 ? Math.max(0, Math.min(100, ((curPx - buyPx) / (buyPx * 0.5)) * 100)) : 0;
   const isHighProfit = net >= 1000 || is50PctHit;
-
   return (
     <div
       className={`p-0 rounded-2xl border transition-all duration-500 backdrop-blur-md relative overflow-hidden group shadow-[0_8px_30px_rgb(0,0,0,0.4)] ${
@@ -111,12 +103,10 @@ export const PositionItem: React.FC<{
       <div
         className={`absolute inset-0 bg-gradient-to-tr ${gross >= 0 ? 'from-emerald-500/5' : 'from-rose-500/5'} to-transparent pointer-events-none opacity-40`}
       />
-
       {/* Glow accent bar at top */}
       <div
         className={`h-1 w-full ${is50PctHit ? 'bg-amber-500' : isHighProfit ? 'bg-emerald-500' : gross < 0 ? 'bg-rose-500' : 'bg-slate-700'} shadow-[0_0_15px_rgba(0,0,0,0.5)]`}
       />
-
       <div className="p-4 sm:p-5 flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
           <div className="flex items-center gap-3 min-w-0">
@@ -155,7 +145,6 @@ export const PositionItem: React.FC<{
               </div>
             </div>
           </div>
-
           <div className="flex items-center gap-2 shrink-0 ml-auto sm:ml-0">
             {onViewChart && (
               <button
@@ -177,7 +166,6 @@ export const PositionItem: React.FC<{
             </button>
           </div>
         </div>
-
         {/* Unified horizontal integrated data strip (No separate boxes) */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-y-4 gap-x-6 py-4 px-5 rounded-2xl bg-black/40 border border-slate-800/40 shadow-inner group-hover:border-slate-700/60 transition-colors">
           <div className="flex flex-col gap-1">
@@ -186,14 +174,12 @@ export const PositionItem: React.FC<{
             </span>
             <span className="text-slate-200 font-black font-mono text-sm">₹{buyPx.toFixed(2)}</span>
           </div>
-
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
               <div className="w-1 h-1 rounded-full bg-cyan-400" /> LTP
             </span>
             <span className="text-white font-black font-mono text-sm">₹{curPx.toFixed(2)}</span>
           </div>
-
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
               <div className="w-1 h-1 rounded-full bg-amber-500" /> Target
@@ -202,7 +188,6 @@ export const PositionItem: React.FC<{
               ₹{target50Px.toFixed(2)}
             </span>
           </div>
-
           <div className="flex flex-col gap-1">
             <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5">
               <div
@@ -216,7 +201,6 @@ export const PositionItem: React.FC<{
               {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
             </span>
           </div>
-
           <div className="flex flex-col gap-1 sm:text-right">
             <span className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-1.5 sm:justify-end">
               <div
@@ -237,7 +221,6 @@ export const PositionItem: React.FC<{
             </span>
           </div>
         </div>
-
         {/* Progress to Target */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-[10px] font-bold">
@@ -262,7 +245,6 @@ export const PositionItem: React.FC<{
           </div>
         </div>
       </div>
-
       {/* Dynamic status labels at bottom */}
       <div className="px-5 py-2.5 bg-black/40 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-bold">
         <div className="flex items-center gap-3">
@@ -317,7 +299,6 @@ export const PositionItem: React.FC<{
           )}
         </div>
       </div>
-
       {showTaxBreakdown && chargeDetails && (
         <div className="p-4 bg-black/80 border-t border-cyan-900/30 text-[10px] font-mono grid grid-cols-2 sm:grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="col-span-full pb-1 border-b border-slate-800/60 flex items-center justify-between text-[9px]">

@@ -383,7 +383,6 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
         {activeTab === 'HOLDINGS' && (
           <HoldingsTab
-            t={t}
             editingHoldingSym={editingHoldingSym}
             setEditingHoldingSym={setEditingHoldingSym}
             customBuyPriceInput={customBuyPriceInput}
@@ -407,7 +406,6 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
         {activeTab === 'ORDERS' && (
           <OrdersTab
-            t={t}
             ordersViewMode={ordersViewMode}
             setOrdersViewMode={setOrdersViewMode}
             newlyAddedIds={newlyAddedIds}
@@ -421,7 +419,6 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
 
         {activeTab === 'TRADE_HISTORY' && (
           <TradeHistoryTab
-            t={t}
             selectedTradeDateFilter={selectedTradeDateFilter}
             setSelectedTradeDateFilter={setSelectedTradeDateFilter}
             availableTradeDates={availableTradeDates}

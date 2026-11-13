@@ -10,11 +10,9 @@ import {
   Edit2,
   X,
 } from 'lucide-react';
-import type { Order, Position, Holding, Language } from '../../types';
-import type { Translations, ViewChartFn } from './types';
-
+import type { Holding, Language } from '../../types';
+import type { ViewChartFn } from './types';
 interface HoldingsTabProps {
-  t: Translations;
   holdings: Holding[];
   language: Language;
   onViewChart?: ViewChartFn;
@@ -44,9 +42,7 @@ interface HoldingsTabProps {
   isConnected?: boolean;
   onOpenApiModal?: () => void;
 }
-
 export const HoldingsTab: React.FC<HoldingsTabProps> = ({
-  t,
   holdings,
   language,
   onViewChart,
@@ -90,7 +86,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
             </span>
           </div>
         </div>
-
         <div className="flex items-center gap-3">
           <div className="px-3 py-2 rounded-xl bg-slate-950/60 border border-slate-800">
             <span className="text-[9px] uppercase font-bold text-slate-400 block">
@@ -126,7 +121,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
           )}
         </div>
       </div>
-
       {/* Notification Banner when custom buy price is locked */}
       {buyPriceSaveMessage && (
         <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-300 text-xs font-bold animate-pulse flex items-center gap-2 shadow-md">
@@ -134,7 +128,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
           <span>{buyPriceSaveMessage}</span>
         </div>
       )}
-
       {/* Holdings List */}
       {holdings.length === 0 ? (
         <div className="p-8 text-center text-slate-400 rounded-2xl border border-dashed border-slate-800 bg-slate-950/40 space-y-4">
@@ -159,7 +152,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                   : 'No Delivery (CNC) holdings returned from your Upstox Demat account.'}
             </p>
           </div>
-
           {!isConnected && onOpenApiModal && (
             <button
               type="button"
@@ -171,7 +163,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
               </span>
             </button>
           )}
-
           <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-left text-xs max-w-lg mx-auto space-y-2">
             <p className="text-amber-400 font-bold flex items-center gap-1.5">
               <span>💡</span>
@@ -215,7 +206,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
             const pnlPercent =
               avgPx > 0 ? Number((((curLtp - avgPx) / avgPx) * 100).toFixed(2)) : 0;
             const isGain = pnl >= 0;
-
             const target50 = h.fiftyPercentTarget || {
               targetPrice: Number((avgPx * 1.5).toFixed(2)),
               targetTotalValue: Number((avgPx * 1.5 * qty).toFixed(2)),
@@ -233,7 +223,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
               isReached: avgPx > 0 && curLtp >= avgPx * 1.5,
             };
             const forecast = h.algoForecast;
-
             return (
               <div
                 key={idx}
@@ -287,7 +276,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                     <span className="text-[10px] text-slate-400 block font-mono">LTP</span>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-center font-mono">
                   <div>
                     <span className="text-[9px] text-slate-400 block">
@@ -346,7 +334,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                     </span>
                   </div>
                 </div>
-
                 {/* Interactive Custom Buy Price Editor */}
                 {editingHoldingSym === h.symbol && (
                   <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-500/40 space-y-2 text-xs">
@@ -405,7 +392,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                     </div>
                   </div>
                 )}
-
                 {/* +50% Profitable Value Milestone Calculation Box */}
                 <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/30 text-[11px] flex flex-col gap-1.5">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -462,7 +448,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                     />
                   </div>
                 </div>
-
                 {/* Pre-Cognitive 8-Layer & 5-Year Historical Algorithmic Forecast for Holding */}
                 {forecast && (
                   <div
@@ -517,7 +502,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                     </div>
                   </div>
                 )}
-
                 <div className="flex items-center justify-between pt-1 border-t border-slate-800/60 text-xs">
                   <div className="text-[11px] text-slate-400">
                     <span>{language === 'ml' ? 'നിലവിലെ മൂല്യം' : 'Cur Value'}: </span>
@@ -525,7 +509,6 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                       ₹{currentVal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                     </strong>
                   </div>
-
                   <div className="flex items-center gap-1.5">
                     {onViewChart && (
                       <button

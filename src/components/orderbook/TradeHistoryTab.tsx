@@ -14,11 +14,9 @@ import { formatTradeDateTime, getTradeDuration, translateExitReason } from './tr
 import { calculateTradeCharges } from '../../utils/indicators';
 import { CumulativePnLChart } from '../CumulativePnLChart';
 import { PerformanceOverviewCard } from '../PerformanceOverviewCard';
-import type { Order, Position, Holding, Language } from '../../types';
-import type { AccountSummary, TradeDateEntry, Translations, ViewChartFn } from './types';
-
+import type { Position, Language } from '../../types';
+import type { AccountSummary, TradeDateEntry, ViewChartFn } from './types';
 interface TradeHistoryTabProps {
-  t: Translations;
   tradeHistory: Position[];
   language: Language;
   onViewChart?: ViewChartFn;
@@ -29,9 +27,7 @@ interface TradeHistoryTabProps {
   filteredTradeHistory: Position[];
   onSyncHistoryBrokerage?: () => Promise<void>;
 }
-
 export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
-  t,
   tradeHistory,
   language,
   onViewChart,
@@ -46,10 +42,8 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
     <div className="space-y-4">
       {/* Performance Overview Card */}
       <PerformanceOverviewCard tradeHistory={tradeHistory} language={language} />
-
       {/* Visual Overview: Daily Cumulative PnL Line Chart */}
       <CumulativePnLChart tradeHistory={tradeHistory} language={language} />
-
       {/* Trade History Header Banner & Trade Date Filter Bar */}
       <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 shadow-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -88,7 +82,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
             </p>
           </div>
         </div>
-
         {/* Date Filter Pills */}
         {availableTradeDates.length > 0 && (
           <div className="pt-2 border-t border-slate-800/80 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -96,7 +89,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
               <Filter className="w-3 h-3 text-cyan-400" />
               {language === 'ml' ? 'തീയതി ഫിൽട്ടർ:' : 'Date:'}
             </span>
-
             <button
               onClick={() => setSelectedTradeDateFilter('ALL')}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 shrink-0 ${
@@ -112,7 +104,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                   : `All Dates (${tradeHistory.length})`}
               </span>
             </button>
-
             {availableTradeDates.map((d) => (
               <button
                 key={d.rawDate}
@@ -133,7 +124,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
           </div>
         )}
       </div>
-
       {filteredTradeHistory.length === 0 ? (
         <div className="p-8 text-center text-slate-500 bg-slate-900/40 rounded-2xl border border-slate-800/80">
           <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-700" />
@@ -173,7 +163,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                   Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0),
                 ).roundTripCharges;
           const net = gross - estCharges;
-
           const entryDt = formatTradeDateTime(pos.openedAtMs || pos.openedAt, language);
           const exitDt = formatTradeDateTime(pos.closeTime, language);
           const tradeDateLabel =
@@ -186,7 +175,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
             language,
           );
           const exitReason = translateExitReason(pos.exitReason, language, net, gross);
-
           const buyPx = Number(pos.buyPrice || 0);
           const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
           const qty = Math.max(1, Number(pos.quantity || 1));
@@ -197,7 +185,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
             pos.highestPnl !== undefined
               ? Number(pos.highestPnl)
               : Math.max(0, (peakPrice - buyPx) * qty);
-
           return (
             <div
               key={pos.id}
@@ -206,7 +193,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
               <div
                 className={`absolute top-0 right-0 w-44 h-44 rounded-full blur-3xl opacity-15 pointer-events-none ${net >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
               />
-
               {/* Top Header: Round-Trip Completed Badge, Trade Date, Duration & Chart */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 z-10 border-b border-slate-800/80 pb-3">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -221,7 +207,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                     {pos.productType || 'INTRADAY'}
                   </span>
                 </div>
-
                 <div className="flex items-center gap-2 flex-wrap sm:justify-end">
                   {/* Trade Date Badge */}
                   <div
@@ -231,7 +216,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                     <Calendar className="w-3.5 h-3.5 text-cyan-400" />
                     <span>{tradeDateLabel}</span>
                   </div>
-
                   {/* Trade Duration Badge */}
                   {duration && (
                     <div
@@ -242,7 +226,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                       <span>{duration}</span>
                     </div>
                   )}
-
                   {/* Chart Button */}
                   {onViewChart && (
                     <button
@@ -272,7 +255,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                   )}
                 </div>
               </div>
-
               {/* Two Side-by-Side Panels: Entry/Buy on Left & Exit/Sell on Right (വാങ്ങിയതും വിറ്റതും ഒന്നിച്ച്) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 z-10">
                 {/* 1. ENTRY / BUY SIDE (വാങ്ങിയത്) */}
@@ -288,7 +270,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                       {qty} Qty
                     </span>
                   </div>
-
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                     <div>
                       <span className="text-[10px] text-slate-400 block font-sans">
@@ -318,7 +299,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                     </div>
                   </div>
                 </div>
-
                 {/* 2. EXIT / SELL SIDE (വിറ്റത്) */}
                 <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 flex flex-col gap-2.5">
                   <div className="flex items-center justify-between border-b border-rose-500/20 pb-1.5">
@@ -332,7 +312,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                       {qty} Qty
                     </span>
                   </div>
-
                   <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                     <div>
                       <span className="text-[10px] text-slate-400 block font-sans">
@@ -367,7 +346,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                   </div>
                 </div>
               </div>
-
               {/* Bottom Row: Peak Price Analytics & Realized P&L Breakdown */}
               <div className="p-3 rounded-xl bg-black/40 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono z-10">
                 {/* Peak Price in Chart & Exit Trigger */}
@@ -389,9 +367,7 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                       </span>
                     </div>
                   </div>
-
                   <div className="h-6 w-px bg-slate-800 hidden sm:block" />
-
                   <div>
                     <span className="text-[10px] text-slate-400 block font-sans">
                       {language === 'ml' ? 'എക്സിറ്റ് കാരണം' : 'Exit Reason'}
@@ -399,7 +375,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                     <span className="text-cyan-300 font-bold text-[11px]">{exitReason}</span>
                   </div>
                 </div>
-
                 {/* Financial Summary: Gross P&L, Brokerage/Tax, Net Realized P&L */}
                 <div className="flex items-center gap-3 justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800/80">
                   <div>
@@ -412,7 +387,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                       {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
                     </span>
                   </div>
-
                   <div>
                     <span
                       className="text-[10px] text-slate-500 block font-sans uppercase"
@@ -422,7 +396,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                     </span>
                     <span className="text-amber-400 font-bold">-₹{estCharges.toFixed(2)}</span>
                   </div>
-
                   <div
                     className={`px-3 py-1.5 rounded-xl border flex flex-col items-end ${
                       net >= 0
@@ -445,7 +418,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
           );
         })
       )}
-
       {tradeHistory.length > 0 && (
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between mt-4">
           <button
@@ -491,7 +463,6 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
               {language === 'ml' ? 'ട്രേഡിംഗ് ജേർണൽ ഡൗൺലോഡ് (CSV)' : 'Export Trading Journal (CSV)'}
             </span>
           </button>
-
           <div className="p-3.5 px-4 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 border border-slate-700 flex justify-between items-center shadow-lg gap-4">
             <div className="flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-slate-400" />

@@ -1,9 +1,8 @@
 import React from 'react';
 import { Briefcase } from 'lucide-react';
 import { PositionItem } from './PositionItem';
-import type { Order, Position, Holding, Language } from '../../types';
+import type { Position, Language } from '../../types';
 import type { AccountSummary, ViewChartFn } from './types';
-
 interface PositionsTabProps {
   positions: Position[];
   language: Language;
@@ -16,7 +15,6 @@ interface PositionsTabProps {
   todayIst: string;
   accountSummary: AccountSummary;
 }
-
 export const PositionsTab: React.FC<PositionsTabProps> = ({
   positions,
   language,
@@ -59,7 +57,6 @@ export const PositionsTab: React.FC<PositionsTabProps> = ({
               </span>
             </div>
           </div>
-
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
               <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-400 block">
@@ -106,7 +103,6 @@ export const PositionsTab: React.FC<PositionsTabProps> = ({
             </div>
           </div>
         </div>
-
         {/* Row 2: Total All-Time Cumulative Performance */}
         <div className="p-3 rounded-2xl bg-gradient-to-r from-indigo-950/25 via-slate-900/90 to-slate-900 border border-indigo-900/50 shadow-md">
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-indigo-900/30">
@@ -132,7 +128,6 @@ export const PositionsTab: React.FC<PositionsTabProps> = ({
               </span>
             </div>
           </div>
-
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
             <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
               <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-400 block">
@@ -180,7 +175,6 @@ export const PositionsTab: React.FC<PositionsTabProps> = ({
           </div>
         </div>
       </div>
-
       {/* Segment Category Switcher (Options vs Index/Equity) */}
       <div className="flex items-center justify-between pb-1 flex-wrap gap-2">
         <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px] font-bold">
@@ -233,12 +227,10 @@ export const PositionsTab: React.FC<PositionsTabProps> = ({
             </span>
           </button>
         </div>
-
         <div className="text-[11px] font-mono text-slate-400">
           {language === 'ml' ? 'തത്സമയ പ്രീമിയം & വിപണി വില' : 'Real-time Premium & Market Quotes'}
         </div>
       </div>
-
       {filteredPositions.length === 0 ? (
         <div className="p-8 text-center text-slate-500">
           <Briefcase className="w-8 h-8 mx-auto mb-2 text-slate-700" />

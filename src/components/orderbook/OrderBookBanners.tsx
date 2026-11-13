@@ -1,8 +1,7 @@
 import React from 'react';
 import { AlertOctagon, BarChart2 } from 'lucide-react';
-import type { Order, Position, Holding, Language } from '../../types';
+import type { Position, Language } from '../../types';
 import type { Translations, ViewChartFn } from './types';
-
 interface OrderBookBannersProps {
   t: Translations;
   positions: Position[];
@@ -12,7 +11,6 @@ interface OrderBookBannersProps {
   totalPnL: number;
   onViewChart?: ViewChartFn;
 }
-
 export const OrderBookBanners: React.FC<OrderBookBannersProps> = ({
   t,
   positions,
@@ -38,7 +36,6 @@ export const OrderBookBanners: React.FC<OrderBookBannersProps> = ({
             {totalPnL >= 0 ? `+₹${totalPnL.toFixed(2)}` : `-₹${Math.abs(totalPnL).toFixed(2)}`}
           </span>
         </div>
-
         <button
           onClick={onSquareOffAll}
           className="px-3 py-1 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-black transition flex items-center gap-1.5 active:scale-95 shadow-sm"
@@ -48,7 +45,6 @@ export const OrderBookBanners: React.FC<OrderBookBannersProps> = ({
         </button>
       </div>
     )}
-
     {/* Live Chart Navigation Quick Banner */}
     <div className="mx-3 sm:mx-4 mt-2 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-950/70 via-slate-900/80 to-cyan-950/60 border border-indigo-500/30 flex items-center justify-between gap-2 text-xs flex-wrap shadow-sm">
       <div className="flex items-center gap-2 text-indigo-200 min-w-0">
