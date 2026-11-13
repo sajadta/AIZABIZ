@@ -1,22 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import {
-  LineChart,
-  BarChart2,
-  Cpu,
-  Layers,
-  Briefcase,
-  Sparkles,
-  PieChart,
-  Activity,
-  Smartphone,
-  AlertCircle,
-  TrendingUp,
-  TrendingDown,
-  RefreshCw,
-  Sliders,
-  ShieldCheck,
-  Zap,
-} from 'lucide-react';
+import { BarChart2, Cpu, Layers, Briefcase, Sparkles, PieChart, TrendingUp, TrendingDown } from 'lucide-react';
 import {
   StockQuote,
   CandleData,
@@ -1255,7 +1238,7 @@ export const App: React.FC = () => {
     const posMode = pos.mode || mode;
 
     try {
-      let headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       const savedTok = localStorage.getItem('upstox_daily_token');
       if (savedTok && savedTok.length > 30) {
         headers['Authorization'] = `Bearer ${savedTok}`;
@@ -1430,7 +1413,7 @@ export const App: React.FC = () => {
     let liveLot = sig.recommendedOptionStrike?.lotSize || 0;
     if (!liveLot || liveLot <= 1) {
       try {
-        let headers: Record<string, string> = {};
+        const headers: Record<string, string> = {};
         const savedTok = localStorage.getItem('upstox_daily_token');
         if (savedTok && savedTok.length > 30) {
           headers['Authorization'] = `Bearer ${savedTok}`;

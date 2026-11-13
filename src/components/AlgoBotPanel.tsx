@@ -1,36 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Cpu, 
-  Play, 
-  Square, 
-  ShieldAlert, 
-  Target, 
-  TrendingUp, 
-  TrendingDown, 
-  CheckCircle2, 
-  Sliders, 
-  Zap, 
-  Activity,
-  Terminal,
-  Clock,
-  Sparkles,
-  ArrowRight,
-  Send,
-  BellRing,
-  Layers,
-  Flame,
-  Check,
-  AlertTriangle,
-  Info,
-  BarChart3,
-  LineChart,
-  ShieldCheck,
-  Lock,
-  Gauge,
-  Brain,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
+import { Cpu, Play, Square, ShieldAlert, Target, TrendingUp, CheckCircle2, Sliders, Zap, Activity, Terminal, Sparkles, ArrowRight, Send, BellRing, Layers, Flame, Check, AlertTriangle, Info, BarChart3, LineChart, ShieldCheck, Lock, Gauge, Brain } from 'lucide-react';
 import { BotConfig, BotLog, TradingSignal, StrategyKey, Language, OptionChainData, StockQuote, Position, MultiIndexAlphaItem } from '../types';
 import { translations } from '../translations';
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, TrendingUp, TrendingDown, Layers, ChevronRight, Zap, ArrowUpRight, ArrowDownRight, Bell, BellRing , X } from 'lucide-react';
+import { Search, Layers, ArrowUpRight, ArrowDownRight, Bell, BellRing, X } from 'lucide-react';
 import { StockQuote, Language } from '../types';
 import { translations } from '../translations';
 

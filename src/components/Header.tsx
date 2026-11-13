@@ -1,24 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  BellRing,
-  TrendingUp, 
-  Smartphone, 
-  Settings, 
-  Volume2, 
-  VolumeX, 
-  Globe, 
-  ShieldCheck, 
-  AlertOctagon, 
-  Activity,
-  Zap,
-  Wifi,
-  WifiOff,
-  Key,
-  Palette,
-  RefreshCw,
-  Cpu,
-  Clock,
-} from 'lucide-react';
+import { BellRing, Smartphone, Volume2, VolumeX, Globe, ShieldCheck, AlertOctagon, Zap, Key, RefreshCw, Cpu, Clock } from 'lucide-react';
 import { ExecutionMode, Language, UpstoxApiConfig } from '../types';
 import { translations } from '../translations';
 

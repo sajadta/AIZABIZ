@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, ShieldCheck, Zap, AlertCircle, Clock } from 'lucide-react';
+import { X, Zap, AlertCircle } from 'lucide-react';
 import { OrderTransactionType, OrderType, ProductType, Language, ExecutionMode } from '../types';
 import { translations } from '../translations';
 import { calculateTradeCharges, calculateAffordableLotsWithBrokerage } from '../utils/indicators';
@@ -98,7 +98,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
     const fetchInstrumentDetails = async () => {
       setIsLoadingLot(true);
       try {
-        let headers: Record<string, string> = {};
+        const headers: Record<string, string> = {};
         try {
           const savedTok = localStorage.getItem('upstox_daily_token');
           if (savedTok && savedTok.length > 30) {
@@ -172,7 +172,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           transactionType: transactionType,
           roundTrip: 'true',
         });
-        let headers: Record<string, string> = {};
+        const headers: Record<string, string> = {};
         try {
           const savedTok = localStorage.getItem('upstox_daily_token');
           if (savedTok) headers['Authorization'] = `Bearer ${savedTok}`;

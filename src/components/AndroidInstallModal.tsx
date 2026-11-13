@@ -1,22 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Smartphone, 
-  Download, 
-  CheckCircle2, 
-  ArrowRight, 
-  Share2, 
-  Sparkles, 
-  ShieldCheck,
-  Globe,
-  Terminal,
-  
-  Server,
-  Key,
-  HelpCircle,
-  Zap,
-  Cpu
-} from 'lucide-react';
+import { X, Smartphone, Download, ArrowRight, Sparkles, ShieldCheck, HelpCircle } from 'lucide-react';
 import { Language } from '../types';
 import { translations } from '../translations';
 

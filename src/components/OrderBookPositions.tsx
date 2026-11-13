@@ -1,34 +1,5 @@
 import React, { useState } from 'react';
-import { 
-  Briefcase, 
-  TrendingUp, 
-  TrendingDown, 
-  AlertOctagon, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
-  Layers,
-  ArrowUpRight,
-  ArrowDownRight,
-  PieChart,
-  Plus,
-  Download,
-  RefreshCw,
-  BarChart2,
-  Calendar,
-  ArrowRight,
-  Sparkles,
-  Filter,
-  Tag,
-  CheckCheck,
-  ShieldCheck,
-  Zap,
-  Check,
-  Lock,
-  Edit2,
-  X,
-  Target,
-} from 'lucide-react';
+import { Briefcase, TrendingUp, TrendingDown, AlertOctagon, Clock, CheckCircle2, XCircle, PieChart, Plus, Download, RefreshCw, BarChart2, Calendar, Sparkles, Filter, CheckCheck, Zap, Check, Lock, Edit2, X, Target } from 'lucide-react';
 import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
 import { CumulativePnLChart } from './CumulativePnLChart';

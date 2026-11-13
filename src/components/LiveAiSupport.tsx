@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, User, AlertCircle, CheckCircle2, RefreshCw, Zap } from 'lucide-react';
+import { Bot, Send, RefreshCw, Zap } from 'lucide-react';
 import { UpstoxApiConfig } from '../types';
 
 interface Message {
@@ -72,7 +72,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
 
   const runDiagnostics = async () => {
     setLoading(true);
-    let diagMsg = '🔍 **System Diagnostic Check Started...**\n\n';
+    const diagMsg = '🔍 **System Diagnostic Check Started...**\n\n';
     setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: diagMsg }]);
     
     try {

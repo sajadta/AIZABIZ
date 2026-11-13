@@ -1,16 +1,5 @@
 import React from 'react';
-import { 
-  Sparkles, 
-  TrendingUp, 
-  TrendingDown, 
-  ShieldAlert, 
-  Target, 
-  CheckCircle2, 
-  Activity, 
-  Zap, 
-  RefreshCw,
-  HelpCircle
-} from 'lucide-react';
+import { Sparkles, TrendingUp, TrendingDown, Target, CheckCircle2, Activity, Zap, RefreshCw } from 'lucide-react';
 import { GeminiMarketAnalysis, Language } from '../types';
 import { translations } from '../translations';
 

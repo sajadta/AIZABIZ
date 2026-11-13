@@ -1,22 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  Scale, 
-  BarChart3, 
-  CheckCircle2, 
-  XCircle, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  ChevronDown, 
-  ChevronUp,
-  Calendar,
-  Globe,
-  Zap,
-  Percent,
-  Coins
-} from 'lucide-react';
+import { Clock, Scale, BarChart3, CheckCircle2, XCircle, ChevronDown, ChevronUp, Calendar, Globe, Zap, Coins } from 'lucide-react';
 import { Position, Language } from '../types';
 import { calculateTradeCharges } from '../utils/indicators';
 

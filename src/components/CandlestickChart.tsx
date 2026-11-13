@@ -1,18 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  BarChart2, 
-  TrendingUp, 
-  TrendingDown, 
-  Maximize2, 
-  Sliders, 
-  Zap, 
-  Sparkles, 
-  Layers, 
-  Eye, 
-  EyeOff,
-  RefreshCw
-} from 'lucide-react';
-import { createChart, CrosshairMode, LineStyle, IChartApi, ISeriesApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
+import { TrendingUp, Sliders, Sparkles, Layers, RefreshCw } from 'lucide-react';
+import { createChart, CrosshairMode, LineStyle, IChartApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { CandleData, StockQuote, Language, TradingSignal } from '../types';
 import { translations } from '../translations';
 
