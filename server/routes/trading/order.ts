@@ -1,11 +1,12 @@
 // Paper & live order placement route.
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, paperOrders, paperPositions, paperTradeHistory } from "../../state";
+import { upstoxConfig, invalidTokens, botLogs, paperOrders, paperPositions, paperTradeHistory } from "../../state";
 import { getPaperInitialCapital, savePostgresDb } from "../../services/persistence";
 import { calculateTradeCharges } from "../../../src/utils/indicators";
 import { getInstrumentKey } from "../../lib/instruments";
-import { placeUpstoxOrderIpv4 } from "../../services/upstoxTransport";
+import { isUpstoxAuthFailureError } from "../../utils";
+import { placeUpstoxOrderIpv4, getDetectedContainerIp } from "../../services/upstoxTransport";
 
 export function registerOrderRoutes(app: express.Application) {
 app.post("/api/trading/order", async (req: Request, res: Response) => {
@@ -31,8 +32,12 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
 
     // Check available paper balance for BUY orders so orders exceeding capital are blocked
     if ((initialType || "BUY") === "BUY") {
-      const realizedPnLSum = paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
-      const openPositionsCost = paperPositions.reduce((sum: number, p: any) => sum + (Number(p.buyPrice || 0) * Number(p.quantity || 1)), 0);
+      const realizedPnLSum = paperTradeHistory
+        .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+        .reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
+      const openPositionsCost = paperPositions
+        .filter((p: any) => !p.mode || p.mode === "PAPER_TRADING")
+        .reduce((sum: number, p: any) => sum + (Number(p.buyPrice || 0) * Number(p.quantity || 1)), 0);
       const availablePaperCash = Math.max(0, getPaperInitialCapital() + realizedPnLSum - openPositionsCost);
       const charges = calculateTradeCharges(orderPrice, orderQty, isOpt, orderPrice * 1.25);
       const totalRequired = totalOrderCost + charges.roundTripCharges;
@@ -113,11 +118,16 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
     return res.json({ success: true, order: newOrder });
   }
   if (mode === "UPSTOX_LIVE") {
-    const token = upstoxConfig.accessToken;
-    if (!token)
+    const headerToken = req.headers.authorization?.replace("Bearer ", "").trim() || "";
+    const token =
+      headerToken && !invalidTokens.has(headerToken)
+        ? headerToken
+        : upstoxConfig.accessToken;
+    if (!token || invalidTokens.has(token)) {
       return res
         .status(401)
-        .json({ success: false, error: "Upstox Token missing" });
+        .json({ success: false, error: "Upstox Token missing or expired" });
+    }
 
     // Attempt real order
     try {
@@ -177,15 +187,49 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
         is_amo: Boolean(is_amo),
       }, token);
       if (data.status === "success") {
+        paperOrders.unshift({
+          id: "ORD" + Date.now(),
+          orderId: data.data?.order_id || "LIVE_" + Date.now().toString().slice(-6),
+          symbol,
+          instrumentKey: instrKey,
+          transactionType: initialType || "BUY",
+          type: initialType || "BUY",
+          orderType: upstoxOrderType,
+          productType: productType || "INTRADAY",
+          quantity: Number(quantity) || 1,
+          price: Number(price) || 0,
+          executedPrice: Number(price) || 0,
+          status: "COMPLETE",
+          timestamp: new Date().toLocaleTimeString("en-IN"),
+          time: new Date().toISOString(),
+          mode: "UPSTOX_LIVE",
+        });
+        if (paperOrders.length > 200) paperOrders.length = 200;
+        savePostgresDb().catch(() => { /* ignore */ });
         return res.json({ success: true, order: data.data });
       } else {
-        return res.json({
+        if (isUpstoxAuthFailureError(200, data)) {
+          invalidTokens.add(token);
+        }
+        let errDetail = data.errors?.[0]?.message || data.message || "Order failed";
+        if (errDetail.includes("static IP") || errDetail.includes("UDAPI1154")) {
+          const detectedIp = await getDetectedContainerIp();
+          errDetail = `Upstox Static IP error: Whitelist ${detectedIp || "container IP"} in Upstox Developer Console. (${errDetail})`;
+        }
+        botLogs.unshift({
+          id: Date.now().toString(),
+          time: new Date().toLocaleTimeString(),
+          message: `[MANUAL LIVE ORDER REJECTED] ${symbol}: ${errDetail}`,
+          type: "ERROR",
+        });
+        if (botLogs.length > 200) botLogs.length = 200;
+        return res.status(400).json({
           success: false,
-          error: data.errors?.[0]?.message || "Order failed",
+          error: errDetail,
         });
       }
     } catch (err: any) {
-      return res.json({ success: false, error: err.message });
+      return res.status(500).json({ success: false, error: err.message });
     }
   }
   res.json({ success: false, error: "Invalid mode" });

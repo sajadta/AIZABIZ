@@ -1,11 +1,11 @@
 // Upstox market configuration, authentication, holdings and market-data routes.
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, botLogs, invalidTokens, FIXED_PRIMARY_IP, FIXED_SECONDARY_IP } from "../state";
+import { upstoxConfig, botLogs, invalidTokens, getLastWebhookDiagnostic } from "../state";
 import { isJwtTokenActuallyExpired, saveTokenBackupToDisk } from "../lib/tokens";
 import { isUpstoxAuthFailureError } from "../utils";
-import { syncTokenFromRenderWebhookBridge, getLiveOutboundIp, lastVerifiedTokenStatus, setLastVerifiedTokenStatus } from "../services/tokenSync";
-import { getLastWebhookDiagnostic } from "../state";
+import { parseUpstoxFundsData, getProxyStatusSummary } from "../services/upstoxTransport";
+import { syncTokenFromRenderWebhookBridge, getLiveOutboundIp, lastVerifiedTokenStatus, setLastVerifiedTokenStatus, resetVerifiedTokenCache } from "../services/tokenSync";
 import { registerOtpRoutes } from "./market/otp";
 import { registerAuthConfigRoutes } from "./market/auth";
 import { registerWebhookRoutes } from "./market/webhook";
@@ -27,12 +27,22 @@ export function registerMarketRoutes(app: express.Application) {
 app.get("/api/market/config", async (req: Request, res: Response) => {
   const ipResult = await getLiveOutboundIp();
   const currentLiveIp = ipResult.ip;
+
+  const headerToken = req.headers.authorization?.replace("Bearer ", "").trim() || "";
+  if (headerToken && headerToken.length > 20 && !invalidTokens.has(headerToken) && !isJwtTokenActuallyExpired(headerToken)) {
+    if (upstoxConfig.accessToken !== headerToken) {
+      upstoxConfig.accessToken = headerToken;
+      resetVerifiedTokenCache();
+    }
+  }
+
   if (
     upstoxConfig.accessToken &&
     (invalidTokens.has(upstoxConfig.accessToken) ||
       isJwtTokenActuallyExpired(upstoxConfig.accessToken))
   ) {
     upstoxConfig.accessToken = "";
+    resetVerifiedTokenCache();
   }
   if (!upstoxConfig.accessToken) {
     await syncTokenFromRenderWebhookBridge();
@@ -91,17 +101,13 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
           holdingsCount = holdingsData.data.length;
         }
 
-        if (
-          fundsData &&
-          fundsData.status === "success" &&
-          fundsData.data &&
-          fundsData.data.equity
-        ) {
-          availableMargin = fundsData.data.equity.available_margin || 0;
-          usedMargin = fundsData.data.equity.used_margin || 0;
-          utilizedMargin = fundsData.data.equity.used_margin || 0;
-          payin = fundsData.data.equity.payin || 0;
-          payout = fundsData.data.equity.payout || 0;
+        if (fundsData && fundsData.status === "success" && fundsData.data) {
+          const parsedFunds = parseUpstoxFundsData(fundsData);
+          availableMargin = parsedFunds.availableMargin;
+          usedMargin = parsedFunds.usedMargin;
+          utilizedMargin = parsedFunds.utilizedMargin;
+          payin = parsedFunds.payin;
+          payout = parsedFunds.payout;
         }
 
         if (profileData && profileData.status === "success" && profileData.data) {
@@ -153,6 +159,7 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     }
   }
 
+  const proxySummary = getProxyStatusSummary();
   res.json({
     hasApiKey: Boolean(upstoxConfig.apiKey || process.env.UPSTOX_API_KEY),
     hasApiSecret: Boolean(upstoxConfig.apiSecret || process.env.UPSTOX_API_SECRET),
@@ -175,9 +182,11 @@ app.get("/api/market/config", async (req: Request, res: Response) => {
     payout,
     totalBalance: availableMargin + utilizedMargin,
     holdingsCount,
-    serverOutboundIp: FIXED_PRIMARY_IP,
-    serverSecondaryIp: FIXED_SECONDARY_IP,
+    serverOutboundIp: ipResult.ip,
+    serverSecondaryIp: ipResult.secondaryIp,
+    actualDetectedIp: ipResult.actualDetectedIp,
     isFixedProxyActive: ipResult.isFixedProxy,
+    proxyError: proxySummary.lastError || "",
     outboundProxyConfigured: Boolean(upstoxConfig.outboundProxyUrl),
     maskedProxyUrl: upstoxConfig.outboundProxyUrl
       ? upstoxConfig.outboundProxyUrl.replace(/:[^:@]+@/, ":••••••••@")

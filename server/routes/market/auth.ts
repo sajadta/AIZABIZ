@@ -1,70 +1,57 @@
 // Upstox configuration, proxy, daily-token, clear-token and validate-token routes.
 import express from "express";
 import type { Request, Response } from "express";
-import https from "https";
-import { HttpsProxyAgent } from "https-proxy-agent";
-import { upstoxConfig, botConfig, invalidTokens } from "../../state";
+import { upstoxConfig, botConfig, invalidTokens, setCachedUpstoxLivePositions } from "../../state";
 import { isUpstoxAuthFailureError } from "../../utils";
+import { saveTokenBackupToDisk } from "../../lib/tokens";
 import { savePostgresDb } from "../../services/persistence";
-import { publishTokenToCloudRelay, getLiveOutboundIp } from "../../services/tokenSync";
+import { testProxyConnectivity, markProxyUnhealthy } from "../../services/upstoxTransport";
+import { publishTokenToCloudRelay, getLiveOutboundIp, resetVerifiedTokenCache } from "../../services/tokenSync";
 
 export function registerAuthConfigRoutes(app: express.Application) {
-  let cachedOutboundServerIp = "";
-  let isCurrentIpFromProxy = false;
-  let lastIpCheckAt = 0;
-
   app.post("/api/market/proxy-config", async (req: Request, res: Response) => {
     const { proxyUrl } = req.body;
     const targetProxy = typeof proxyUrl === "string" ? proxyUrl.trim() : "";
     if (!targetProxy) {
       upstoxConfig.outboundProxyUrl = "";
+      markProxyUnhealthy("Proxy removed by user");
       await savePostgresDb().catch(() => { /* ignore */ });
       const fallbackIp = await getLiveOutboundIp();
       return res.json({
         success: true,
-        message: "Proxy removed. Reverted to standard direct connection.",
+        message: "Proxy removed. Reverted to direct IPv4 connection.",
         isFixedProxy: false,
-        serverOutboundIp: fallbackIp.ip,
+        serverOutboundIp: fallbackIp.actualDetectedIp || fallbackIp.secondaryIp,
       });
     }
 
-    try {
-      const testAgent = new HttpsProxyAgent(targetProxy, { timeout: 7000 });
-      const detectedIp = await new Promise<string>((resolve, reject) => {
-        const r = https.get("https://api.ipify.org", { agent: testAgent, timeout: 7000 }, (res) => {
-          let str = "";
-          res.on("data", (d) => (str += d));
-          res.on("end", () => resolve(str.trim()));
-        });
-        r.on("error", reject);
-        r.setTimeout(7000, () => {
-          r.destroy();
-          reject(new Error("Proxy connection timed out (7s)"));
-        });
-      });
-
-      if (!detectedIp || detectedIp.length > 45) {
-        throw new Error("Invalid IP received from proxy");
-      }
-
+    const testRes = await testProxyConnectivity(targetProxy, 7500);
+    if (testRes.online && testRes.detectedIp) {
       upstoxConfig.outboundProxyUrl = targetProxy;
-      cachedOutboundServerIp = detectedIp;
-      isCurrentIpFromProxy = true;
-      lastIpCheckAt = Date.now();
       await savePostgresDb().catch(() => { /* ignore */ });
 
       return res.json({
         success: true,
-        message: `✅ Fixed IP Proxy connected! Outbound Static IP: ${detectedIp}`,
-        serverOutboundIp: detectedIp,
+        message: `✅ Fixed IP Proxy connected! Outbound Static IP: ${testRes.detectedIp}`,
+        serverOutboundIp: testRes.detectedIp,
         isFixedProxy: true,
-      });
-    } catch (err: any) {
-      return res.status(400).json({
-        success: false,
-        error: `Proxy test failed: ${err?.message || "Could not reach proxy"}`,
+        tcpOpen: true,
       });
     }
+
+    const fallbackIp = await getLiveOutboundIp();
+    const currentContainerIp = fallbackIp.actualDetectedIp || fallbackIp.secondaryIp;
+    const suggestedFix = testRes.tcpOpen
+      ? "Run in GCP SSH: sudo sed -i 's/^Listen /#Listen /; s/^Allow /#Allow /; s/^MaxClients .*/MaxClients 100/' /etc/tinyproxy/tinyproxy.conf && sudo systemctl restart tinyproxy"
+      : "Ensure GCP Firewall allows TCP port 8888 and tinyproxy service is running.";
+
+    return res.status(400).json({
+      success: false,
+      tcpOpen: testRes.tcpOpen,
+      containerIp: currentContainerIp,
+      suggestedFix,
+      error: `Proxy HTTPS test failed: ${testRes.error || "Could not reach proxy"}. Direct IPv4 fallback stays active.`,
+    });
   });
 
   app.post("/api/market/config", async (req: Request, res: Response) => {
@@ -105,6 +92,12 @@ export function registerAuthConfigRoutes(app: express.Application) {
               "en-IN",
             );
             upstoxConfig.tokenExpiresAt = "03:30 AM (Next Day) ";
+            if (!botConfig.userExplicitlySelectedMode) {
+              botConfig.mode = "UPSTOX_LIVE";
+            }
+            resetVerifiedTokenCache();
+            setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+            saveTokenBackupToDisk(token, upstoxConfig);
             await savePostgresDb().catch(() => { /* ignore */ });
             publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
           } else if (isUpstoxAuthFailureError(response.status, data)) {
@@ -150,9 +143,12 @@ export function registerAuthConfigRoutes(app: express.Application) {
     if (mobile && String(mobile).trim()) upstoxConfig.mobile = String(mobile).trim();
     if (pin && String(pin).trim()) upstoxConfig.pin = String(pin).trim();
     if (typeof accessToken === "string" && accessToken.trim().length > 20) {
-      const cleanToken = accessToken.trim();
+      const cleanToken = accessToken.replace(/^Bearer\s+/i, "").trim();
       upstoxConfig.accessToken = cleanToken;
       invalidTokens.delete(cleanToken);
+      resetVerifiedTokenCache();
+      setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+      saveTokenBackupToDisk(cleanToken, upstoxConfig);
       publishTokenToCloudRelay(cleanToken).catch(() => { /* ignore */ });
     }
 
@@ -210,6 +206,9 @@ export function registerAuthConfigRoutes(app: express.Application) {
           botConfig.mode = "UPSTOX_LIVE";
         }
         invalidTokens.delete(token);
+        resetVerifiedTokenCache();
+        setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+        saveTokenBackupToDisk(token, upstoxConfig);
         await savePostgresDb().catch(() => { /* ignore */ });
         publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
 
@@ -230,6 +229,7 @@ export function registerAuthConfigRoutes(app: express.Application) {
           invalidTokens.add(token);
         }
         upstoxConfig.accessToken = "";
+        resetVerifiedTokenCache();
         return res.status(401).json({
           success: false,
           error:
@@ -250,6 +250,10 @@ export function registerAuthConfigRoutes(app: express.Application) {
     upstoxConfig.accessToken = "";
     upstoxConfig.tokenGeneratedAt = "";
     upstoxConfig.tokenExpiresAt = "";
+    resetVerifiedTokenCache();
+    setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+    saveTokenBackupToDisk("", upstoxConfig);
+    savePostgresDb().catch(() => { /* ignore */ });
     res.json({
       success: true,
       message: "Daily Upstox token cleared. Switched to Paper Trading Mode.",

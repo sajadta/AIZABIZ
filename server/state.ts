@@ -20,7 +20,7 @@ export let botConfig = {
   tradeQuantity: 50,
   multiTimeframeEnabled: true,
   optionStrikeSelector: true,
-  tradeMmode: "OPTIONS_ONLY",
+  tradeMode: "AUTO_ADAPTIVE",
   optionStrategyMode: "HYBRID_AUTO_REGIME",
   enableMultiLegExecution: true,
   limitOrderSlippageGuard: true,
@@ -50,19 +50,19 @@ export let botConfig = {
 };
 
 export let upstoxConfig = {
-  apiKey: process.env.UPSTOX_API_KEY || "",
-  apiSecret: process.env.UPSTOX_API_SECRET || "",
+  apiKey: process.env.UPSTOX_API_KEY || "3ab5711d-8891-480b-b0c1-29662852de49",
+  apiSecret: process.env.UPSTOX_API_SECRET || "jl5s7qy9r0",
   redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
   accessToken: process.env.UPSTOX_ACCESS_TOKEN || "",
-  userName: process.env.UPSTOX_USER_NAME || "",
-  userEmail: process.env.UPSTOX_USER_EMAIL || "",
-  userClientCode: process.env.UPSTOX_CLIENT_CODE || process.env.UPSTOX_ID || "",
-  mobile: process.env.UPSTOX_MOBILE || "",
-  pin: process.env.UPSTOX_PIN || "",
-  totpSecret: process.env.UPSTOX_TOTP_SECRET || process.env.TOTP_SECRET_KEY || "",
+  userName: process.env.UPSTOX_USER_NAME || "SAJAD THAZHEPEEDIKAYILA ABDULRAHIMAN",
+  userEmail: process.env.UPSTOX_USER_EMAIL || "sajadthazhepeedikayila@gmail.com",
+  userClientCode: process.env.UPSTOX_CLIENT_CODE || process.env.UPSTOX_ID || "5VCABX",
+  mobile: process.env.UPSTOX_MOBILE || "9847989434",
+  pin: process.env.UPSTOX_PIN || "984798",
+  totpSecret: process.env.UPSTOX_TOTP_SECRET || process.env.TOTP_SECRET_KEY || "OQMKK5L53ZDRSNKVRNBTYOIB5ZVLEXW3",
   tokenGeneratedAt: "",
   tokenExpiresAt: "",
-  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "",
+  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "http://8.234.113.241:8888",
 };
 
 export let botLogs: any[] = [];

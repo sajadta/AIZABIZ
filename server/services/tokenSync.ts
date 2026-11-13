@@ -3,11 +3,12 @@
 // tokens from the relay / Render bridges / disk backup, and reports the live
 // outbound IP used for Upstox's IP whitelisting.
 import {
-  upstoxConfig, botConfig, invalidTokens, setUpstoxConfig, setLastWebhookDiagnostic,
+  upstoxConfig, botConfig, invalidTokens, setLastWebhookDiagnostic,
   FIXED_PRIMARY_IP, FIXED_SECONDARY_IP,
 } from "../state";
 import { isJwtTokenActuallyExpired, saveTokenBackupToDisk, loadTokenBackupFromDisk } from "../lib/tokens";
 import { isUpstoxAuthFailureError } from "../utils";
+import { getDetectedContainerIp, getProxyStatusSummary } from "./upstoxTransport";
 import { savePostgresDb } from "./persistence";
 
 // Auto-Sync Approved Token from Public Webhook Relay (ntfy.sh) & Render Bridge
@@ -33,7 +34,7 @@ export async function publishTokenToCloudRelay(tokenToSave: string) {
         saved_at: new Date().toISOString(),
       }),
     });
-  } catch (e) {}
+  } catch {}
 }
 
 export type VerifiedTokenStatus = {
@@ -66,6 +67,20 @@ export let lastVerifiedTokenStatus: VerifiedTokenStatus = {
 
 export const setLastVerifiedTokenStatus = (v: VerifiedTokenStatus) => { lastVerifiedTokenStatus = v; };
 
+export const resetVerifiedTokenCache = () => {
+  lastVerifiedTokenStatus = {
+    ...lastVerifiedTokenStatus,
+    token: "",
+    verifiedAt: 0,
+    availableMargin: 0,
+    usedMargin: 0,
+    utilizedMargin: 0,
+    payin: 0,
+    payout: 0,
+    holdingsCount: 0,
+  };
+};
+
 export async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: string) {
   const cleanToken = (tokenCandidate || "").trim();
   if (
@@ -93,8 +108,9 @@ export async function activateDiscoveredToken(tokenCandidate: string, sourceLabe
       upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
       upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
       if (!botConfig.userExplicitlySelectedMode) {
-        botConfig.mode = "PAPER_TRADING";
+        botConfig.mode = "UPSTOX_LIVE";
       }
+      resetVerifiedTokenCache();
       setLastWebhookDiagnostic(`✅ Token auto-activated via ${sourceLabel} at ${upstoxConfig.tokenGeneratedAt}`);
       saveTokenBackupToDisk(cleanToken, upstoxConfig);
       await savePostgresDb().catch(() => { /* ignore */ });
@@ -102,7 +118,7 @@ export async function activateDiscoveredToken(tokenCandidate: string, sourceLabe
     } else if (isUpstoxAuthFailureError(pRes.status, pData) && isJwtTokenActuallyExpired(cleanToken)) {
       invalidTokens.add(cleanToken);
     }
-  } catch (e) {}
+  } catch {}
   return false;
 }
 
@@ -122,7 +138,7 @@ export async function syncTokenFromRenderWebhookBridge() {
     if (ok) return true;
   }
 
-  // 1. Check Public 24x7 Webhook Relay (https://ntfy.sh/upstox_live_sajad_5vcabx_3ab5711d)
+  // 1. Check Public 24x7 Webhook Relay
   try {
     const relayCtrl = new AbortController();
     const relayTimeout = setTimeout(() => relayCtrl.abort(), 3000);
@@ -139,7 +155,6 @@ export async function syncTokenFromRenderWebhookBridge() {
       const lines = text.trim().split("\n").reverse();
       for (const line of lines) {
         if (!line.trim()) continue;
-        // Extract any JWT token (eyJ...) from the webhook message
         const jwtMatch = line.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
         if (jwtMatch && jwtMatch[0]) {
           const ok = await activateDiscoveredToken(jwtMatch[0], "Cloud Token Backup Relay");
@@ -154,21 +169,28 @@ export async function syncTokenFromRenderWebhookBridge() {
             if (ok) return true;
           }
         } catch {
-      // Ignored
-    }
+          // Ignored
+        }
       }
     }
-  } catch (e) {}
+  } catch {}
 
-  // 2. Also check Render Servers (https://aizabiz.onrender.com and configured redirect URI) if awake
-  for (const renderBase of [
-    "https://aizabiz.onrender.com",
-    process.env.UPSTOX_REDIRECT_URI || "",
-  ]) {
+  // 2. Also check Render Server if configured and not localhost
+  const candidates = ["https://aizabiz.onrender.com", process.env.UPSTOX_REDIRECT_URI || ""]
+    .map((u) => {
+      try {
+        return u ? new URL(u).origin : "";
+      } catch {
+        return "";
+      }
+    })
+    .filter((origin) => origin && !origin.includes("localhost") && !origin.includes("127.0.0.1"));
+
+  for (const renderOrigin of Array.from(new Set(candidates))) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2500);
-      const res = await fetch(`${renderBase}/api/market/config`, {
+      const res = await fetch(`${renderOrigin}/api/market/config`, {
         signal: controller.signal,
         headers: { Accept: "application/json" },
       });
@@ -177,77 +199,31 @@ export async function syncTokenFromRenderWebhookBridge() {
         const data = await res.json();
         const remoteToken = (data.accessToken || data.access_token || "").trim();
         if (remoteToken) {
-          const ok = await activateDiscoveredToken(remoteToken, `Render Server (${renderBase})`);
+          const ok = await activateDiscoveredToken(remoteToken, `Remote Server (${renderOrigin})`);
           if (ok) return true;
         }
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
   }
   return false;
 }
 
-let lastIpCheckResult: { detectedIp: string; isProxy: boolean } | null = null;
-let lastIpCheckTimestamp = 0;
-
 export async function getLiveOutboundIp(): Promise<{ ip: string; secondaryIp: string; isFixedProxy: boolean; actualDetectedIp: string; mismatch: boolean }> {
-  const proxyUrl = process.env.UPSTOX_PROXY_URL;
-  const now = Date.now();
-  
-  // Cache for 5 minutes
-  if (lastIpCheckResult && (now - lastIpCheckTimestamp < 5 * 60 * 1000)) {
-    const mismatch = lastIpCheckResult.detectedIp !== FIXED_PRIMARY_IP && lastIpCheckResult.detectedIp !== FIXED_SECONDARY_IP;
-    return { 
-      ip: FIXED_PRIMARY_IP, 
-      secondaryIp: FIXED_SECONDARY_IP, 
-      isFixedProxy: lastIpCheckResult.isProxy, 
-      actualDetectedIp: lastIpCheckResult.detectedIp || "Unknown",
-      mismatch: mismatch
-    };
-  }
+  const summary = getProxyStatusSummary();
+  const containerIp = await getDetectedContainerIp();
+  const actualDetectedIp = summary.isProxyActive
+    ? summary.activeIp
+    : (containerIp || "Unknown");
+  const secondaryIp = containerIp || FIXED_SECONDARY_IP;
+  const mismatch = actualDetectedIp !== FIXED_PRIMARY_IP && actualDetectedIp !== FIXED_SECONDARY_IP;
 
-  let detectedIp = "";
-  let isProxy = false;
-
-  try {
-    const controller = new AbortController();
-    // Increase timeout to 8 seconds for slow proxy/network
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const options: any = { signal: controller.signal };
-    
-    const res = await fetch("https://api.ipify.org?format=json", options);
-    clearTimeout(timeout);
-    
-    if (res.ok) {
-      const data = await res.json();
-      detectedIp = data.ip;
-      isProxy = !!proxyUrl;
-      
-      // Update cache
-      lastIpCheckResult = { detectedIp, isProxy };
-      lastIpCheckTimestamp = now;
-    }
-  } catch (e: any) {
-    if (e.name === 'AbortError') {
-      console.warn("[IP Check Timeout] api.ipify.org took too long (>8s)");
-    } else {
-      console.error("[IP Check Error]", e);
-    }
-    // Use fallback from previous check if available even if expired
-    if (lastIpCheckResult) {
-       detectedIp = lastIpCheckResult.detectedIp;
-       isProxy = lastIpCheckResult.isProxy;
-    }
-  }
-
-  const mismatch = detectedIp !== FIXED_PRIMARY_IP && detectedIp !== FIXED_SECONDARY_IP;
-
-  return { 
-    ip: FIXED_PRIMARY_IP, 
-    secondaryIp: FIXED_SECONDARY_IP, 
-    isFixedProxy: isProxy, 
-    actualDetectedIp: detectedIp || "Unknown",
-    mismatch: mismatch
+  return {
+    ip: FIXED_PRIMARY_IP,
+    secondaryIp,
+    isFixedProxy: summary.isProxyActive,
+    actualDetectedIp,
+    mismatch,
   };
 }

@@ -21,6 +21,9 @@ export interface UpstoxApiConfig {
   lastConnectedAt?: string;
   serverOutboundIp?: string;
   serverSecondaryIp?: string;
+  actualDetectedIp?: string;
+  holdingsCount?: number;
+  proxyError?: string;
 }
 
 export interface GeminiMarketAnalysis {

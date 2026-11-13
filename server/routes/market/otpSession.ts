@@ -1,7 +1,7 @@
 // Automated Upstox SMS OTP + Auto PIN + Auto OAuth Code + Auto Token Exchange helpers.
 import https from "https";
 import zlib from "zlib";
-import { getUpstoxAgent } from "../../services/upstoxTransport";
+import { getUpstoxAgent, markProxyUnhealthy } from "../../services/upstoxTransport";
 
 export interface UpstoxAutoOtpSession {
   requestId: string;
@@ -22,44 +22,8 @@ export const otpSessionState: {
   recent: UpstoxAutoOtpSession[];
 } = {
   active: null,
-  recent: [
-  {
-    requestId: "WPRO-3egkrksx7b",
-    userId: "6SZtij90Hccr5G8TIq2krA",
-    internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
-    validateOtpToken: "ll1FA-e042cf74c757dee57f73f245b4e515124ad09b8f3a6f373cebfc7eea7fb6fe8c",
-    cookies: {
-      udapi_api_key: process.env.UPSTOX_API_KEY || "",
-      __cf_bm: "APVkIakoA8oIMlCKmWEcXAZn5HmSbtmwhB1n97fxVyw-1791776470.3146067-1.0.1.1-r36ZZnzG5Mh_XG24aA2ZQuD_neKhSGk12jPVmtN.G9UJBvh92k.SxQv8OGjAYlTVg.ptYo_t16tVoFU_RQqTqebtNli3c2.tHsUmagrEPaRjaSj73w9nAWyoEk8QHCwX",
-      _cfuvid: "rTkD8jVRZSZqyebeUSkiZbwedOz4rQh4Quu3MOjY.Nw-1791776470.3146067-1.0.1.1-vVKj9E88ywztg1mGTEvFeWcUG_mowUXfkFdJ6oEZ0CY",
-    },
-    apiKey: process.env.UPSTOX_API_KEY || "",
-    apiSecret: process.env.UPSTOX_API_SECRET || "",
-    redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
-    mobile: process.env.UPSTOX_MOBILE || "",
-    pin: process.env.UPSTOX_PIN || "",
-    createdAt: Date.now(),
-  },
-  {
-    requestId: "WPRO-frrwujndfv",
-    userId: "6SZtij90Hccr5G8TIq2krA",
-    internalClientId: "IND-nyjv70u9xcg2t8e3hkrpdm5b",
-    validateOtpToken: "ll1FA-612b975394378b452a29c9862f5f48390ca8e08c68410c6e889624109a3960cf",
-    cookies: {
-      udapi_api_key: process.env.UPSTOX_API_KEY || "",
-      __cf_bm: "bXngocYZYkTkF3di1lN4AHP2XuwpwLQOZPoFEYHhxvA-1791776468.5745695-1.0.1.1-AIdlHk1ILWcRSOkKhQr07EAzIKKtzzchmg.DvO.Cf0E6p.GUHVa3hVLrlyLkg8Mhos7DPDARNOkg0FDNzZBr.n3sXzw3CPgYZ_6vSJuljyijkioGs8vF6q7FHPT28BIP",
-      _cfuvid: "MWR3OKJABaFLrUmS4l1aaTtT2ULpIKz.k_UQh9FKwm0-1791776468.5745695-1.0.1.1-eM9hdukfcQCeHmZOLwzUrFfGTCXxF4ey7OoHOil82A0",
-    },
-    apiKey: process.env.UPSTOX_API_KEY || "",
-    apiSecret: process.env.UPSTOX_API_SECRET || "",
-    redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
-    mobile: process.env.UPSTOX_MOBILE || "",
-    pin: process.env.UPSTOX_PIN || "",
-    createdAt: Date.now() - 1000,
-  },
-  ],
+  recent: [],
 };
-otpSessionState.active = otpSessionState.recent[0];
 
 const ipv4HttpsAgent = new https.Agent({
   keepAlive: true,
@@ -136,6 +100,7 @@ export function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, time
     }
 
     const reqAgent = parsed.hostname.includes("upstox") ? getUpstoxAgent() : ipv4HttpsAgent;
+    const isUsingProxy = parsed.hostname.includes("upstox") && reqAgent !== ipv4HttpsAgent && (reqAgent as any).proxy !== undefined;
 
     const req = https.request(
       {
@@ -195,9 +160,15 @@ export function httpsRequestIPv4(urlStr: string, options: RequestInit = {}, time
     );
 
     req.on("timeout", () => {
+      if (isUsingProxy) {
+        markProxyUnhealthy("OTP proxy request timed out");
+      }
       req.destroy(new Error("IPv4 request timed out"));
     });
     req.on("error", (err) => {
+      if (isUsingProxy) {
+        markProxyUnhealthy(err?.message || "OTP proxy socket error");
+      }
       reject(err);
     });
 

@@ -1,10 +1,10 @@
 // Upstox postback / notifier webhook and OAuth callback handler.
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, botLogs, invalidTokens } from "../../state";
+import { upstoxConfig, botConfig, botLogs, invalidTokens, setLastWebhookDiagnostic, setCachedUpstoxLivePositions } from "../../state";
+import { saveTokenBackupToDisk } from "../../lib/tokens";
 import { savePostgresDb } from "../../services/persistence";
-import { publishTokenToCloudRelay } from "../../services/tokenSync";
-import { setLastWebhookDiagnostic } from "../../state";
+import { publishTokenToCloudRelay, resetVerifiedTokenCache } from "../../services/tokenSync";
 
 export function registerWebhookRoutes(app: express.Application) {
   // Upstox Postback, Notifier Webhook & OAuth Callback Endpoint (handles both GET ?code= and POST webhook payloads on /api/market/webhook, /api/market/notifier, and POST /)
@@ -46,8 +46,13 @@ export function registerWebhookRoutes(app: express.Application) {
           upstoxConfig.userClientCode = data.user_id || process.env.UPSTOX_CLIENT_CODE || "";
           upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
           upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-          // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
+          if (!botConfig.userExplicitlySelectedMode) {
+            botConfig.mode = "UPSTOX_LIVE";
+          }
           invalidTokens.delete(data.access_token);
+          resetVerifiedTokenCache();
+          setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+          saveTokenBackupToDisk(data.access_token, upstoxConfig);
           await savePostgresDb().catch(() => { /* ignore */ });
           publishTokenToCloudRelay(data.access_token).catch(() => { /* ignore */ });
 
@@ -113,9 +118,15 @@ export function registerWebhookRoutes(app: express.Application) {
         }
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
+        if (!botConfig.userExplicitlySelectedMode) {
+          botConfig.mode = "UPSTOX_LIVE";
+        }
         invalidTokens.delete(cleanToken);
+        resetVerifiedTokenCache();
+        setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+        saveTokenBackupToDisk(cleanToken, upstoxConfig);
         await savePostgresDb().catch(() => { /* ignore */ });
+        publishTokenToCloudRelay(cleanToken).catch(() => { /* ignore */ });
         botLogs.unshift({
           id: Date.now().toString(),
           time: new Date().toLocaleTimeString(),

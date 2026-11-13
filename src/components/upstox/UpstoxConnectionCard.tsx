@@ -13,6 +13,8 @@ interface UpstoxConnectionCardProps {
   isTestingProxy: Hook['isTestingProxy'];
   showProxyConfig: Hook['showProxyConfig'];
   setShowProxyConfig: Hook['setShowProxyConfig'];
+  containerIp: Hook['containerIp'];
+  proxyError: Hook['proxyError'];
   liveHoldingsCount: Hook['liveHoldingsCount'];
   setStatusMsg: Hook['setStatusMsg'];
   handleSaveProxy: Hook['handleSaveProxy'];
@@ -30,6 +32,8 @@ export const UpstoxConnectionCard: React.FC<UpstoxConnectionCardProps> = ({
   isTestingProxy,
   showProxyConfig,
   setShowProxyConfig,
+  containerIp,
+  proxyError,
   liveHoldingsCount,
   setStatusMsg,
   handleSaveProxy,
@@ -39,6 +43,17 @@ export const UpstoxConnectionCard: React.FC<UpstoxConnectionCardProps> = ({
   language,
 }) => {
   const t = translations[language];
+  const liveContainerIp =
+    (containerIp && containerIp !== 'Detecting...' && containerIp !== '8.234.113.241' ? containerIp : '') ||
+    (config.serverSecondaryIp && config.serverSecondaryIp !== '8.234.113.241' ? config.serverSecondaryIp : '') ||
+    'Detecting...';
+  const copyIpList = Array.from(
+    new Set([
+      '8.234.113.241',
+      '34.34.254.178',
+      ...(liveContainerIp && liveContainerIp !== 'Detecting...' ? [liveContainerIp] : []),
+    ]),
+  ).join(', ');
   return (
     <>
       <div
@@ -219,20 +234,19 @@ export const UpstoxConnectionCard: React.FC<UpstoxConnectionCardProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const allThree = '8.234.113.241, 34.34.254.178, 34.34.244.48';
-                  navigator.clipboard?.writeText(allThree);
+                  navigator.clipboard?.writeText(copyIpList);
                   setStatusMsg({
                     type: 'success',
                     text:
                       language === 'ml'
-                        ? `📋 3 IP-കളും കോപ്പി ചെയ്തു (${allThree})! Upstox Developer Console-ൽ നൽകുക.`
-                        : `📋 Copied All 3 IPs (${allThree})! Set in Upstox Developer Console.`,
+                        ? `📋 IP-കൾ കോപ്പി ചെയ്തു (${copyIpList})! Upstox Developer Console-ൽ നൽകുക.`
+                        : `📋 Copied All IPs (${copyIpList})! Set in Upstox Developer Console.`,
                   });
                 }}
                 className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition active:scale-95 flex items-center gap-1"
               >
                 <span>📋</span>
-                <span>{language === 'ml' ? '3 IP-കളും കോപ്പി ചെയ്യുക' : 'Copy All 3 IPs'}</span>
+                <span>{language === 'ml' ? 'IP-കൾ കോപ്പി ചെയ്യുക' : 'Copy All IPs'}</span>
               </button>
               <button
                 type="button"
@@ -310,18 +324,18 @@ export const UpstoxConnectionCard: React.FC<UpstoxConnectionCardProps> = ({
                     </span>
                   )}
                 </div>
-                <span className="text-xs font-mono font-black text-amber-300">34.34.244.48</span>
+                <span className="text-xs font-mono font-black text-amber-300">{liveContainerIp}</span>
               </div>
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard?.writeText('34.34.244.48');
+                  navigator.clipboard?.writeText(liveContainerIp);
                   setStatusMsg({
                     type: 'success',
                     text:
                       language === 'ml'
-                        ? `📋 Current IP (34.34.244.48) കോപ്പി ചെയ്തു! ഇത് Upstox-ൽ Whitelist ചെയ്യുക.`
-                        : `📋 Copied Current IP (34.34.244.48)! Whitelist this in Upstox if not using a proxy.`,
+                        ? `📋 Current IP (${liveContainerIp}) കോപ്പി ചെയ്തു! ഇത് Upstox-ൽ Whitelist ചെയ്യുക.`
+                        : `📋 Copied Current IP (${liveContainerIp})! Whitelist this in Upstox if not using a proxy.`,
                   });
                 }}
                 className="px-2 py-1 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition active:scale-95"
@@ -331,35 +345,54 @@ export const UpstoxConnectionCard: React.FC<UpstoxConnectionCardProps> = ({
             </div>
           </div>
 
-          {/* Troubleshooting hint when proxy VM is timed out */}
+          {/* Troubleshooting hint when proxy VM HTTPS CONNECT fails */}
           {!isFixedProxyActive && (
             <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 text-[10px] space-y-1.5">
-              <div className="flex items-center justify-between text-amber-300 font-bold">
-                <span>💡 പ്രോക്സി വി.എം കണക്റ്റ് ചെയ്യാൻ ഈ കമാൻഡ് VM-ൽ റൺ ചെയ്യുക:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const cmd =
-                      "sudo sed -i 's/^Listen /#Listen /' /etc/tinyproxy/tinyproxy.conf && sudo sed -i 's/^Allow /#Allow /' /etc/tinyproxy/tinyproxy.conf && sudo systemctl restart tinyproxy";
-                    navigator.clipboard?.writeText(cmd);
-                    setStatusMsg({
-                      type: 'success',
-                      text: '📋 കമാൻഡ് കോപ്പി ചെയ്തു! ഗൂഗിൾ ക്ലൗഡ് SSH ടർമിനലിൽ പേസ്റ്റ് ചെയ്യുക.',
-                    });
-                  }}
-                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[9px] font-bold"
-                >
-                  കോപ്പി കമാൻഡ്
-                </button>
+              <div className="flex items-center justify-between flex-wrap text-amber-300 font-bold gap-2">
+                <span>
+                  {language === 'ml'
+                    ? '💡 പ്രോക്സി HTTPS ലഭ്യമല്ല — നേരിട്ടുള്ള IPv4 റൂട്ട് സജീവം:'
+                    : '💡 Proxy HTTPS unreachable — direct IPv4 fallback active:'}
+                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cmd =
+                        "sudo sed -i 's/^Listen /#Listen /; s/^Allow /#Allow /; s/^MaxClients .*/MaxClients 100/' /etc/tinyproxy/tinyproxy.conf && (grep -q '^MaxClients' /etc/tinyproxy/tinyproxy.conf || echo 'MaxClients 100' | sudo tee -a /etc/tinyproxy/tinyproxy.conf >/dev/null) && sudo systemctl restart tinyproxy";
+                      navigator.clipboard?.writeText(cmd);
+                      setStatusMsg({
+                        type: 'success',
+                        text:
+                          language === 'ml'
+                            ? '📋 GCP SSH കമാൻഡ് കോപ്പി ചെയ്തു! ഗൂഗിൾ ക്ലൗഡ് VM SSH ടെർമിനലിൽ പേസ്റ്റ് ചെയ്ത് Run ചെയ്യുക.'
+                            : '📋 Copied GCP SSH command! Paste & run in your Google Cloud VM SSH terminal.',
+                      });
+                    }}
+                    className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[9px] font-bold"
+                  >
+                    {language === 'ml' ? 'കോപ്പി GCP കമാൻഡ്' : 'Copy GCP Fix'}
+                  </button>
+                  {proxyUrlInput && (
+                    <button
+                      type="button"
+                      disabled={isTestingProxy}
+                      onClick={() => handleSaveProxy(true)}
+                      className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-500/40 text-[9px] font-bold"
+                    >
+                      {language === 'ml' ? 'Direct IP ഉപയോഗിക്കുക' : 'Use Direct IP'}
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="text-slate-400 font-mono text-[9px] break-all bg-black/40 p-1.5 rounded border border-slate-800">
-                sudo sed -i &apos;s/^Listen /#Listen /&apos; /etc/tinyproxy/tinyproxy.conf
-                &amp;&amp; sudo sed -i &apos;s/^Allow /#Allow /&apos; /etc/tinyproxy/tinyproxy.conf
-                &amp;&amp; sudo systemctl restart tinyproxy
-              </p>
+              {proxyError && (
+                <p className="text-amber-200/80 font-mono text-[9px]">Status: {proxyError}</p>
+              )}
               <p className="text-slate-400 text-[9px]">
-                (നിലവിൽ തടസ്സമില്ലാതെ ട്രേഡിങ് നടക്കാൻ കണ്ടെയ്‌നർ IP: <b>34.34.244.48</b> തനിയെ
-                സജീവമാക്കിയിട്ടുണ്ട്).
+                {language === 'ml'
+                  ? 'നിലവിൽ തടസ്സമില്ലാതെ ട്രേഡിങ് നടക്കാൻ കണ്ടെയ്‌നർ IP: '
+                  : 'Direct outbound container IP (whitelist in Upstox if bypassing proxy): '}
+                <b className="text-amber-300 font-mono">{liveContainerIp}</b>
               </p>
             </div>
           )}

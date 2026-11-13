@@ -9,6 +9,7 @@ interface AppIpWhitelistNoticeProps {
   setDismissedIpWarning: (v: boolean) => void;
   setIpCopiedNotice: (v: boolean) => void;
   setIsApiModalOpen: (v: boolean) => void;
+  serverSecondaryIp?: string;
 }
 
 export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
@@ -19,14 +20,19 @@ export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
   setDismissedIpWarning,
   setIpCopiedNotice,
   setIsApiModalOpen,
-}) => (
+  serverSecondaryIp,
+}) => {
+  const ipListStr = Array.from(
+    new Set(['8.234.113.241', '34.34.254.178', ...(serverSecondaryIp ? [serverSecondaryIp] : [])]),
+  ).join(', ');
+  return (
   <>
     {/* Upstox Static IP Whitelist Notice (Only if an old IP rejection log is present) */}
     {!dismissedIpWarning &&
       botLogs.some(
         (l) =>
           l.message &&
-          l.message.includes('static IP restrictions') &&
+          (l.message.includes('static IP restrictions') || l.message.includes('static IP restriction')) &&
           Date.now() - Number(l.id || 0) < 15 * 60 * 1000,
       ) && (
         <div className="bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border-b border-amber-500/50 px-3.5 py-2 flex items-center justify-between gap-3 text-xs flex-wrap shadow-lg">
@@ -40,16 +46,15 @@ export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
               </span>
               <span className="text-slate-300 text-[11px]">
                 {language === 'ml'
-                  ? `Upstox Developer Console-ൽ 8.234.113.241, 34.34.254.178, 34.34.244.48 എന്നീ 3 IP-കളും Whitelist ചെയ്യുക.`
-                  : `Please ensure IPs (8.234.113.241, 34.34.254.178, 34.34.244.48) are saved in Upstox Developer Console.`}
+                  ? `Upstox Developer Console-ൽ ${ipListStr} എന്നീ IP-കൾ Whitelist ചെയ്യുക.`
+                  : `Please ensure IPs (${ipListStr}) are saved in Upstox Developer Console.`}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => {
-                const allThree = '8.234.113.241, 34.34.254.178, 34.34.244.48';
-                navigator.clipboard?.writeText(allThree);
+                navigator.clipboard?.writeText(ipListStr);
                 setIpCopiedNotice(true);
                 setTimeout(() => setIpCopiedNotice(false), 3000);
               }}
@@ -58,11 +63,11 @@ export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
               📋{' '}
               {ipCopiedNotice
                 ? language === 'ml'
-                  ? '✓ 3 IP-കളും കോപ്പി ചെയ്തു!'
-                  : '✓ All 3 IPs Copied!'
+                  ? '✓ IP-കൾ കോപ്പി ചെയ്തു!'
+                  : '✓ All IPs Copied!'
                 : language === 'ml'
-                  ? '3 IP-കളും കോപ്പി ചെയ്യുക'
-                  : 'Copy All 3 IPs'}
+                  ? 'IP-കൾ കോപ്പി ചെയ്യുക'
+                  : 'Copy All IPs'}
             </button>
             <button
               onClick={() => setIsApiModalOpen(true)}
@@ -82,4 +87,5 @@ export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
         </div>
       )}
   </>
-);
+  );
+};

@@ -1,15 +1,17 @@
 // Bot entry-scan phase: circuit-breaker gating, market-hours checks, signal
 // generation and live/paper order placement for new trades.
-import { botConfig, botLogs, botSignals, paperOrders, paperPositions, paperTradeHistory, globalLiveQuotes, optionIntradayCandleCache, recentClosedStrikes, intradayCandleCache, fiveYearHistoricalRegimeCache, optionContractCache, optionChainCache, getLastFullEntryScanAtMs, setLastFullEntryScanAtMs, getLastTradeExitTime, getCachedUpstoxLiveMargin, setCachedUpstoxLiveMargin, setLatestMultiIndexAlphaMatrix } from "../../state";
+import { botConfig, botLogs, botSignals, paperOrders, paperPositions, paperTradeHistory, globalLiveQuotes, optionIntradayCandleCache, recentClosedStrikes, intradayCandleCache, fiveYearHistoricalRegimeCache, optionContractCache, optionChainCache, FIXED_PRIMARY_IP, getLastFullEntryScanAtMs, setLastFullEntryScanAtMs, getLastTradeExitTime, getCachedUpstoxLiveMargin, setCachedUpstoxLiveMargin, setLatestMultiIndexAlphaMatrix } from "../../state";
 import { analyzeTradingSignals, enrichCandlesWithIndicators, calculateTradeCharges, calculateAffordableLotsWithBrokerage } from "../../../src/utils/indicators";
 import { resilientFetchJson } from "../../lib/http";
-import { getDynamicLotSize, lotSizeCache } from "../../lib/instruments";
-import { placeUpstoxOrderIpv4 } from ".././upstoxTransport";
+import { getDynamicLotSize, lotSizeCache, MICRO_CAPITAL_EQUITY_UNIVERSE } from "../../lib/instruments";
+import { placeUpstoxOrderIpv4, parseUpstoxFundsData, getDetectedContainerIp } from ".././upstoxTransport";
 import { sendTelegramNotification } from ".././notifications";
-import { savePostgresDb } from ".././persistence";
+import { savePostgresDb, getPaperInitialCapital } from ".././persistence";
 import { YAHOO_NSE_MAP } from "../../data/yahooMap";
 
 import { strikeDailyEntryCount, STRIKE_LOCKOUT_MS, MAX_STRIKE_ENTRIES_DEFAULT, MAX_STRIKE_ENTRIES_TRENDING } from "./antiChurn";
+
+let lastCapitalShortfallLogMs = 0;
 
 export async function runEntryScan(ctx: {
   token: string;
@@ -35,18 +37,22 @@ export async function runEntryScan(ctx: {
   const todayOptionLossCount = activeSessionTrades.filter(
     (trade) => (trade.realizedPnL || 0) < 0,
   ).length;
-  const maxAllowedOptionLosses = Math.max(
-    8,
-    Number(botConfig.maxOptionLossCount || 8),
+  const maxAllowedOptionLosses = Math.min(
+    10,
+    Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
   );
   const todayRealizedPnL = activeSessionTrades.reduce(
     (acc, trade) => acc + (trade.realizedPnL || 0),
     0,
   );
+  const paperCapitalBase = getPaperInitialCapital();
+  const paperSessionPnL = paperTradeHistory
+    .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+    .reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
   const liveOrPaperCapForCircuit =
     botConfig.mode === "UPSTOX_LIVE"
-      ? (getCachedUpstoxLiveMargin().margin > 0 ? getCachedUpstoxLiveMargin().margin : 2000)
-      : Math.max(500, 2000 + paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0));
+      ? (getCachedUpstoxLiveMargin().margin > 0 ? getCachedUpstoxLiveMargin().margin : paperCapitalBase)
+      : Math.max(500, paperCapitalBase + paperSessionPnL);
   const isSmallCapForCircuit = liveOrPaperCapForCircuit <= 4000;
   const dynamicDailyLossLimit = isSmallCapForCircuit
     ? Math.min(380, Math.max(200, Math.round(liveOrPaperCapForCircuit * 0.18)))
@@ -108,15 +114,15 @@ export async function runEntryScan(ctx: {
           1,
           4000
         );
-        if (fundsData?.status === "success" && fundsData?.data?.equity) {
-          const eq = fundsData.data.equity;
-          liveAvailableMargin = Number(eq.available_margin || 0);
+        if (fundsData?.status === "success" && fundsData?.data) {
+          const parsedFunds = parseUpstoxFundsData(fundsData);
+          liveAvailableMargin = parsedFunds.availableMargin;
           setCachedUpstoxLiveMargin({ 
             timestamp: Date.now(), 
             margin: liveAvailableMargin,
-            utilizedMargin: Number(eq.used_margin || 0),
-            payin: Number(eq.payin || 0),
-            payout: Number(eq.payout || 0)
+            utilizedMargin: parsedFunds.utilizedMargin,
+            payin: parsedFunds.payin,
+            payout: parsedFunds.payout
           });
         }
       } catch {
@@ -131,10 +137,14 @@ export async function runEntryScan(ctx: {
     // - If user specifies a manual cap in Advanced Overrides (> 0), it respects that ceiling.
     const configuredCap = Number((botConfig as any).maxCapitalPerTrade || 0);
     const activeExposure = botConfig.mode === "PAPER_TRADING" 
-      ? paperPositions.reduce((sum: number, p: any) => sum + (p.buyPrice * p.quantity), 0)
+      ? paperPositions
+          .filter((p: any) => !p.mode || p.mode === "PAPER_TRADING")
+          .reduce((sum: number, p: any) => sum + (p.buyPrice * p.quantity), 0)
       : 0;
-    const paperPnL = paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
-    const paperBalance = Math.max(0, 2000 + paperPnL - activeExposure);
+    const paperPnL = paperTradeHistory
+      .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+      .reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
+    const paperBalance = Math.max(0, getPaperInitialCapital() + paperPnL - activeExposure);
 
     const effectiveCapital =
       botConfig.mode === "UPSTOX_LIVE"
@@ -208,6 +218,7 @@ export async function runEntryScan(ctx: {
         let verifiedRealOptionStrike = false;
         let topOptionCandidateForIndex: any = null;
         let bestCandidate: any = null;
+        let cheapestSkippedStrikeForCap: any = null;
         const cachedIntraday = intradayCandleCache[idx.key];
         if (cachedIntraday && Date.now() - cachedIntraday.timestamp < 8000) {
           cData = { status: "success", data: { candles: cachedIntraday.raw } };
@@ -1002,6 +1013,29 @@ export async function runEntryScan(ctx: {
                           score += 120;
                         }
                       } else {
+                        // Track the cheapest quality strike skipped strictly due to insufficient capital so UI & logs explain exact shortfall
+                        if (
+                          effectiveCapital > 0 &&
+                          totalRequiredWithBrokerage > effectiveCapital &&
+                          ltp >= 12 &&
+                          (!cheapestSkippedStrikeForCap ||
+                            totalRequiredWithBrokerage < cheapestSkippedStrikeForCap.totalRequiredWithBrokerage)
+                        ) {
+                          cheapestSkippedStrikeForCap = {
+                            strikePrice: Number(row.strike_price),
+                            optType,
+                            ltp,
+                            lotSize: lotSz,
+                            delta,
+                            gamma,
+                            theta,
+                            oneLotCost,
+                            estimatedBrokerage,
+                            totalRequiredWithBrokerage,
+                            expectedNetProfit,
+                            roiPotentialPct,
+                          };
+                        }
                         // Strictly skip strikes that exceed the user's available capital!
                         if (effectiveCapital > 0 && totalRequiredWithBrokerage > effectiveCapital) {
                           continue;
@@ -1364,88 +1398,90 @@ export async function runEntryScan(ctx: {
                         }
                       }
 
-                      const liveOptLtp = Number(bestCandidate.ltp || 0);
-                      const symUpper = idx.symbol.toUpperCase();
-                      let indexPrefix = symUpper;
-                      if (symUpper.includes("BANKEX")) indexPrefix = "BANKEX";
-                      else if (symUpper.includes("SENSEX")) indexPrefix = "SENSEX";
-                      else if (symUpper.includes("MID SELECT") || symUpper.includes("MIDCP"))
-                        indexPrefix = "MIDCPNIFTY";
-                      else if (symUpper.includes("FIN")) indexPrefix = "FINNIFTY";
-                      else if (symUpper.includes("BANK")) indexPrefix = "BANKNIFTY";
-                      else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
+                      if (optionMomentumConfirmed && bestCandidate) {
+                        const liveOptLtp = Number(bestCandidate.ltp || 0);
+                        const symUpper = idx.symbol.toUpperCase();
+                        let indexPrefix = symUpper;
+                        if (symUpper.includes("BANKEX")) indexPrefix = "BANKEX";
+                        else if (symUpper.includes("SENSEX")) indexPrefix = "SENSEX";
+                        else if (symUpper.includes("MID SELECT") || symUpper.includes("MIDCP"))
+                          indexPrefix = "MIDCPNIFTY";
+                        else if (symUpper.includes("FIN")) indexPrefix = "FINNIFTY";
+                        else if (symUpper.includes("BANK")) indexPrefix = "BANKNIFTY";
+                        else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
 
-                      const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
+                        const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
 
-                      const lotAffordability = calculateAffordableLotsWithBrokerage(
-                        liveOptLtp,
-                        lotSz,
-                        effectiveCapital,
-                        true,
-                        5,
-                      );
-                      const affordableLots = lotAffordability.affordableLots;
+                        const lotAffordability = calculateAffordableLotsWithBrokerage(
+                          liveOptLtp,
+                          lotSz,
+                          effectiveCapital,
+                          true,
+                          5,
+                        );
+                        const affordableLots = lotAffordability.affordableLots;
 
-                      // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, Corporate Heavyweights, OI Walls, and Capital + Brokerage fit
-                      signal = analyzeTradingSignals(
-                        idx.symbol,
-                        idx.symbol,
-                        idxKey,
-                        enriched,
-                        liveLtp,
-                        botConfig.selectedStrategy as any,
-                        liveOptLtp,
-                        {
-                          optionSymbol: chosenOptSymbol,
-                          strikePrice: bestCandidate.strikePrice,
-                          optionType: optType,
-                          ltp: liveOptLtp,
-                          expiry: expiryDate,
-                          lotSize: lotSz,
-                          delta: bestCandidate.delta,
-                          gamma: bestCandidate.gamma,
-                          theta: bestCandidate.theta,
-                          iv: bestCandidate.iv,
-                          oi: bestCandidate.oi,
-                          oiChange: bestCandidate.oiChange,
-                          bidAskRatio: bestCandidate.bidAskRatio,
-                          callWallStrike,
-                          putWallStrike,
-                          corporateHeavyweightScore,
-                          corporateHeavyweightSummary,
-                          globalMacroAlignment,
-                          fiveYearRegimeTrend: fiveYearMetrics?.fiveYearRegimeTrend,
-                          fiveYearRegimeSummary: fiveYearMetrics?.fiveYearRegimeSummary,
-                          fiveYearRegimeSummaryMl: fiveYearMetrics?.fiveYearRegimeSummaryMl,
-                          multiYearSupport: fiveYearMetrics?.multiYearSupport,
-                          multiYearResistance: fiveYearMetrics?.multiYearResistance,
-                          historicalPatternWinRate: fiveYearMetrics?.historicalPatternWinRate,
-                          ema200Daily: fiveYearMetrics?.ema200Daily,
-                          ema50Daily: fiveYearMetrics?.ema50Daily,
-                          indiaVix: liveIndiaVix,
-                          volume: bestCandidate.volume,
-                          pcr: chainPcr,
-                          instrumentKey: bestCandidate.instrumentKey,
-                          requiredCapital: bestCandidate.oneLotCost,
-                          estimatedBrokerage: bestCandidate.estimatedBrokerage,
-                          totalRequiredWithBrokerage:
-                            bestCandidate.totalRequiredWithBrokerage,
-                          expectedNetProfit: bestCandidate.expectedNetProfit,
-                          affordableLots,
-                          availableCapital: effectiveCapital,
-                        },
-                      );
-
-                      if (signal && bestCandidate?.instrumentKey) {
-                        signal.instrumentKey = bestCandidate.instrumentKey;
-                        verifiedRealOptionStrike = true;
-                        if (lotSz > 0) {
-                          lotSizeCache[bestCandidate.instrumentKey] = {
-                            lotSize: lotSz,
-                            timestamp: Date.now(),
-                            source: "UPSTOX_LIVE",
+                        // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, Corporate Heavyweights, OI Walls, and Capital + Brokerage fit
+                        signal = analyzeTradingSignals(
+                          idx.symbol,
+                          idx.symbol,
+                          idxKey,
+                          enriched,
+                          liveLtp,
+                          botConfig.selectedStrategy as any,
+                          liveOptLtp,
+                          {
+                            optionSymbol: chosenOptSymbol,
+                            strikePrice: bestCandidate.strikePrice,
+                            optionType: optType,
+                            ltp: liveOptLtp,
                             expiry: expiryDate,
-                          };
+                            lotSize: lotSz,
+                            delta: bestCandidate.delta,
+                            gamma: bestCandidate.gamma,
+                            theta: bestCandidate.theta,
+                            iv: bestCandidate.iv,
+                            oi: bestCandidate.oi,
+                            oiChange: bestCandidate.oiChange,
+                            bidAskRatio: bestCandidate.bidAskRatio,
+                            callWallStrike,
+                            putWallStrike,
+                            corporateHeavyweightScore,
+                            corporateHeavyweightSummary,
+                            globalMacroAlignment,
+                            fiveYearRegimeTrend: fiveYearMetrics?.fiveYearRegimeTrend,
+                            fiveYearRegimeSummary: fiveYearMetrics?.fiveYearRegimeSummary,
+                            fiveYearRegimeSummaryMl: fiveYearMetrics?.fiveYearRegimeSummaryMl,
+                            multiYearSupport: fiveYearMetrics?.multiYearSupport,
+                            multiYearResistance: fiveYearMetrics?.multiYearResistance,
+                            historicalPatternWinRate: fiveYearMetrics?.historicalPatternWinRate,
+                            ema200Daily: fiveYearMetrics?.ema200Daily,
+                            ema50Daily: fiveYearMetrics?.ema50Daily,
+                            indiaVix: liveIndiaVix,
+                            volume: bestCandidate.volume,
+                            pcr: chainPcr,
+                            instrumentKey: bestCandidate.instrumentKey,
+                            requiredCapital: bestCandidate.oneLotCost,
+                            estimatedBrokerage: bestCandidate.estimatedBrokerage,
+                            totalRequiredWithBrokerage:
+                              bestCandidate.totalRequiredWithBrokerage,
+                            expectedNetProfit: bestCandidate.expectedNetProfit,
+                            affordableLots,
+                            availableCapital: effectiveCapital,
+                          },
+                        );
+
+                        if (signal && bestCandidate?.instrumentKey) {
+                          signal.instrumentKey = bestCandidate.instrumentKey;
+                          verifiedRealOptionStrike = true;
+                          if (lotSz > 0) {
+                            lotSizeCache[bestCandidate.instrumentKey] = {
+                              lotSize: lotSz,
+                              timestamp: Date.now(),
+                              source: "UPSTOX_LIVE",
+                              expiry: expiryDate,
+                            };
+                          }
                         }
                       }
                     }
@@ -1487,7 +1523,28 @@ export async function runEntryScan(ctx: {
             }
           }
 
-          const expNetVal = Number(topOptionCandidateForIndex?.expectedNetProfit || 0);
+          const displayCandidate = topOptionCandidateForIndex || cheapestSkippedStrikeForCap;
+          const isCapitalShortfallBlocked = Boolean(
+            !verifiedRealOptionStrike &&
+            !topOptionCandidateForIndex &&
+            cheapestSkippedStrikeForCap &&
+            effectiveCapital > 0 &&
+            cheapestSkippedStrikeForCap.totalRequiredWithBrokerage > effectiveCapital
+          );
+          if (isCapitalShortfallBlocked && Date.now() - lastCapitalShortfallLogMs >= 90000) {
+            lastCapitalShortfallLogMs = Date.now();
+            const reqAmt = Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage);
+            const capTag = botConfig.mode === "UPSTOX_LIVE" ? "LIVE CAPITAL GUARD" : "PAPER CAPITAL GUARD";
+            botLogs.unshift({
+              id: Date.now().toString(),
+              time: new Date().toLocaleTimeString(),
+              message: `[${capTag}] ⚠️ ${idx.symbol} സിഗ്നൽ ലഭിച്ചു (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType} @ ₹${cheapestSkippedStrikeForCap.ltp}), പക്ഷേ 1 Lot-ന് ₹${reqAmt.toLocaleString("en-IN")} വേണം — നിലവിലെ ബാലൻസ് ₹${effectiveCapital.toFixed(2)} മാത്രമാണ്. അതിനാൽ ഓർഡർ എടുത്തില്ല.`,
+              type: "ERROR",
+            });
+            if (botLogs.length > 200) botLogs.length = 200;
+          }
+
+          const expNetVal = Number(displayCandidate?.expectedNetProfit || 0);
           const timeframe15m = signal?.mtfConfirmation?.timeframe15m ?? "NEUTRAL";
           const idxScanItem: any = {
             key: idx.key,
@@ -1501,15 +1558,18 @@ export async function runEntryScan(ctx: {
             confidenceScore: signal?.confidenceScore || 50,
             corporateHeavyweightScore,
             corporateHeavyweightSummary,
-            bestOptionSymbol: topOptionCandidateForIndex && signal?.signalType !== "HOLD" ? signal?.symbol : undefined,
-            bestOptionLtp: topOptionCandidateForIndex?.ltp || 0,
-            lotSize: topOptionCandidateForIndex?.lotSize || lotSizeCache[idx.key]?.lotSize || 1,
-            bestStrike: topOptionCandidateForIndex?.strikePrice || 0,
-            delta: topOptionCandidateForIndex?.delta || 0,
-            gamma: topOptionCandidateForIndex?.gamma || 0,
+            bestOptionSymbol:
+              displayCandidate && (signal?.signalType !== "HOLD" || isCapitalShortfallBlocked)
+                ? `${idx.symbol.split(" ")[0]} ${displayCandidate.strikePrice} ${displayCandidate.optType || ""}`.trim()
+                : undefined,
+            bestOptionLtp: displayCandidate?.ltp || 0,
+            lotSize: displayCandidate?.lotSize || lotSizeCache[idx.key]?.lotSize || 1,
+            bestStrike: displayCandidate?.strikePrice || 0,
+            delta: displayCandidate?.delta || 0,
+            gamma: displayCandidate?.gamma || 0,
             expectedNetProfit: expNetVal,
-            totalRequiredCashWithBrokerage: topOptionCandidateForIndex?.totalRequiredWithBrokerage || 0,
-            roiPotentialPct: topOptionCandidateForIndex?.roiPotentialPct || 0,
+            totalRequiredCashWithBrokerage: displayCandidate?.totalRequiredWithBrokerage || 0,
+            roiPotentialPct: displayCandidate?.roiPotentialPct || 0,
             alphaOpportunityScore: 0,
             verifiedRealOptionStrike,
             statusTextMl:
@@ -1517,17 +1577,21 @@ export async function runEntryScan(ctx: {
                 ? `🔥 ശക്തമായ CE ബ്രേക്ക്ഔട്ട് (Exp Net: +₹${Math.round(expNetVal)})`
                 : signal?.signalType === "SELL"
                   ? `⚡ ശക്തമായ PE ബ്രേക്ക്ഡൗൺ (Exp Net: +₹${Math.round(expNetVal)})`
-                  : timeframe15m !== "NEUTRAL"
-                    ? `⏳ 15m ${timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
-                    : `⏳ ഇൻഡക്സ് കൺസോളിഡേഷനിലാണ് (Chop Zone) - റേഞ്ച് ബ്രേക്ക്ഔട്ട് വെയിറ്റ് ചെയ്യുന്നു`,
+                  : isCapitalShortfallBlocked
+                    ? `⚠️ ബാലൻസ് പോരാ: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType})-ന് ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString("en-IN")} വേണം (ലഭ്യം: ₹${effectiveCapital.toFixed(0)})`
+                    : timeframe15m !== "NEUTRAL"
+                      ? `⏳ 15m ${timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
+                      : `⏳ ഇൻഡക്സ് കൺസോളിഡേഷനിലാണ് (Chop Zone) - റേഞ്ച് ബ്രേക്ക്ഔട്ട് വെയിറ്റ് ചെയ്യുന്നു`,
             statusTextEn:
               signal?.signalType === "BUY"
                 ? `Bullish Breakout CE (Exp Net: +₹${Math.round(expNetVal)})`
                 : signal?.signalType === "SELL"
                   ? `Bearish Breakdown PE (Exp Net: +₹${Math.round(expNetVal)})`
-                  : timeframe15m !== "NEUTRAL"
-                    ? `15m ${timeframe15m} - Waiting for high-momentum premium entry`
-                    : `Consolidation Chop - Waiting for institutional breakout`,
+                  : isCapitalShortfallBlocked
+                    ? `Insufficient Funds: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType}) needs ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString("en-IN")} (Avail: ₹${effectiveCapital.toFixed(0)})`
+                    : timeframe15m !== "NEUTRAL"
+                      ? `15m ${timeframe15m} - Waiting for high-momentum premium entry`
+                      : `Consolidation Chop - Waiting for institutional breakout`,
           };
           currentTickMultiIndexComparison.push(idxScanItem);
 
@@ -1684,6 +1748,133 @@ export async function runEntryScan(ctx: {
       }
     }
 
+    // PASS 1.5: Micro-Capital Equity Compounding Scanner
+    // When effectiveCapital is under ₹2,500 (e.g. ₹524.59 live cash / small paper balance)
+    // OR when tradeMode is AUTO_ADAPTIVE / BOTH / STOCKS_ONLY:
+    // Seamlessly scan high-liquidity NSE momentum stocks with exact affordable shares (Lot size = 1)
+    // so small balances can execute profitable trades, manage trailing exits, and compound the account!
+    const shouldScanMicroCapitalEquities =
+      botConfig.tradeMode === "AUTO_ADAPTIVE" ||
+      botConfig.tradeMode === "BOTH" ||
+      botConfig.tradeMode === "STOCKS_ONLY" ||
+      effectiveCapital < 2500 ||
+      marketAlphaCandidates.length === 0;
+
+    if (shouldScanMicroCapitalEquities && effectiveCapital >= 15) {
+      for (const eqStock of MICRO_CAPITAL_EQUITY_UNIVERSE) {
+        try {
+          const cachedQuote = liveQuotesMap[eqStock.instrumentKey] || globalLiveQuotes[eqStock.instrumentKey];
+          let stockPrice = Number(cachedQuote?.last_price || 0);
+
+          let stockCandles: any[] = [];
+          const cachedC = intradayCandleCache[eqStock.instrumentKey];
+          if (cachedC && Date.now() - cachedC.timestamp < 10000) {
+            stockCandles = cachedC.raw;
+          } else if (token) {
+            const cUrl = `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(eqStock.instrumentKey)}/1minute`;
+            const cRes: any = await resilientFetchJson(cUrl, {
+              headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Api-Version": "2.0" },
+            }, 1, 3500).catch(() => null);
+            if (cRes?.status === "success" && Array.isArray(cRes?.data?.candles) && cRes.data.candles.length > 0) {
+              stockCandles = cRes.data.candles;
+              intradayCandleCache[eqStock.instrumentKey] = { timestamp: Date.now(), raw: stockCandles };
+            }
+          }
+
+          if (stockCandles.length > 0) {
+            stockPrice = Number(stockCandles[0]?.[4] || stockPrice || eqStock.defaultPrice);
+          } else {
+            stockPrice = stockPrice || eqStock.defaultPrice;
+          }
+
+          if (stockPrice <= 0 || stockPrice > effectiveCapital) {
+            continue;
+          }
+
+          // Exact affordable share count with round-trip brokerage & taxes included
+          const affordableQty = Math.max(1, Math.floor((effectiveCapital * 0.98) / stockPrice));
+          const tradeVal = Number((affordableQty * stockPrice).toFixed(2));
+          const charges = calculateTradeCharges(stockPrice, affordableQty, false);
+          const totalRequired = Number((tradeVal + charges.roundTripCharges).toFixed(2));
+
+          if (totalRequired > effectiveCapital) {
+            continue;
+          }
+
+          let isBullish = true;
+          let confidence = 75;
+          let summary = "";
+          if (stockCandles.length < 10) {
+            continue; // Require real multi-candle technical confirmation to strictly protect capital!
+          }
+
+          const enriched = enrichCandlesWithIndicators(stockCandles);
+          const latestC = enriched[0];
+          const cClose = Number(latestC?.close || stockPrice);
+          const cEma9 = Number(latestC?.ema9 || cClose);
+          const cEma21 = Number(latestC?.ema21 || cClose);
+          const isSupertrendBullish = latestC?.supertrendDir === "BUY";
+          const cRsi = Number(latestC?.rsi || 52);
+          const isEmaBullish = cEma9 >= cEma21;
+
+          // Strictly require triple-indicator confluence (SuperTrend BUY + EMA9 > EMA21 + Healthy RSI)
+          if (!isSupertrendBullish || !isEmaBullish || cRsi < 46 || cRsi > 76) {
+            continue; // Skip mediocre or choppy setups — zero loss discipline!
+          }
+
+          isBullish = true;
+          confidence = Math.min(88, Math.round(75 + (cClose > cEma21 ? 7 : 0) + (cEma9 > cEma21 ? 6 : 0)));
+          summary = `[Micro-Capital Compounding] ${eqStock.symbol} Confirmed Bullish Confluence: SuperTrend BUY, EMA9 (${cEma9.toFixed(1)}) > EMA21 (${cEma21.toFixed(1)}), RSI ${cRsi.toFixed(1)}. Sized ${affordableQty} shares for ₹${totalRequired.toFixed(2)}.`;
+
+          const targetPrice = Number((stockPrice * 1.025).toFixed(2));
+          const stopLossPrice = Number((stockPrice * 0.985).toFixed(2));
+          const expectedNet = Math.max(1, Math.round((targetPrice - stockPrice) * affordableQty - charges.roundTripCharges));
+          const profitYieldPct = Number(((expectedNet / tradeVal) * 100).toFixed(2));
+          const alphaScore = Number((expectedNet * 8 + (confidence / 100) * 50 + profitYieldPct * 10).toFixed(2));
+
+          marketAlphaCandidates.push({
+            isEquityTrade: true,
+            isOption: false,
+            stockSymbol: eqStock.symbol,
+            optInstrumentKey: eqStock.instrumentKey,
+            optionSymbol: eqStock.symbol,
+            optionPrice: stockPrice,
+            lotSize: 1,
+            targetQuantity: affordableQty,
+            affordableLots: affordableQty,
+            totalTradeCost: tradeVal,
+            totalTradeBrokerage: charges.roundTripCharges,
+            totalRequiredCashWithBrokerage: totalRequired,
+            effectiveStopLoss: stopLossPrice,
+            effectiveTarget1: targetPrice,
+            isBullish,
+            isOptionSellingEntry: false,
+            execTransactionType: "BUY",
+            execOrderType: "MARKET",
+            limitPriceWithSlippageGuard: stockPrice,
+            alphaOpportunityScore: alphaScore,
+            expectedNetProfit: expectedNet,
+            profitYield: profitYieldPct,
+            idx: { symbol: eqStock.symbol, key: eqStock.instrumentKey },
+            signal: {
+              confidenceScore: confidence,
+              underlyingInstrumentKey: eqStock.instrumentKey,
+              target1: targetPrice,
+              target2: Number((stockPrice * 1.04).toFixed(2)),
+              target3: Number((stockPrice * 1.06).toFixed(2)),
+              institutionalQuantAnalysis: {
+                estimatedMaxOptionPrice: targetPrice,
+                estimatedMinutesToTarget: 20,
+              },
+              summary,
+            },
+          });
+        } catch {
+          // Ignore transient error
+        }
+      }
+    }
+
     // Update global multi-index comparative alpha matrix & rank indices
     if (currentTickMultiIndexComparison.length > 0) {
       currentTickMultiIndexComparison.sort((a, b) => {
@@ -1758,10 +1949,14 @@ export async function runEntryScan(ctx: {
             continue;
           }
         } else if (botConfig.mode === "PAPER_TRADING") {
-          // Paper Mode Capital Guard (User Directive Compliance)
-          const initialBalance = Math.max(50000, Number((botConfig as any).paperInitialBalance || 50000));
-          const totalRealized = paperTradeHistory.reduce((acc, t) => acc + (t.realizedPnL || 0) - (t.brokerageCharges || 0), 0);
-          const totalInvestedInOpen = paperPositions.reduce((acc, p) => acc + (p.buyPrice * p.quantity), 0);
+          // Paper Mode Capital Guard (consistent ₹2000 default paper capital)
+          const initialBalance = getPaperInitialCapital();
+          const totalRealized = paperTradeHistory
+            .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+            .reduce((acc, t) => acc + (t.netRealizedPnL ?? ((t.realizedPnL || 0) - (t.brokerageCharges || 0))), 0);
+          const totalInvestedInOpen = paperPositions
+            .filter((p: any) => !p.mode || p.mode === "PAPER_TRADING")
+            .reduce((acc, p) => acc + (p.buyPrice * p.quantity), 0);
           const currentPaperBalance = initialBalance + totalRealized - totalInvestedInOpen;
 
           if (cand.totalRequiredCashWithBrokerage > currentPaperBalance) {
@@ -1779,10 +1974,14 @@ export async function runEntryScan(ctx: {
 
         // Execute Paper Trade or Live Order!
         if (botConfig.mode === "PAPER_TRADING") {
+          const logMsg = cand.isEquityTrade
+            ? `[PAPER MICRO-CAPITAL COMPOUNDING] Top Setup Confirmed (${cand.signal.confidenceScore}%): BUY ${cand.stockSymbol} [${cand.targetQuantity} Shares @ ₹${cand.optionPrice} | Value: ₹${cand.totalTradeCost} + Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage} | Target: ₹${cand.effectiveTarget1} (+₹${cand.expectedNetProfit})]. Capital Compounding Active!`
+            : `[PAPER MODE] Top Alpha Setup Confirmed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "SHORT SELLING" : "BUYING"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
+
           botLogs.unshift({
             id: Date.now().toString(),
             time: new Date().toLocaleTimeString(),
-            message: `[PAPER MODE] Top Alpha Setup Confirmed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "SHORT SELLING" : "BUYING"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`,
+            message: logMsg,
             type: "TRADE",
           });
           if (botLogs.length > 200) botLogs.length = 200;
@@ -1806,6 +2005,7 @@ export async function runEntryScan(ctx: {
             timestamp: new Date().toLocaleTimeString("en-IN"),
             time: new Date().toISOString(),
             mode: "PAPER_TRADING",
+            isOption: !cand.isEquityTrade,
           });
           if (cand.optInstrumentKey) {
             strikeDailyEntryCount[cand.optInstrumentKey] = (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
@@ -1836,17 +2036,17 @@ export async function runEntryScan(ctx: {
             optionStrategyType: cand.isOptionSellingEntry ? "OPTION_SELLING" : "OPTION_BUYING",
             mode: "PAPER_TRADING",
             openedAt: new Date().toLocaleTimeString("en-IN"),
-            isOption: true,
+            isOption: !cand.isEquityTrade,
           });
           savePostgresDb().catch(() => { /* ignore */ });
 
           sendTelegramNotification(
-            `🟢 <b>PAPER BOT ENTRY TRIGGERED (${cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
-            `📊 <b>Option Contract:</b> <code>${cand.optionSymbol}</code>\n` +
-            `🏆 <b>Rank:</b> #1 Most Profitable Index Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
-            `🎯 <b>Direction:</b> ${cand.isOptionSellingEntry ? `SHORT ${cand.isBullish ? "PE" : "CE"}` : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
-            `📦 <b>Quantity:</b> ${cand.targetQuantity} Qty (${cand.affordableLots} Lot × ${cand.lotSize})\n` +
-            `💰 <b>Option Premium:</b> ₹${cand.optionPrice} (${cand.execOrderType} | Capital: ₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
+            `🟢 <b>PAPER BOT ENTRY TRIGGERED (${cand.isEquityTrade ? "EQUITY COMPOUNDING" : cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
+            `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
+            `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
+            `🎯 <b>Direction:</b> ${cand.isEquityTrade ? "BUY STOCK (INTRADAY/DELIVERY)" : cand.isOptionSellingEntry ? `SHORT ${cand.isBullish ? "PE" : "CE"}` : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
+            `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? "Shares" : `Qty (${cand.affordableLots} Lot)`}\n` +
+            `💰 <b>Entry Price:</b> ₹${cand.optionPrice} (${cand.execOrderType} | Capital: ₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
             `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
             `🛡️ <b>Mode:</b> PAPER_TRADING\n` +
             `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
@@ -1855,10 +2055,10 @@ export async function runEntryScan(ctx: {
           try {
             const orderJson = await placeUpstoxOrderIpv4({
               quantity: cand.targetQuantity,
-              product: "D",
+              product: cand.isEquityTrade ? "D" : "D",
               validity: "DAY",
               price: cand.execOrderType === "LIMIT" ? cand.limitPriceWithSlippageGuard : 0,
-              tag: cand.isOptionSellingEntry ? "bot_auto_short" : "bot_auto_entry",
+              tag: cand.isEquityTrade ? "bot_equity_buy" : (cand.isOptionSellingEntry ? "bot_auto_short" : "bot_auto_entry"),
               instrument_token: cand.optInstrumentKey,
               order_type: cand.execOrderType,
               transaction_type: cand.execTransactionType,
@@ -1870,21 +2070,46 @@ export async function runEntryScan(ctx: {
               if (cand.optInstrumentKey) {
                 strikeDailyEntryCount[cand.optInstrumentKey] = (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
               }
+              paperOrders.unshift({
+                id: "ORD" + Date.now(),
+                orderId: orderJson.data?.order_id || "LIVE_" + Date.now().toString().slice(-6),
+                symbol: cand.optionSymbol,
+                instrumentKey: cand.optInstrumentKey,
+                transactionType: cand.execTransactionType,
+                type: cand.execTransactionType,
+                orderType: cand.execOrderType,
+                productType: "DELIVERY",
+                quantity: cand.targetQuantity,
+                buyPrice: cand.optionPrice,
+                price: cand.optionPrice,
+                executedPrice: cand.optionPrice,
+                status: "COMPLETE",
+                timestamp: new Date().toLocaleTimeString("en-IN"),
+                time: new Date().toISOString(),
+                mode: "UPSTOX_LIVE",
+                isOption: !cand.isEquityTrade,
+              });
+              if (paperOrders.length > 200) paperOrders.length = 200;
+              savePostgresDb().catch(() => { /* ignore */ });
+              const liveLogMsg = cand.isEquityTrade
+                ? `[UPSTOX LIVE MICRO-CAPITAL] Top Setup Executed (${cand.signal.confidenceScore}%): Bought ${cand.targetQuantity} Shares of ${cand.stockSymbol} @ ₹${cand.optionPrice} (Trade Value: ₹${cand.totalTradeCost.toLocaleString("en-IN")}, Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)}). Live Capital Compounding Active!`
+                : `[UPSTOX LIVE] Top Alpha Order Executed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "Short Sold" : "Bought"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Brokerage & Taxes: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total Cash Used: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
+
               botLogs.unshift({
                 id: Date.now().toString(),
                 time: new Date().toLocaleTimeString(),
-                message: `[UPSTOX LIVE] Top Alpha Order Executed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "Short Sold" : "Bought"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Brokerage & Taxes: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total Cash Used: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`,
+                message: liveLogMsg,
                 type: "TRADE",
               });
               if (botLogs.length > 200) botLogs.length = 200;
 
               sendTelegramNotification(
-                `🟢 <b>UPSTOX LIVE ENTRY EXECUTED (${cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
-                `📊 <b>Option Contract:</b> <code>${cand.optionSymbol}</code>\n` +
-                `🏆 <b>Rank:</b> #1 Most Profitable Index Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
-                `🎯 <b>Direction:</b> ${cand.isOptionSellingEntry ? "SHORT OPTION" : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
-                `📦 <b>Quantity:</b> ${cand.targetQuantity} Qty (${cand.affordableLots} Lot × ${cand.lotSize})\n` +
-                `💰 <b>Premium:</b> ₹${cand.optionPrice} (₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
+                `🟢 <b>UPSTOX LIVE ENTRY EXECUTED (${cand.isEquityTrade ? "EQUITY COMPOUNDING" : cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
+                `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
+                `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
+                `🎯 <b>Direction:</b> ${cand.isEquityTrade ? "BUY STOCK (CASH DELIVERY/INTRADAY)" : cand.isOptionSellingEntry ? "SHORT OPTION" : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
+                `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? "Shares" : `Qty (${cand.affordableLots} Lot)`}\n` +
+                `💰 <b>Price:</b> ₹${cand.optionPrice} (₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
                 `🧾 <b>Est. Brokerage & Taxes:</b> ₹${cand.totalTradeBrokerage.toFixed(2)}\n` +
                 `💳 <b>Total Cash Used:</b> ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")}\n` +
                 `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
@@ -1894,7 +2119,8 @@ export async function runEntryScan(ctx: {
             } else {
               let errDetail = orderJson?.errors?.[0]?.message || orderJson?.message || JSON.stringify(orderJson);
               if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
-                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (8.234.113.241, 34.34.254.178) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
+                const liveIpNow = await getDetectedContainerIp();
+                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (${FIXED_PRIMARY_IP}${liveIpNow ? `, ${liveIpNow}` : ""}) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
               }
               const liveErrText = `[UPSTOX LIVE REJECTED] Order for ${cand.optionSymbol} rejected: ${errDetail}`;
               botLogs.unshift({

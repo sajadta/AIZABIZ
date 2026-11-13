@@ -35,6 +35,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     accessToken,
     setAccessToken,
     redirectUri,
+    setRedirectUri,
     savedMobile,
     setSavedMobile,
     otpInput,
@@ -45,12 +46,15 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     loading,
     validating,
     checkingStatus,
+    v3Loading,
     proxyUrlInput,
     setProxyUrlInput,
     isFixedProxyActive,
     isTestingProxy,
     showProxyConfig,
     setShowProxyConfig,
+    containerIp,
+    proxyError,
     liveHoldingsCount,
     statusMsg,
     setStatusMsg,
@@ -60,6 +64,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
     handleForceSendSmsOtp,
     handleOtpOrAutoConnect,
     handleClearToken,
+    handleRequestTokenV3,
+    handleSaveRedirectUri,
     getFallbackRedirectUri,
     DEFAULT_API_KEY,
   } = useUpstoxApiModal({ isOpen, onClose, config, onSaveConfig, language, onRefreshPortfolio });
@@ -87,6 +93,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             isTestingProxy={isTestingProxy}
             showProxyConfig={showProxyConfig}
             setShowProxyConfig={setShowProxyConfig}
+            containerIp={containerIp}
+            proxyError={proxyError}
             liveHoldingsCount={liveHoldingsCount}
             setStatusMsg={setStatusMsg}
             handleSaveProxy={handleSaveProxy}
@@ -111,8 +119,12 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
               accessToken={accessToken}
               setAccessToken={setAccessToken}
               redirectUri={redirectUri}
+              setRedirectUri={setRedirectUri}
               validating={validating}
+              v3Loading={v3Loading}
               handleDailyTokenSubmit={handleDailyTokenSubmit}
+              handleRequestTokenV3={handleRequestTokenV3}
+              handleSaveRedirectUri={handleSaveRedirectUri}
               getFallbackRedirectUri={getFallbackRedirectUri}
               DEFAULT_API_KEY={DEFAULT_API_KEY}
               onClose={onClose}

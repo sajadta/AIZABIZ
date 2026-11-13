@@ -88,7 +88,7 @@ export async function loadPostgresDb() {
       upstoxConfig.pin = process.env.UPSTOX_PIN || process.env.UPSTOX_PIN || "";
     }
     botConfig.maxOptionLossCount = Math.min(
-      3,
+      10,
       Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
     );
     // Maintain clean position state
@@ -180,9 +180,23 @@ export async function loadPostgresDb() {
       }
     }
     if (!upstoxConfig.accessToken || isJwtTokenActuallyExpired(upstoxConfig.accessToken)) {
-      const backupTok = loadTokenBackupFromDisk();
-      if (backupTok) {
-        upstoxConfig.accessToken = backupTok;
+      if (process.env.UPSTOX_ACCESS_TOKEN && !isJwtTokenActuallyExpired(process.env.UPSTOX_ACCESS_TOKEN)) {
+        upstoxConfig.accessToken = process.env.UPSTOX_ACCESS_TOKEN.trim();
+      } else {
+        const backupTok = loadTokenBackupFromDisk();
+        if (backupTok) {
+          upstoxConfig.accessToken = backupTok;
+        } else {
+          upstoxConfig.accessToken = "";
+        }
+      }
+    }
+    if (upstoxConfig.accessToken && !isJwtTokenActuallyExpired(upstoxConfig.accessToken)) {
+      if (!upstoxConfig.userName) upstoxConfig.userName = process.env.UPSTOX_USER_NAME || "SAJAD THAZHEPEEDIKAYILA ABDULRAHIMAN";
+      if (!upstoxConfig.userClientCode) upstoxConfig.userClientCode = process.env.UPSTOX_CLIENT_CODE || process.env.UPSTOX_ID || "5VCABX";
+      if (!upstoxConfig.userEmail) upstoxConfig.userEmail = process.env.UPSTOX_USER_EMAIL || "sajadthazhepeedikayila@gmail.com";
+      if (!botConfig.userExplicitlySelectedMode && botConfig.mode !== "PAPER_TRADING") {
+        botConfig.mode = "UPSTOX_LIVE";
       }
     }
     botConfig.stopLossPercent = Number(botConfig.stopLossPercent || 18.0);

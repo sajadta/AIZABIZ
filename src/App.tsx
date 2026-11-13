@@ -352,7 +352,7 @@ export const App: React.FC = () => {
   const [botConfig, setBotConfig] = useState<BotConfig>({
     enabled: true, // Always active 24x7 Cloud Trading Engine
     mode: 'PAPER_TRADING',
-    tradeMode: 'OPTIONS_ONLY',
+    tradeMode: 'AUTO_ADAPTIVE',
     minOptionProfitAmount: 450,
     maxOptionLossCount: 2,
     maxStockLossCount: 2,
@@ -489,23 +489,12 @@ export const App: React.FC = () => {
     return localStorage.getItem('aizabiz_master_unlocked') !== 'true';
   });
 
-  // 0. 24x7 Render Anti-Sleep Wakeup Heartbeat (keeps Render server awake continuously)
+  // 0. Server Wakeup Heartbeat
   useEffect(() => {
     const triggerWakeup = () => {
       fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => {
         /* ignore */
       });
-      if (
-        typeof window !== 'undefined' &&
-        !window.location.hostname.includes('aizabiz.onrender.com')
-      ) {
-        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, {
-          mode: 'no-cors',
-          cache: 'no-store',
-        }).catch(() => {
-          /* ignore */
-        });
-      }
     };
     triggerWakeup();
     const wakeupInterval = setInterval(triggerWakeup, 4 * 60 * 1000); // Every 4 minutes
@@ -559,7 +548,11 @@ export const App: React.FC = () => {
           fetch('/api/history').then((r) => (r.ok ? r.json() : null)),
         ]);
 
+        let serverUserExplicitMode = false;
+        let hasPreferredMode = false;
+
         if (botRes.status === 'fulfilled' && botRes.value) {
+          serverUserExplicitMode = Boolean(botRes.value.userExplicitlySelectedMode);
           const savedModeIsValid = (v: string | null): v is ExecutionMode => {
             return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
           };
@@ -568,6 +561,7 @@ export const App: React.FC = () => {
             const saved = localStorage.getItem('aizabiz_preferred_trading_mode');
             if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
               preferredMode = saved as ExecutionMode;
+              hasPreferredMode = true;
             }
           } catch {
             // Ignored
@@ -613,17 +607,21 @@ export const App: React.FC = () => {
               // Silently ignored
             }
             cfg.accessToken = '';
-          } else if (cfg.isConnected && cfg.accessToken) {
+          } else if (cfg.accessToken) {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
             } catch {
               // Silently ignored
             }
+            cfg.isConnected = true;
           } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
             cfg.accessToken = savedDailyToken;
             cfg.isConnected = true;
           }
-          setApiConfig((prev) => ({ ...prev, ...cfg }));
+          setApiConfig((prev) => ({ ...prev, ...cfg, isConnected: Boolean(cfg.accessToken || cfg.isConnected) }));
+          if (cfg.accessToken && !serverUserExplicitMode && !hasPreferredMode) {
+            setMode('UPSTOX_LIVE');
+          }
         }
         if (
           historyRes.status === 'fulfilled' &&
@@ -639,7 +637,16 @@ export const App: React.FC = () => {
     fetchInitData();
     const configSyncInterval = setInterval(async () => {
       try {
-        const res = await fetch('/api/market/config');
+        let syncToken = '';
+        try {
+          syncToken = localStorage.getItem('upstox_daily_token') || '';
+        } catch {
+          // Ignored
+        }
+        const syncHeaders: Record<string, string> = {};
+        if (syncToken) syncHeaders['Authorization'] = `Bearer ${syncToken}`;
+
+        const res = await fetch('/api/market/config', { headers: syncHeaders });
         if (res.ok) {
           const cfg = await res.json();
           if (cfg && typeof cfg.isConnected === 'boolean') {
@@ -653,17 +660,23 @@ export const App: React.FC = () => {
             setApiConfig((prev) => ({
               ...prev,
               isConnected: cfg.isConnected,
-              accessToken: cfg.accessToken || prev.accessToken,
+              accessToken: cfg.accessToken || (cfg.tokenExpired ? '' : prev.accessToken),
               availableMargin: Number(cfg.availableMargin ?? prev.availableMargin),
               usedMargin: Number(cfg.usedMargin ?? prev.usedMargin),
               utilizedMargin: Number(cfg.utilizedMargin ?? prev.utilizedMargin),
               payin: Number(cfg.payin ?? prev.payin),
               payout: Number(cfg.payout ?? prev.payout),
               totalBalance: Number(cfg.totalBalance ?? prev.totalBalance),
+              holdingsCount: typeof cfg.holdingsCount === 'number' ? cfg.holdingsCount : prev.holdingsCount,
               userName: cfg.userName || prev.userName,
               userClientCode: cfg.userClientCode || prev.userClientCode,
+              tokenGeneratedAt: cfg.tokenGeneratedAt || prev.tokenGeneratedAt,
+              tokenExpiresAt: cfg.tokenExpiresAt || prev.tokenExpiresAt,
+              redirectUri: cfg.redirectUri || prev.redirectUri,
               serverOutboundIp: cfg.serverOutboundIp || prev.serverOutboundIp,
               serverSecondaryIp: cfg.serverSecondaryIp || prev.serverSecondaryIp,
+              actualDetectedIp: cfg.actualDetectedIp || prev.actualDetectedIp,
+              proxyError: cfg.proxyError ?? prev.proxyError,
             }));
           }
         }
@@ -1418,9 +1431,21 @@ export const App: React.FC = () => {
       (isOpt ? `NSE_FO|${orderData.symbol}` : `NSE_EQ|${orderData.symbol}`);
 
     try {
+      const orderHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      const activeTok =
+        apiConfig.accessToken ||
+        (() => {
+          try {
+            return localStorage.getItem('upstox_daily_token') || '';
+          } catch {
+            return '';
+          }
+        })();
+      if (activeTok) orderHeaders['Authorization'] = `Bearer ${activeTok}`;
+
       const res = await fetch('/api/trading/order', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: orderHeaders,
         body: JSON.stringify({
           mode,
           symbol: orderData.symbol,
@@ -2196,6 +2221,7 @@ export const App: React.FC = () => {
         setDismissedIpWarning={setDismissedIpWarning}
         setIpCopiedNotice={setIpCopiedNotice}
         setIsApiModalOpen={setIsApiModalOpen}
+        serverSecondaryIp={apiConfig.actualDetectedIp || apiConfig.serverSecondaryIp}
       />
 
       {/* 3. MAIN WORKSPACE */}

@@ -160,7 +160,7 @@ export interface CandlestickPattern {
   candleIndex: number;
 }
 
-export type TradeMode = 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH';
+export type TradeMode = 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH' | 'AUTO_ADAPTIVE';
 
 export type OptionStrategyMode =
   | 'OPTION_BUYING'

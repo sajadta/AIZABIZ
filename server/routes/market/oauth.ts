@@ -1,9 +1,10 @@
 // Upstox V3 token request, auth-url, token exchange and OAuth callback routes.
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, invalidTokens } from "../../state";
+import { upstoxConfig, botConfig, invalidTokens, setCachedUpstoxLivePositions } from "../../state";
+import { saveTokenBackupToDisk } from "../../lib/tokens";
 import { savePostgresDb } from "../../services/persistence";
-import { publishTokenToCloudRelay } from "../../services/tokenSync";
+import { publishTokenToCloudRelay, resetVerifiedTokenCache } from "../../services/tokenSync";
 
 export function registerOauthRoutes(app: express.Application) {
   // Upstox V3 Access Token Request (Sends 1-Click Approval Notification to Upstox Mobile App & WhatsApp -> Pushes token to /api/market/webhook)
@@ -40,7 +41,13 @@ export function registerOauthRoutes(app: express.Application) {
         },
       );
 
-      const data = await response.json();
+      const rawText = await response.text().catch(() => "");
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = { message: rawText.slice(0, 200) };
+      }
       if (response.ok && (data.status === "success" || data.data)) {
         return res.json({
           success: true,
@@ -52,7 +59,7 @@ export function registerOauthRoutes(app: express.Application) {
         const errMsg =
           data.errors?.[0]?.message ||
           data.message ||
-          "Upstox V3 Token Request അയക്കാൻ കഴിഞ്ഞില്ല (Upstox Developer App-ൽ Notifier Webhook URL സജ്ജീകരിച്ചിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക).";
+          `Upstox V3 Token Request അയക്കാൻ കഴിഞ്ഞില്ല (HTTP ${response.status} — Upstox Developer App-ൽ Notifier Webhook URL സജ്ജീകരിച്ചിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക).`;
         return res.status(400).json({
           success: false,
           error: errMsg,
@@ -69,8 +76,10 @@ export function registerOauthRoutes(app: express.Application) {
 
   app.get("/api/market/auth-url", (req: Request, res: Response) => {
     const apiKey = (req.query.apiKey as string) || upstoxConfig.apiKey;
+    const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = req.headers.host || "localhost:3000";
     const redirectUri =
-      (req.query.redirectUri as string) || upstoxConfig.redirectUri;
+      (req.query.redirectUri as string) || upstoxConfig.redirectUri || `${protocol}://${host}/api/market/callback`;
 
     if (!apiKey) {
       return res.status(400).json({
@@ -79,7 +88,7 @@ export function registerOauthRoutes(app: express.Application) {
     }
 
     const loginUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${encodeURIComponent(apiKey)}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    res.json({ loginUrl });
+    res.json({ loginUrl, redirectUri });
   });
 
   // Token Exchange Callback Handler (POST from UI & GET from OAuth Redirect)
@@ -104,7 +113,9 @@ export function registerOauthRoutes(app: express.Application) {
     const secret = (
       apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || ""
     ).trim();
-    const uri = (redirectUri || detectedRedirectUri || upstoxConfig.redirectUri || "").trim();
+    const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = req.headers.host || "localhost:3000";
+    const uri = (redirectUri || detectedRedirectUri || upstoxConfig.redirectUri || `${protocol}://${host}/api/market/callback`).trim();
 
     if (!rawCode || !key || !secret) {
       return res.status(400).json({
@@ -148,8 +159,14 @@ export function registerOauthRoutes(app: express.Application) {
         upstoxConfig.userClientCode = data.user_id || upstoxConfig.userClientCode || "";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
+        if (!botConfig.userExplicitlySelectedMode) {
+          botConfig.mode = "UPSTOX_LIVE";
+        }
         invalidTokens.delete(data.access_token);
-        savePostgresDb();
+        resetVerifiedTokenCache();
+        setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+        saveTokenBackupToDisk(data.access_token, upstoxConfig);
+        savePostgresDb().catch(() => { /* ignore */ });
         publishTokenToCloudRelay(data.access_token).catch(() => { /* ignore */ });
 
         return res.json({
@@ -216,11 +233,19 @@ export function registerOauthRoutes(app: express.Application) {
       if (data.access_token) {
         upstoxConfig.accessToken = data.access_token;
         upstoxConfig.userName = data.user_name || "Upstox Trader";
-        upstoxConfig.userEmail = data.email || "";
+        upstoxConfig.userEmail = data.email || upstoxConfig.userEmail || "";
         upstoxConfig.userClientCode = data.user_id || "";
         upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
         upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-        savePostgresDb();
+        if (!botConfig.userExplicitlySelectedMode) {
+          botConfig.mode = "UPSTOX_LIVE";
+        }
+        invalidTokens.delete(data.access_token);
+        resetVerifiedTokenCache();
+        setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+        saveTokenBackupToDisk(data.access_token, upstoxConfig);
+        savePostgresDb().catch(() => { /* ignore */ });
+        publishTokenToCloudRelay(data.access_token).catch(() => { /* ignore */ });
 
         return res.send(`
           <html><body style="background:#0b0f19;color:#34d399;font-family:sans-serif;padding:40px;text-align:center;">

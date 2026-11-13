@@ -4,6 +4,12 @@ import type { Request, Response } from "express";
 import { upstoxConfig, globalLiveQuotes, getLastQuotesCache } from "../../state";
 import { getInstrumentKey, getUnderlyingOptionInstrumentKey, getDynamicLotSizeInfo, lotSizeCache } from "../../lib/instruments";
 
+export function resolveOptionChainSymbol(query: Record<string, any>): string {
+  const sym = typeof query?.symbol === "string" ? query.symbol.trim() : "";
+  const inst = typeof query?.instrumentKey === "string" ? query.instrumentKey.trim() : "";
+  return sym || inst || "NIFTY 50";
+}
+
 export function registerOptionChainRoutes(app: express.Application) {
   // 6. Option Chain Data (Real Upstox API with Fallback)
 
@@ -144,7 +150,7 @@ export function registerOptionChainRoutes(app: express.Application) {
   }
 
   app.get("/api/market/optionchain", async (req: Request, res: Response) => {
-    const symbol = (req.query.symbol as string as string) || "NIFTY 50";
+    const symbol = resolveOptionChainSymbol(req.query as Record<string, any>);
     const instrumentKey = getUnderlyingOptionInstrumentKey(symbol);
     const token = upstoxConfig.accessToken;
 

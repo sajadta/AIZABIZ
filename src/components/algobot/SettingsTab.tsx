@@ -399,6 +399,84 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Trade Mode / Capital Compounding Engine Selector */}
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+              <span className="text-[10px] font-bold text-slate-300 block">
+                {language === 'ml'
+                  ? '🎯 ട്രേഡിങ്ങ് മോഡ് & മൂലധന വർദ്ധനവ് (Capital Compounding Mode):'
+                  : '🎯 Trading Mode & Capital Compounding Strategy:'}
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => onUpdateBotConfig({ tradeMode: 'AUTO_ADAPTIVE' })}
+                  className={`p-2 rounded-lg border font-bold text-left transition ${
+                    (botConfig.tradeMode || 'AUTO_ADAPTIVE') === 'AUTO_ADAPTIVE'
+                      ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-300 shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="block font-black text-emerald-400">⚡ AUTO-ADAPTIVE</span>
+                  <span className="text-[9px] opacity-80 block font-normal">
+                    {language === 'ml'
+                      ? '₹2500-ൽ താഴെ ഓഹരികളിൽ കോമ്പൗണ്ടിംഗ്; മുകളിൽ ഓപ്ഷനുകൾ'
+                      : 'Equities if <₹2.5k, Options if >=₹2.5k'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateBotConfig({ tradeMode: 'BOTH' })}
+                  className={`p-2 rounded-lg border font-bold text-left transition ${
+                    botConfig.tradeMode === 'BOTH'
+                      ? 'bg-indigo-950/60 border-indigo-500/60 text-indigo-300 shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="block font-black text-indigo-400">📊 BOTH (ഹൈബ്രിഡ്)</span>
+                  <span className="text-[9px] opacity-80 block font-normal">
+                    {language === 'ml'
+                      ? 'ഓപ്ഷനുകളും ഓഹരികളും ഒരേസമയം സ്കാൻ ചെയ്യുന്നു'
+                      : 'Options & Equities simultaneously'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateBotConfig({ tradeMode: 'STOCKS_ONLY' })}
+                  className={`p-2 rounded-lg border font-bold text-left transition ${
+                    botConfig.tradeMode === 'STOCKS_ONLY'
+                      ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300 shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="block font-black text-cyan-400">📈 STOCKS ONLY</span>
+                  <span className="text-[9px] opacity-80 block font-normal">
+                    {language === 'ml'
+                      ? 'ഓഹരികളിൽ മാത്രം സുരക്ഷിത ഇൻട്രാഡേ ട്രേഡിങ്ങ്'
+                      : 'High-momentum cash equities only'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateBotConfig({ tradeMode: 'OPTIONS_ONLY' })}
+                  className={`p-2 rounded-lg border font-bold text-left transition ${
+                    botConfig.tradeMode === 'OPTIONS_ONLY'
+                      ? 'bg-purple-950/60 border-purple-500/60 text-purple-300 shadow-sm'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="block font-black text-purple-400">🎯 OPTIONS ONLY</span>
+                  <span className="text-[9px] opacity-80 block font-normal">
+                    {language === 'ml'
+                      ? 'ഇൻഡക്സ് ഓപ്ഷനുകൾ മാത്രം (Min ₹2500+)'
+                      : 'Index options only (Min ₹2.5k+)'}
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

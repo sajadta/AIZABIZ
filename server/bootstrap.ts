@@ -9,12 +9,14 @@ import { createRequire } from "module";
 import { upstoxConfig, botConfig } from "./state";
 import { loadPostgresDb } from "./services/persistence";
 import { syncTokenFromRenderWebhookBridge } from "./services/tokenSync";
+import { warmUpUpstoxTransport } from "./services/upstoxTransport";
 import { wss } from "./realtime";
 
 const _require = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 
 export async function bootstrap(app: express.Application, port: number) {
   await loadPostgresDb().catch(() => { /* ignore */ });
+  warmUpUpstoxTransport();
   if (!upstoxConfig.accessToken) {
     syncTokenFromRenderWebhookBridge().catch(() => {});
   }

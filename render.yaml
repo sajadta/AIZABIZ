@@ -10,5 +10,16 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS
+        value: --import tsx --dns-result-order=ipv4first
+      - key: UPSTOX_API_KEY
+        value: 3ab5711d-8891-480b-b0c1-29662852de49
+      - key: UPSTOX_API_SECRET
+        value: jl5s7qy9r0
+      - key: UPSTOX_CLIENT_CODE
+        value: 5VCABX
+      - key: UPSTOX_PROXY_URL
+        value: http://8.234.113.241:8888
       - key: UPSTOX_REDIRECT_URI
-        value: https://sajad-trading-view.onrender.com
+        value: https://aizabiz-trading-terminal.onrender.com/api/market/callback
+

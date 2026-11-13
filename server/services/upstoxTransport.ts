@@ -1,7 +1,6 @@
 import dns from "dns";
 import net from "net";
 import https from "https";
-import http from "http";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { upstoxConfig } from "../state";
 
@@ -14,7 +13,6 @@ try {
 
 export const FIXED_PRIMARY_IP = "8.234.113.241";
 export const FIXED_SECONDARY_IP = "34.34.254.178";
-export const CONTAINER_BACKUP_IP = "34.34.244.48";
 
 const upstoxIpv4Agent = new https.Agent({
   family: 4,
@@ -25,23 +23,138 @@ const upstoxIpv4Agent = new https.Agent({
   timeout: 15000,
 });
 
-let proxyHealthCache = {
+const originalNativeFetch = globalThis.fetch;
+
+export interface ProxyHealthState {
+  url: string;
+  online: boolean;
+  detectedIp: string;
+  tcpOpen: boolean;
+  lastError: string;
+  lastChecked: number;
+}
+
+let proxyHealthCache: ProxyHealthState = {
   url: "",
   online: false,
   detectedIp: "",
+  tcpOpen: false,
+  lastError: "",
   lastChecked: 0,
 };
 
+let containerIpCache: { ip: string; checkedAt: number } = {
+  ip: "",
+  checkedAt: 0,
+};
+
+let sharedProxyAgent: HttpsProxyAgent<string> | null = null;
+let sharedProxyAgentUrl = "";
+
+export function shouldUseProxyForUrl(urlStr: string): boolean {
+  const clean = String(urlStr || "");
+  if (!clean) return false;
+  // High-frequency read-only market polling does not require Upstox Static IP and can run 100ms faster direct,
+  // preserving Tinyproxy VM workers exclusively for orders, portfolio, funds, and auth calls.
+  if (
+    clean.includes("/market-quote/") ||
+    clean.includes("/historical-candle/") ||
+    clean.includes("/option/chain") ||
+    clean.includes("/option/contract") ||
+    clean.includes("/charges/brokerage")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function evaluateProxyHealthCacheState(
+  cache: Pick<ProxyHealthState, "url" | "online" | "lastChecked">,
+  configuredUrl: string,
+  nowMs: number,
+): { online: boolean; shouldRefresh: boolean } {
+  if (!configuredUrl) return { online: false, shouldRefresh: false };
+  if (cache.url !== configuredUrl || cache.lastChecked <= 0) {
+    return { online: false, shouldRefresh: true };
+  }
+  const ttlMs = cache.online ? 30000 : 45000;
+  const isFresh = nowMs - cache.lastChecked < ttlMs;
+  if (isFresh) {
+    return { online: cache.online, shouldRefresh: false };
+  }
+  // Stale-while-revalidate: keep routing through last-verified online proxy while background probe refreshes.
+  return { online: cache.online, shouldRefresh: true };
+}
+
+export function parseUpstoxFundsData(fundsData: any): {
+  availableMargin: number;
+  usedMargin: number;
+  utilizedMargin: number;
+  payin: number;
+  payout: number;
+} {
+  const eq = fundsData?.data?.equity || {};
+  const com = fundsData?.data?.commodity || {};
+  const availableMargin = Number(eq.available_margin ?? 0) || (Number(eq.available_margin ?? 0) === 0 ? Number(com.available_margin ?? 0) : 0);
+  const usedMargin = Number(eq.used_margin ?? eq.utilized_margin ?? 0);
+  const payin = Number(eq.payin_amount ?? eq.payin ?? 0);
+  const payout = Number(eq.payout_amount ?? eq.payout ?? 0);
+  return {
+    availableMargin,
+    usedMargin,
+    utilizedMargin: usedMargin,
+    payin,
+    payout,
+  };
+}
+
+export function getConfiguredProxyUrl(): string {
+  const cfgVal = typeof upstoxConfig.outboundProxyUrl === "string" ? upstoxConfig.outboundProxyUrl.trim() : "";
+  if (upstoxConfig.outboundProxyUrl !== undefined) {
+    return cfgVal;
+  }
+  return (process.env.UPSTOX_PROXY_URL || "").trim();
+}
+
+export async function getDetectedContainerIp(forceRefresh = false): Promise<string> {
+  if (!forceRefresh && containerIpCache.ip && Date.now() - containerIpCache.checkedAt < 5 * 60 * 1000) {
+    return containerIpCache.ip;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const res = await originalNativeFetch("https://api.ipify.org?format=json", {
+      signal: controller.signal,
+      // @ts-ignore
+      family: 4,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const json: any = await res.json().catch(() => null);
+      const ip = String(json?.ip || "").trim();
+      if (ip && ip.length <= 45) {
+        containerIpCache = { ip, checkedAt: Date.now() };
+        return ip;
+      }
+    }
+  } catch {
+    // Ignore transient ipify lookup error
+  }
+  return containerIpCache.ip || "";
+}
+
 /**
- * Fast TCP probe to check if proxy port is open (1200ms max timeout).
+ * Fast TCP probe to check if proxy port accepts connections (3800ms max for slow GCP micro-VMs).
  */
-function probeTcpPort(host: string, port: number, timeoutMs = 1200): Promise<boolean> {
+function probeTcpPort(host: string, port: number, timeoutMs = 3800): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
     const socket = net.createConnection({ host, port, family: 4 });
+    const hardTimer = setTimeout(() => finish(false), timeoutMs + 100);
     const finish = (result: boolean) => {
       if (!done) {
         done = true;
+        clearTimeout(hardTimer);
         try { socket.destroy(); } catch {}
         resolve(result);
       }
@@ -54,99 +167,198 @@ function probeTcpPort(host: string, port: number, timeoutMs = 1200): Promise<boo
 }
 
 /**
- * Fast proxy health prober.
- * Ensures background loops never block or hang when proxy port is offline.
+ * Verifies actual HTTPS CONNECT tunneling through the HTTP proxy.
+ * A proxy that accepts TCP SYN but hangs CONNECT will cleanly fail here instead of freezing live API calls.
+ */
+function probeHttpsViaProxy(proxyUrl: string, timeoutMs = 7500): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const probeAgent = new HttpsProxyAgent(proxyUrl, {
+      family: 4,
+      keepAlive: false,
+      timeout: timeoutMs,
+    });
+
+    let req: ReturnType<typeof https.get> | null = null;
+    const hardTimer = setTimeout(() => {
+      try { req?.destroy(); } catch {}
+      finishErr(`HTTPS CONNECT timed out (${Math.round(timeoutMs / 1000)}s)`);
+    }, timeoutMs + 200);
+
+    const finishErr = (msg: string) => {
+      if (!done) {
+        done = true;
+        clearTimeout(hardTimer);
+        try { probeAgent.destroy(); } catch {}
+        reject(new Error(msg));
+      }
+    };
+
+    req = https.get(
+      "https://api.ipify.org?format=json",
+      { agent: probeAgent, timeout: timeoutMs },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk) => { body += chunk; });
+        res.on("end", () => {
+          if (done) return;
+          done = true;
+          clearTimeout(hardTimer);
+          try { probeAgent.destroy(); } catch {}
+          if ((res.statusCode || 500) >= 400) {
+            return reject(new Error(`Proxy HTTP ${res.statusCode}`));
+          }
+          try {
+            const parsed = JSON.parse(body);
+            const ip = String(parsed?.ip || "").trim();
+            if (ip && ip.length <= 45) return resolve(ip);
+          } catch {}
+          const plain = body.trim();
+          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(plain)) return resolve(plain);
+          reject(new Error("Invalid IP response through proxy"));
+        });
+      }
+    );
+
+    req.on("error", (err: any) => finishErr(err?.message || "HTTPS CONNECT failed"));
+    req.setTimeout(timeoutMs, () => {
+      try { req?.destroy(); } catch {}
+      finishErr(`HTTPS CONNECT timed out (${Math.round(timeoutMs / 1000)}s)`);
+    });
+  });
+}
+
+let activeProbePromise: Promise<{ online: boolean; detectedIp: string; tcpOpen: boolean; error?: string }> | null = null;
+
+/**
+ * Full proxy health prober (TCP + real HTTPS CONNECT verification).
  */
 export async function testProxyConnectivity(
   targetUrl?: string,
-  timeoutMs = 2000
-): Promise<{ online: boolean; detectedIp: string; error?: string }> {
+  timeoutMs = 7500
+): Promise<{ online: boolean; detectedIp: string; tcpOpen: boolean; error?: string }> {
   const proxyToTest =
     (typeof targetUrl === "string" ? targetUrl.trim() : "") ||
-    process.env.UPSTOX_PROXY_URL ||
-    upstoxConfig.outboundProxyUrl ||
-    "";
+    getConfiguredProxyUrl();
 
   if (!proxyToTest) {
-    proxyHealthCache = { url: "", online: false, detectedIp: "", lastChecked: Date.now() };
-    return { online: false, detectedIp: "", error: "No proxy configured" };
+    proxyHealthCache = { url: "", online: false, detectedIp: "", tcpOpen: false, lastError: "No proxy configured", lastChecked: Date.now() };
+    return { online: false, detectedIp: "", tcpOpen: false, error: "No proxy configured" };
   }
 
-  try {
-    const parsed = new URL(proxyToTest);
-    const host = parsed.hostname;
-    const port = Number(parsed.port) || 8888;
+  if (activeProbePromise && !targetUrl) {
+    return activeProbePromise;
+  }
 
-    // Fast TCP probe first (1.2s max)
-    const portOpen = await probeTcpPort(host, port, 1200);
-    if (!portOpen) {
+  const runProbe = async () => {
+    let portOpen = false;
+    let host = "";
+    let port = 8888;
+    try {
+      const parsed = new URL(proxyToTest);
+      host = parsed.hostname;
+      port = Number(parsed.port) || 8888;
+
+      portOpen = await probeTcpPort(host, port, Math.min(3800, timeoutMs));
+      if (!portOpen) {
+        const errMsg = `Proxy port ${host}:${port} is unreachable (check GCP Firewall TCP:${port})`;
+        proxyHealthCache = {
+          url: proxyToTest,
+          online: false,
+          detectedIp: "",
+          tcpOpen: false,
+          lastError: errMsg,
+          lastChecked: Date.now(),
+        };
+        return { online: false, detectedIp: "", tcpOpen: false, error: errMsg };
+      }
+
+      const detectedIp = await probeHttpsViaProxy(proxyToTest, timeoutMs);
+      proxyHealthCache = {
+        url: proxyToTest,
+        online: true,
+        detectedIp,
+        tcpOpen: true,
+        lastError: "",
+        lastChecked: Date.now(),
+      };
+      return { online: true, detectedIp, tcpOpen: true };
+    } catch (err: any) {
+      const rawMsg = err?.message || "Proxy HTTPS CONNECT failed";
+      const errMsg = portOpen
+        ? `TCP port ${host}:${port} is OPEN, but ${rawMsg} — Tinyproxy MaxClients or Allow ACL on GCP VM may be blocking or stalled.`
+        : rawMsg;
       proxyHealthCache = {
         url: proxyToTest,
         online: false,
         detectedIp: "",
+        tcpOpen: portOpen,
+        lastError: errMsg,
         lastChecked: Date.now(),
       };
-      return { online: false, detectedIp: "", error: `Proxy port ${port} is closed/unreachable` };
+      if (sharedProxyAgent) {
+        try { sharedProxyAgent.destroy(); } catch {}
+        sharedProxyAgent = null;
+      }
+      return { online: false, detectedIp: "", tcpOpen: portOpen, error: errMsg };
+    } finally {
+      activeProbePromise = null;
     }
+  };
 
-    // Port is open! Mark online immediately
-    proxyHealthCache = {
-      url: proxyToTest,
-      online: true,
-      detectedIp: FIXED_PRIMARY_IP,
-      lastChecked: Date.now(),
-    };
-    return { online: true, detectedIp: FIXED_PRIMARY_IP };
-  } catch (err: any) {
-    proxyHealthCache = {
-      url: proxyToTest,
-      online: false,
-      detectedIp: "",
-      lastChecked: Date.now(),
-    };
-    return { online: false, detectedIp: "", error: err?.message || "Invalid proxy URL" };
+  if (!targetUrl) {
+    activeProbePromise = runProbe();
+    return activeProbePromise;
+  }
+  return runProbe();
+}
+
+export function markProxyUnhealthy(reason: string) {
+  const configured = getConfiguredProxyUrl();
+  proxyHealthCache = {
+    url: configured,
+    online: false,
+    detectedIp: "",
+    tcpOpen: proxyHealthCache.tcpOpen,
+    lastError: reason,
+    lastChecked: Date.now(),
+  };
+  if (sharedProxyAgent) {
+    try { sharedProxyAgent.destroy(); } catch {}
+    sharedProxyAgent = null;
   }
 }
 
 /**
- * Returns whether proxy is actively healthy based on cached check (valid for 15 seconds).
+ * Returns true ONLY when the configured proxy is verified healthy via real HTTPS CONNECT.
+ * Uses stale-while-revalidate when refreshing an already-verified proxy so traffic never flaps.
  */
 export function isProxyCurrentlyOnline(): boolean {
-  const configured =
-    process.env.UPSTOX_PROXY_URL || upstoxConfig.outboundProxyUrl || "";
-  if (!configured) return false;
-
-  // If cache is fresh (< 15s) and URL matches, return cached state
-  if (
-    proxyHealthCache.url === configured &&
-    Date.now() - proxyHealthCache.lastChecked < 15000
-  ) {
-    return proxyHealthCache.online;
+  const configured = getConfiguredProxyUrl();
+  const state = evaluateProxyHealthCacheState(proxyHealthCache, configured, Date.now());
+  if (state.shouldRefresh && configured && !activeProbePromise) {
+    testProxyConnectivity(configured, 7500).catch(() => {});
   }
-
-  // Trigger non-blocking background probe to keep cache warm
-  testProxyConnectivity(configured).catch(() => {});
-  return proxyHealthCache.online;
+  return state.online;
 }
 
 export function getProxyStatusSummary() {
-  const configured =
-    process.env.UPSTOX_PROXY_URL || upstoxConfig.outboundProxyUrl || "";
+  const configured = getConfiguredProxyUrl();
   const isOnline = isProxyCurrentlyOnline();
+  const detectedContainerIp = containerIpCache.ip || "";
   return {
     configuredProxy: configured,
     isProxyActive: isOnline,
+    tcpOpen: proxyHealthCache.tcpOpen,
     activeIp: isOnline
       ? proxyHealthCache.detectedIp || FIXED_PRIMARY_IP
-      : CONTAINER_BACKUP_IP,
-    containerIp: CONTAINER_BACKUP_IP,
+      : detectedContainerIp || FIXED_SECONDARY_IP,
+    containerIp: detectedContainerIp || "Detecting...",
     primaryStaticIp: FIXED_PRIMARY_IP,
+    lastError: !isOnline ? proxyHealthCache.lastError : "",
     lastChecked: proxyHealthCache.lastChecked,
   };
 }
-
-let sharedProxyAgent: HttpsProxyAgent<string> | null = null;
-let sharedProxyAgentUrl = "";
 
 export function getSharedProxyAgent(proxyUrl: string): HttpsProxyAgent<string> {
   const cleanUrl = proxyUrl.trim();
@@ -155,58 +367,51 @@ export function getSharedProxyAgent(proxyUrl: string): HttpsProxyAgent<string> {
     sharedProxyAgent = new HttpsProxyAgent(cleanUrl, {
       family: 4,
       keepAlive: true,
-      keepAliveMsecs: 60000,
-      maxSockets: 25,
-      maxFreeSockets: 10,
-      timeout: 15000,
+      keepAliveMsecs: 15000,
+      maxSockets: 3,
+      maxFreeSockets: 1,
+      timeout: 10000,
     });
   }
   return sharedProxyAgent;
 }
 
 export function getUpstoxAgent() {
-  const proxyUrl = process.env.UPSTOX_PROXY_URL || upstoxConfig.outboundProxyUrl || "";
-  if (proxyUrl) {
+  const proxyUrl = getConfiguredProxyUrl();
+  if (proxyUrl && isProxyCurrentlyOnline()) {
     try {
       return getSharedProxyAgent(proxyUrl);
     } catch {
-      // Fall through
+      // Fall through to direct IPv4
     }
   }
   return upstoxIpv4Agent;
 }
 
-const originalNativeFetch = globalThis.fetch;
-
-// Initialize proxy status immediately in background on module load
-if (process.env.UPSTOX_PROXY_URL || upstoxConfig.outboundProxyUrl) {
-  testProxyConnectivity().catch(() => {});
+// Called explicitly from bootstrap so unit tests don't spawn background network probes on import
+export function warmUpUpstoxTransport() {
+  getDetectedContainerIp().catch(() => {});
+  if (getConfiguredProxyUrl()) {
+    testProxyConnectivity().catch(() => {});
+    // Periodic background keepalive probe every 30 seconds to guarantee proxy stays online and warm
+    setInterval(() => {
+      if (getConfiguredProxyUrl()) {
+        testProxyConnectivity().catch(() => {});
+      }
+    }, 30000);
+  }
 }
 
 /**
- * Strict Upstox Fetch implementation:
- * Routes all Upstox requests strictly through the whitelisted proxy IP (8.234.113.241:8888).
- * Never leaks the AI Studio container IP (34.34.244.48) to Upstox.
+ * Resilient Upstox Fetch:
+ * Routes account, profile, funds, portfolio, auth, and order calls through the verified HTTP proxy
+ * with a lean socket pool; routes high-frequency read-only market polling directly via IPv4 so
+ * Tinyproxy workers on small GCP VMs are never starved.
  */
 async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
-  const proxyUrl = process.env.UPSTOX_PROXY_URL || upstoxConfig.outboundProxyUrl || "";
+  const proxyUrl = getConfiguredProxyUrl();
 
-  if (proxyUrl) {
-    // If proxy port is offline, do NOT hang or leak container IP. Fast-fail with 503.
-    if (!isProxyCurrentlyOnline()) {
-      return new Response(
-        JSON.stringify({
-          status: "error",
-          message: "Upstox proxy (8.234.113.241:8888) is waiting for connection. Dynamic IP strictly blocked.",
-          proxyOffline: true,
-        }),
-        {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-    }
-
+  if (proxyUrl && shouldUseProxyForUrl(url) && isProxyCurrentlyOnline()) {
     try {
       const agent = getSharedProxyAgent(proxyUrl);
       const headers = { ...(options.headers || {}) };
@@ -220,18 +425,29 @@ async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
 
       const proxyRes = await new Promise<Response>((resolve, reject) => {
         let done = false;
-        const req = https.request(
+        let req: ReturnType<typeof https.request> | null = null;
+        const hardTimer = setTimeout(() => {
+          if (!done) {
+            done = true;
+            try { req?.destroy(); } catch {}
+            reject(new Error("Upstox proxy request timed out (6s)"));
+          }
+        }, 6200);
+
+        req = https.request(
           url,
           { method, agent, family: 4, headers },
           (res) => {
             if (done) return;
             done = true;
+            clearTimeout(hardTimer);
             const chunks: Buffer[] = [];
             res.on("data", (c) => chunks.push(c));
             res.on("end", () => {
               const bodyBuffer = Buffer.concat(chunks);
               proxyHealthCache.online = true;
-              proxyHealthCache.detectedIp = FIXED_PRIMARY_IP;
+              proxyHealthCache.tcpOpen = true;
+              proxyHealthCache.lastError = "";
               proxyHealthCache.lastChecked = Date.now();
               resolve(
                 new Response(bodyBuffer, {
@@ -247,13 +463,15 @@ async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
         if (options.signal) {
           if (options.signal.aborted) {
             done = true;
+            clearTimeout(hardTimer);
             req.destroy();
             return reject(new Error("Request aborted"));
           }
           options.signal.addEventListener("abort", () => {
             if (!done) {
               done = true;
-              req.destroy();
+              clearTimeout(hardTimer);
+              req?.destroy();
               reject(new Error("Request aborted"));
             }
           });
@@ -262,15 +480,17 @@ async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
         req.on("error", (err) => {
           if (!done) {
             done = true;
-            reject(new Error(`[StrictProxy] Upstox proxy request error: ${err?.message}`));
+            clearTimeout(hardTimer);
+            reject(new Error(`Upstox proxy error: ${err?.message}`));
           }
         });
 
-        req.setTimeout(10000, () => {
+        req.setTimeout(6000, () => {
           if (!done) {
             done = true;
-            req.destroy();
-            reject(new Error("[StrictProxy] Upstox proxy request timed out (10s)"));
+            clearTimeout(hardTimer);
+            req?.destroy();
+            reject(new Error("Upstox proxy request timed out (6s)"));
           }
         });
 
@@ -282,13 +502,14 @@ async function upstoxFetch(url: string, options: any = {}): Promise<Response> {
 
       return proxyRes;
     } catch (err: any) {
-      // User explicitly requires: NEVER leak AI Studio IP to Upstox.
-      // Re-throw strict error rather than falling back to un-whitelisted container IP.
-      throw new Error(`[StrictProxyError] ${err?.message || "Proxy connection failure"}`);
+      if (err?.message === "Request aborted") {
+        throw err;
+      }
+      // Proxy failed or timed out — mark unhealthy and fall back immediately to direct IPv4
+      markProxyUnhealthy(err?.message || "Proxy timeout");
     }
   }
 
-  // Smooth direct IPv4 fallback only if NO proxy is configured
   return originalNativeFetch(url, {
     ...options,
     // @ts-ignore
@@ -305,10 +526,34 @@ globalThis.fetch = function (input: any, init?: any): Promise<Response> {
 };
 
 export async function placeUpstoxOrderIpv4(orderPayload: any, token: string, retryCount = 0): Promise<any> {
+  const proxyUrl = getConfiguredProxyUrl();
+  if (proxyUrl && (!isProxyCurrentlyOnline() || retryCount === 0)) {
+    await testProxyConnectivity(proxyUrl, 5000).catch(() => {});
+  }
+  const isOnline = isProxyCurrentlyOnline();
+  const agent = proxyUrl && isOnline ? getSharedProxyAgent(proxyUrl) : getUpstoxAgent();
+  console.log(`[UPSTOX ORDER ROUTE] Order: ${orderPayload.transaction_type} ${orderPayload.quantity} ${orderPayload.instrument_token || orderPayload.symbol} -> Egress via: ${agent !== upstoxIpv4Agent ? `STATIC PROXY (${FIXED_PRIMARY_IP})` : "DIRECT IPV4"}`);
+
   return new Promise((resolve) => {
+    let settled = false;
     const dataStr = JSON.stringify(orderPayload);
-    const agent = getUpstoxAgent();
-    const req = https.request(
+    let req: ReturnType<typeof https.request> | null = null;
+
+    const hardOrderTimer = setTimeout(async () => {
+      if (settled) return;
+      settled = true;
+      try { req?.destroy(); } catch {}
+      if (agent !== upstoxIpv4Agent) {
+        markProxyUnhealthy("Order proxy request timed out (8s)");
+      }
+      if (retryCount === 0) {
+        const retryRes = await placeUpstoxOrderIpv4(orderPayload, token, 1);
+        return resolve(retryRes);
+      }
+      resolve({ status: "error", message: "Upstox order request timed out" });
+    }, 8200);
+
+    req = https.request(
       "https://api.upstox.com/v2/order/place",
       {
         method: "POST",
@@ -326,6 +571,9 @@ export async function placeUpstoxOrderIpv4(orderPayload: any, token: string, ret
         let raw = "";
         res.on("data", (chunk) => (raw += chunk));
         res.on("end", async () => {
+          clearTimeout(hardOrderTimer);
+          if (settled) return;
+          settled = true;
           try {
             const json = JSON.parse(raw);
             if (json?.status !== "success" && retryCount === 0 && (raw.includes("ECONNRESET") || raw.includes("socket") || raw.includes("timeout"))) {
@@ -340,14 +588,30 @@ export async function placeUpstoxOrderIpv4(orderPayload: any, token: string, ret
       },
     );
     req.on("error", async (err) => {
+      clearTimeout(hardOrderTimer);
+      if (settled) return;
+      settled = true;
+      if (agent !== upstoxIpv4Agent) {
+        markProxyUnhealthy(err?.message || "Order proxy socket error");
+      }
       if (retryCount === 0) {
         const retryRes = await placeUpstoxOrderIpv4(orderPayload, token, 1);
         return resolve(retryRes);
       }
       resolve({ status: "error", message: err?.message || "Network error" });
     });
-    req.setTimeout(12000, () => {
-      req.destroy();
+    req.setTimeout(8000, async () => {
+      clearTimeout(hardOrderTimer);
+      if (settled) return;
+      settled = true;
+      try { req?.destroy(); } catch {}
+      if (agent !== upstoxIpv4Agent) {
+        markProxyUnhealthy("Order proxy request timed out (8s)");
+      }
+      if (retryCount === 0) {
+        const retryRes = await placeUpstoxOrderIpv4(orderPayload, token, 1);
+        return resolve(retryRes);
+      }
       resolve({ status: "error", message: "Upstox order request timed out" });
     });
     req.write(dataStr);

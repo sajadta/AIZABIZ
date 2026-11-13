@@ -2,13 +2,27 @@
 import express from "express";
 import { otpSessionState, fetchUpstoxWithRetry, buildUpstoxBrowserHeaders, mergeSetCookies, type UpstoxAutoOtpSession } from "./otpSession";
 import type { Request, Response } from "express";
-import { upstoxConfig, botConfig, invalidTokens } from "../../state";
+import { upstoxConfig, botConfig, invalidTokens, setCachedUpstoxLivePositions } from "../../state";
+import { saveTokenBackupToDisk } from "../../lib/tokens";
 import { savePostgresDb } from "../../services/persistence";
-import { publishTokenToCloudRelay } from "../../services/tokenSync";
+import { publishTokenToCloudRelay, resetVerifiedTokenCache } from "../../services/tokenSync";
+
+async function safeParseJsonResponse(res: any): Promise<{ data: any; rawText: string; isHtml: boolean }> {
+  const rawText = typeof res?.text === "function" ? await res.text().catch(() => "") : "";
+  try {
+    const data = rawText ? JSON.parse(rawText) : {};
+    return { data, rawText, isHtml: false };
+  } catch {
+    const isHtml = rawText.trim().startsWith("<") || rawText.toLowerCase().includes("cloudflare");
+    return { data: {}, rawText, isHtml };
+  }
+}
 
 export function registerOtpRoutes(app: express.Application) {
   app.post("/api/market/send-sms-otp", async (req: Request, res: Response) => {
     const { mobile, apiKey, apiSecret, redirectUri, pin } = req.body;
+    const protocol = (req.headers["x-forwarded-proto"] as string) || req.protocol || "https";
+    const host = req.headers.host || "localhost:3000";
     const cleanMobile = String(mobile || upstoxConfig.mobile || process.env.UPSTOX_MOBILE || "")
       .replace(/\D+/g, "")
       .slice(-10);
@@ -16,7 +30,7 @@ export function registerOtpRoutes(app: express.Application) {
     const secret = String(
       apiSecret && apiSecret !== "••••••••" ? apiSecret : upstoxConfig.apiSecret || "",
     ).trim();
-    const uri = String(redirectUri || upstoxConfig.redirectUri || process.env.UPSTOX_REDIRECT_URI || "").trim();
+    const uri = String(redirectUri || upstoxConfig.redirectUri || process.env.UPSTOX_REDIRECT_URI || `${protocol}://${host}/api/market/callback`).trim();
     const cleanPin = String(pin || upstoxConfig.pin || process.env.UPSTOX_PIN || "").trim();
 
     if (cleanMobile.length === 10 && cleanMobile !== "0000000000") {
@@ -93,7 +107,7 @@ export function registerOtpRoutes(app: express.Application) {
         3,
       );
       mergeSetCookies(cookieJar, otpGenRes);
-      const otpGenData = await otpGenRes.json();
+      const { data: otpGenData, isHtml } = await safeParseJsonResponse(otpGenRes);
 
       if (otpGenData.success && otpGenData.data?.validateOTPToken) {
         const newSess: UpstoxAutoOtpSession = {
@@ -125,13 +139,18 @@ export function registerOtpRoutes(app: express.Application) {
             `📲 നിങ്ങളുടെ ${cleanMobile.slice(0, 2)}******${cleanMobile.slice(-2)} എന്ന നമ്പറിലേക്ക് Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകുക — PIN നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`,
         });
       } else {
-        const errMsg =
+        const rawErrMsg =
           otpGenData.error?.message ||
-          "Upstox SMS OTP അയക്കാൻ കഴിഞ്ഞില്ല. മൊബൈൽ നമ്പർ ശരിയാണെന്ന് ഉറപ്പാക്കുക.";
+          otpGenData.message ||
+          (isHtml
+            ? `Upstox Cloudflare സുരക്ഷാ പരിശോധന ക്ലൗഡ് സെർവർ SMS റിക്വസ്റ്റ് തടഞ്ഞു (HTTP ${otpGenRes.status}).`
+            : `Upstox SMS OTP അയക്കാൻ കഴിഞ്ഞില്ല (HTTP ${otpGenRes.status}).`);
         return res.status(400).json({
           success: false,
           oauthDialogUrl: dialogUrl,
-          error: `${errMsg} (${otpGenData.error?.code || ""})`,
+          error: isHtml
+            ? `${rawErrMsg} ദയവായി '1-Click Upstox Login' അല്ലെങ്കിൽ 'Upstox V3 Approve' ഉപയോഗിക്കുക.`
+            : `${rawErrMsg}${otpGenData.error?.code ? ` (${otpGenData.error.code})` : ""}`,
           details: otpGenData,
         });
       }
@@ -373,7 +392,7 @@ export function registerOtpRoutes(app: express.Application) {
       }
         }
 
-        if (tokenData.access_token) {
+        if (tokenData?.access_token) {
           otpSessionState.active = null;
           upstoxConfig.accessToken = tokenData.access_token;
           upstoxConfig.userName =
@@ -382,8 +401,13 @@ export function registerOtpRoutes(app: express.Application) {
           upstoxConfig.userClientCode = tokenData.user_id || process.env.UPSTOX_CLIENT_CODE || "";
           upstoxConfig.tokenGeneratedAt = new Date().toLocaleTimeString("en-IN");
           upstoxConfig.tokenExpiresAt = "Tomorrow 03:30 AM";
-          // Preserve existing botConfig.mode (PAPER_TRADING or UPSTOX_LIVE)
+          if (!botConfig.userExplicitlySelectedMode) {
+            botConfig.mode = "UPSTOX_LIVE";
+          }
           invalidTokens.delete(tokenData.access_token);
+          resetVerifiedTokenCache();
+          setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+          saveTokenBackupToDisk(tokenData.access_token, upstoxConfig);
           await savePostgresDb().catch(() => { /* ignore */ });
           publishTokenToCloudRelay(tokenData.access_token).catch(() => { /* ignore */ });
 
@@ -399,7 +423,8 @@ export function registerOtpRoutes(app: express.Application) {
           return res.status(400).json({
             success: false,
             error:
-              tokenData.errors?.[0]?.message ||
+              tokenData?.errors?.[0]?.message ||
+              tokenData?.message ||
               "ടോക്കൺ എക്സ്ചേഞ്ച് പരാജയപ്പെട്ടു. API Secret & Redirect URI പരിശോധിക്കുക.",
           });
         }
@@ -447,6 +472,9 @@ export function registerOtpRoutes(app: express.Application) {
           botConfig.mode = "UPSTOX_LIVE";
         }
         invalidTokens.delete(token);
+        resetVerifiedTokenCache();
+        setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+        saveTokenBackupToDisk(token, upstoxConfig);
         await savePostgresDb().catch(() => { /* ignore */ });
         publishTokenToCloudRelay(token).catch(() => { /* ignore */ });
 

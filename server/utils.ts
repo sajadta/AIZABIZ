@@ -1,7 +1,8 @@
-import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, upstoxConfig, PUBLIC_WEBHOOK_RELAY_URL, PERSISTENT_TOKEN_BACKUP_PATH } from "./state";
-import fsSync from "fs";
-import path from "path";
-import os from "os";
+import { FIXED_PRIMARY_IP, FIXED_SECONDARY_IP, upstoxConfig, PUBLIC_WEBHOOK_RELAY_URL } from "./state";
+import { isJwtTokenActuallyExpired, saveTokenBackupToDisk } from "./lib/tokens";
+import { getDetectedContainerIp, getProxyStatusSummary } from "./services/upstoxTransport";
+
+export { isJwtTokenActuallyExpired, saveTokenBackupToDisk };
 
 let lastPublishedRelayToken = "";
 
@@ -19,27 +20,6 @@ export function isUpstoxAuthFailureError(resStatus: number, data: any): boolean 
   const msg = String(data?.errors?.[0]?.message || data?.message || "").toLowerCase();
   return msg.includes("invalid token") || msg.includes("token has expired") || msg.includes("unauthorized");
 }
-
-export function isJwtTokenActuallyExpired(tokenStr: string): boolean {
-  if (!tokenStr || tokenStr.split(".").length < 3) return true;
-  try {
-    const payload = JSON.parse(Buffer.from(tokenStr.split(".")[1], "base64").toString());
-    const exp = payload.exp;
-    if (!exp) return false;
-    return Date.now() / 1000 > exp - 30; // 30s buffer
-  } catch {
-    return true;
-  }
-}
-
-export function saveTokenBackupToDisk(tokenStr: string, meta?: Record<string, any>) {
-  try {
-    fsSync.writeFileSync(PERSISTENT_TOKEN_BACKUP_PATH, JSON.stringify({ token: tokenStr, accessToken: tokenStr, ...meta, savedAt: new Date().toISOString() }));
-  } catch {
-    // Ignored
-  }
-}
-
 
 export async function publishTokenToCloudRelay(tokenToSave: string) {
   const clean = (tokenToSave || "").trim();
@@ -64,9 +44,6 @@ export async function publishTokenToCloudRelay(tokenToSave: string) {
   }
 }
 
-let lastIpCheckResult: { detectedIp: string; isProxy: boolean } | null = null;
-let lastIpCheckTimestamp = 0;
-
 export async function getLiveOutboundIp(): Promise<{ 
   ip: string; 
   secondaryIp: string; 
@@ -74,59 +51,20 @@ export async function getLiveOutboundIp(): Promise<{
   actualDetectedIp: string; 
   mismatch: boolean 
 }> {
-  const proxyUrl = process.env.UPSTOX_PROXY_URL;
-  const now = Date.now();
-  
-  if (lastIpCheckResult && (now - lastIpCheckTimestamp < 5 * 60 * 1000)) {
-    const mismatch = lastIpCheckResult.detectedIp !== FIXED_PRIMARY_IP && lastIpCheckResult.detectedIp !== FIXED_SECONDARY_IP;
-    return { 
-      ip: FIXED_PRIMARY_IP, 
-      secondaryIp: FIXED_SECONDARY_IP, 
-      isFixedProxy: lastIpCheckResult.isProxy, 
-      actualDetectedIp: lastIpCheckResult.detectedIp || "Unknown",
-      mismatch: mismatch
-    };
-  }
+  const summary = getProxyStatusSummary();
+  const containerIp = await getDetectedContainerIp();
+  const actualIp = summary.isProxyActive
+    ? summary.activeIp
+    : (containerIp || summary.containerIp || "Unknown");
+  const secondaryIp = containerIp || FIXED_SECONDARY_IP;
+  const mismatch = actualIp !== FIXED_PRIMARY_IP && actualIp !== FIXED_SECONDARY_IP;
 
-  let detectedIp = "";
-  let isProxy = false;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const options: any = { signal: controller.signal };
-    
-    const res = await fetch("https://api.ipify.org?format=json", options);
-    clearTimeout(timeout);
-    
-    if (res.ok) {
-      const data = await res.json();
-      detectedIp = data.ip;
-      isProxy = !!proxyUrl;
-      
-      lastIpCheckResult = { detectedIp, isProxy };
-      lastIpCheckTimestamp = now;
-    }
-  } catch (e: any) {
-    if (e.name === 'AbortError') {
-      console.warn("[IP Check Timeout] api.ipify.org took too long (>8s)");
-    } else {
-      console.error("[IP Check Error]", e);
-    }
-    if (lastIpCheckResult) {
-       detectedIp = lastIpCheckResult.detectedIp;
-       isProxy = lastIpCheckResult.isProxy;
-    }
-  }
-
-  const mismatch = detectedIp !== FIXED_PRIMARY_IP && detectedIp !== FIXED_SECONDARY_IP;
-
-  return { 
-    ip: FIXED_PRIMARY_IP, 
-    secondaryIp: FIXED_SECONDARY_IP, 
-    isFixedProxy: isProxy, 
-    actualDetectedIp: detectedIp || "Unknown",
-    mismatch: mismatch
+  return {
+    ip: FIXED_PRIMARY_IP,
+    secondaryIp,
+    isFixedProxy: summary.isProxyActive,
+    actualDetectedIp: actualIp,
+    mismatch,
   };
 }
 

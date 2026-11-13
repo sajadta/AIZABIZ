@@ -5,17 +5,20 @@ import fsSync from "fs";
 import { upstoxConfig, invalidTokens, PERSISTENT_TOKEN_BACKUP_PATH } from "../state";
 
 export function isJwtTokenActuallyExpired(tokenStr: string): boolean {
+  const clean = (tokenStr || "").trim();
+  if (!clean) return true;
+  const parts = clean.split(".");
+  if (parts.length !== 3) return true;
   try {
-    const parts = (tokenStr || "").trim().split(".");
-    if (parts.length !== 3) return false;
-    const payloadJson = Buffer.from(parts[1], "base64").toString("utf-8");
+    const payloadJson = Buffer.from(parts[1], "base64url").toString("utf-8");
     const payload = JSON.parse(payloadJson);
     if (payload && typeof payload.exp === "number") {
-      // Allow 60s clock skew buffer
-      return Date.now() / 1000 > payload.exp + 60;
+      return Date.now() / 1000 > payload.exp - 30;
     }
-  } catch {}
-  return false;
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 export function saveTokenBackupToDisk(tokenStr: string, meta?: Record<string, any>) {
@@ -26,6 +29,7 @@ export function saveTokenBackupToDisk(tokenStr: string, meta?: Record<string, an
       PERSISTENT_TOKEN_BACKUP_PATH,
       JSON.stringify(
         {
+          token: clean,
           accessToken: clean,
           userName: meta?.userName || upstoxConfig.userName || process.env.UPSTOX_USER_NAME || "",
           userClientCode: meta?.userClientCode || upstoxConfig.userClientCode || process.env.UPSTOX_CLIENT_CODE || "",
@@ -44,7 +48,7 @@ export function loadTokenBackupFromDisk(): string {
     if (fsSync.existsSync(PERSISTENT_TOKEN_BACKUP_PATH)) {
       const raw = fsSync.readFileSync(PERSISTENT_TOKEN_BACKUP_PATH, "utf-8");
       const parsed = JSON.parse(raw);
-      const tok = String(parsed?.accessToken || "").trim();
+      const tok = String(parsed?.accessToken || parsed?.token || "").trim();
       if (tok.length > 30 && !isJwtTokenActuallyExpired(tok) && !invalidTokens.has(tok)) {
         return tok;
       }

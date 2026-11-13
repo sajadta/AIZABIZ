@@ -41,7 +41,7 @@ app.post("/api/bot/config", (req, res) => {
     botConfig.selectedIndexPriority = "FULL_AUTO_MULTI_INDEX";
   }
   botConfig.maxOptionLossCount = Math.min(
-    3,
+    10,
     Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
   );
   botLogs.unshift({
