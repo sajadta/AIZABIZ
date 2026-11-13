@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BarChart2, Cpu, Layers, Briefcase, Sparkles, PieChart, TrendingUp, TrendingDown } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StockQuote,
   CandleData,
@@ -19,27 +18,18 @@ import {
 } from './types';
 import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
 import { translations } from './translations';
+import { useAccountMetrics } from './hooks/useAccountMetrics';
+import { usePriceAlerts } from './hooks/usePriceAlerts';
 import { Header } from './components/Header';
 import { TickerBar } from './components/TickerBar';
 import { Watchlist } from './components/Watchlist';
-import { CandlestickChart } from './components/CandlestickChart';
-import { AlgoBotPanel } from './components/AlgoBotPanel';
-import { OptionChainView } from './components/OptionChainView';
-import { OrderBookPositions } from './components/OrderBookPositions';
-import { MarketHeatmap } from './components/MarketHeatmap';
-import { GeminiAiAdvisor } from './components/GeminiAiAdvisor';
-import { LiveAiSupport } from './components/LiveAiSupport';
-import { AdvancedAnalytics } from './components/AdvancedAnalytics';
-import { CumulativePnLChart } from './components/CumulativePnLChart';
-import { PerformanceOverviewCard } from './components/PerformanceOverviewCard';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { OrderModal } from './components/OrderModal';
-import { UpstoxApiModal } from './components/UpstoxApiModal';
-import { AlertsModal } from './components/AlertsModal';
-import { AndroidInstallModal } from './components/AndroidInstallModal';
-import { OnboardingSetupModal } from './components/OnboardingSetupModal';
-import { MasterPinLockModal } from './components/MasterPinLockModal';
-import { InvestmentPortal } from './components/InvestmentPortal';
+import { AppTopSections } from './components/app/AppTopSections';
+import { AppInspectionBanner } from './components/app/AppInspectionBanner';
+import { AppIpWhitelistNotice } from './components/app/AppIpWhitelistNotice';
+import { AppDesktopNav } from './components/app/AppDesktopNav';
+import { AppTabContent } from './components/app/AppTabContent';
+import { AppMobileNav } from './components/app/AppMobileNav';
+import { AppModals } from './components/app/AppModals';
 import {
   enrichCandlesWithIndicators,
   analyzeTradingSignals,
@@ -55,28 +45,270 @@ import {
 } from './utils/soundAlerts';
 
 const INITIAL_WATCHLIST_SYMBOLS: StockQuote[] = [
-  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', instrumentKey: 'NSE_INDEX|Nifty 50', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'BANKNIFTY', name: 'Nifty Bank Index', instrumentKey: 'NSE_INDEX|Nifty Bank', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'NIFTY FUT', name: 'Nifty Index Futures', instrumentKey: 'NSE_FO|NIFTY24NOVFUT', exchange: 'NFO', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'FUTURES' },
-  { symbol: 'BANKNIFTY FUT', name: 'Bank Nifty Futures', instrumentKey: 'NSE_FO|BANKNIFTY24NOVFUT', exchange: 'NFO', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'FUTURES' },
-  { symbol: 'SENSEX', name: 'BSE SENSEX Index', instrumentKey: 'BSE_INDEX|SENSEX', exchange: 'BSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'FINNIFTY', name: 'Nifty Fin Service', instrumentKey: 'NSE_INDEX|Nifty Fin Service', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'MIDCPNIFTY', name: 'Nifty Midcap Select', instrumentKey: 'NSE_INDEX|NIFTY MID SELECT', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'BANKEX', name: 'BSE BANKEX Index', instrumentKey: 'BSE_INDEX|BANKEX', exchange: 'BSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'INDEX' },
-  { symbol: 'CRUDEOIL FUT', name: 'MCX Crude Oil Futures', instrumentKey: 'MCX_FO|CRUDEOIL24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
-  { symbol: 'NATURALGAS', name: 'MCX Natural Gas Futures', instrumentKey: 'MCX_FO|NATURALGAS24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
-  { symbol: 'GOLD', name: 'MCX Gold Futures', instrumentKey: 'MCX_FO|GOLD24NOVFUT', exchange: 'MCX', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'COMMODITY' },
-  { symbol: 'S&P 500', name: 'S&P 500 Index', instrumentKey: 'GLOBAL_INDEX|US500', exchange: 'GLOBAL', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'GLOBAL' },
-  { symbol: 'RELIANCE', name: 'Reliance Industries Ltd', instrumentKey: 'NSE_EQ|INE002A01018', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'HDFCBANK', name: 'HDFC Bank Ltd', instrumentKey: 'NSE_EQ|INE040A01034', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'ICICIBANK', name: 'ICICI Bank Ltd', instrumentKey: 'NSE_EQ|INE090A01021', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
-  { symbol: 'SBIN', name: 'State Bank of India', instrumentKey: 'NSE_EQ|INE062A01020', exchange: 'NSE', ltp: 0, open: 0, high: 0, low: 0, close: 0, change: 0, changePercent: 0, volume: 0, vwap: 0, segment: 'EQUITY' },
+  {
+    symbol: 'NIFTY 50',
+    name: 'Nifty 50 Index',
+    instrumentKey: 'NSE_INDEX|Nifty 50',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'BANKNIFTY',
+    name: 'Nifty Bank Index',
+    instrumentKey: 'NSE_INDEX|Nifty Bank',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'NIFTY FUT',
+    name: 'Nifty Index Futures',
+    instrumentKey: 'NSE_FO|NIFTY24NOVFUT',
+    exchange: 'NFO',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'FUTURES',
+  },
+  {
+    symbol: 'BANKNIFTY FUT',
+    name: 'Bank Nifty Futures',
+    instrumentKey: 'NSE_FO|BANKNIFTY24NOVFUT',
+    exchange: 'NFO',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'FUTURES',
+  },
+  {
+    symbol: 'SENSEX',
+    name: 'BSE SENSEX Index',
+    instrumentKey: 'BSE_INDEX|SENSEX',
+    exchange: 'BSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'FINNIFTY',
+    name: 'Nifty Fin Service',
+    instrumentKey: 'NSE_INDEX|Nifty Fin Service',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'MIDCPNIFTY',
+    name: 'Nifty Midcap Select',
+    instrumentKey: 'NSE_INDEX|NIFTY MID SELECT',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'BANKEX',
+    name: 'BSE BANKEX Index',
+    instrumentKey: 'BSE_INDEX|BANKEX',
+    exchange: 'BSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'INDEX',
+  },
+  {
+    symbol: 'CRUDEOIL FUT',
+    name: 'MCX Crude Oil Futures',
+    instrumentKey: 'MCX_FO|CRUDEOIL24NOVFUT',
+    exchange: 'MCX',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'COMMODITY',
+  },
+  {
+    symbol: 'NATURALGAS',
+    name: 'MCX Natural Gas Futures',
+    instrumentKey: 'MCX_FO|NATURALGAS24NOVFUT',
+    exchange: 'MCX',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'COMMODITY',
+  },
+  {
+    symbol: 'GOLD',
+    name: 'MCX Gold Futures',
+    instrumentKey: 'MCX_FO|GOLD24NOVFUT',
+    exchange: 'MCX',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'COMMODITY',
+  },
+  {
+    symbol: 'S&P 500',
+    name: 'S&P 500 Index',
+    instrumentKey: 'GLOBAL_INDEX|US500',
+    exchange: 'GLOBAL',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'GLOBAL',
+  },
+  {
+    symbol: 'RELIANCE',
+    name: 'Reliance Industries Ltd',
+    instrumentKey: 'NSE_EQ|INE002A01018',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'EQUITY',
+  },
+  {
+    symbol: 'HDFCBANK',
+    name: 'HDFC Bank Ltd',
+    instrumentKey: 'NSE_EQ|INE040A01034',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'EQUITY',
+  },
+  {
+    symbol: 'ICICIBANK',
+    name: 'ICICI Bank Ltd',
+    instrumentKey: 'NSE_EQ|INE090A01021',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'EQUITY',
+  },
+  {
+    symbol: 'SBIN',
+    name: 'State Bank of India',
+    instrumentKey: 'NSE_EQ|INE062A01020',
+    exchange: 'NSE',
+    ltp: 0,
+    open: 0,
+    high: 0,
+    low: 0,
+    close: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    vwap: 0,
+    segment: 'EQUITY',
+  },
 ];
 
 export const App: React.FC = () => {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'WATCHLIST' | 'CHART' | 'BOT' | 'OPTIONS' | 'ORDERS' | 'HOLDINGS' | 'HEATMAP' | 'AI' | 'INVEST'>('CHART');
-  
+  const [activeTab, setActiveTab] = useState<
+    'WATCHLIST' | 'CHART' | 'BOT' | 'OPTIONS' | 'ORDERS' | 'HOLDINGS' | 'HEATMAP' | 'AI' | 'INVEST'
+  >('CHART');
+
   // App configurations
   const [language, setLanguage] = useState<Language>('ml');
   const [mode, setMode] = useState<ExecutionMode>(() => {
@@ -93,10 +325,12 @@ export const App: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isWsConnected, setIsWsConnected] = useState(false);
   const [marketSession, setMarketSession] = useState<MarketSessionStatus>(() =>
-    getIstMarketSessionStatus()
+    getIstMarketSessionStatus(),
   );
   const [lightingBanner, setLightingBanner] = useState<LightingAlertBannerState | null>(null);
-  const prevPositionsRef = useRef<Record<string, { pnl: number; is50Hit: boolean; tier: number }>>({});
+  const prevPositionsRef = useRef<Record<string, { pnl: number; is50Hit: boolean; tier: number }>>(
+    {},
+  );
   const prevHoldingsRef = useRef<Record<string, { pnl: number; is50Hit: boolean }>>({});
   const prevMarketPhaseRef = useRef<string>(marketSession.phase ?? '');
 
@@ -187,8 +421,8 @@ export const App: React.FC = () => {
       try {
         localStorage.setItem('aizabiz_persisted_orders_v2', JSON.stringify(orders));
       } catch {
-      // Ignored
-    }
+        // Ignored
+      }
     }
   }, [orders]);
 
@@ -197,8 +431,8 @@ export const App: React.FC = () => {
       try {
         localStorage.setItem('aizabiz_persisted_trade_history_v2', JSON.stringify(tradeHistory));
       } catch {
-      // Ignored
-    }
+        // Ignored
+      }
     }
   }, [tradeHistory]);
 
@@ -258,9 +492,19 @@ export const App: React.FC = () => {
   // 0. 24x7 Render Anti-Sleep Wakeup Heartbeat (keeps Render server awake continuously)
   useEffect(() => {
     const triggerWakeup = () => {
-      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => { /* ignore */ });
-      if (typeof window !== 'undefined' && !window.location.hostname.includes('aizabiz.onrender.com')) {
-        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' }).catch(() => { /* ignore */ });
+      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => {
+        /* ignore */
+      });
+      if (
+        typeof window !== 'undefined' &&
+        !window.location.hostname.includes('aizabiz.onrender.com')
+      ) {
+        fetch(`https://aizabiz.onrender.com/api/ping?t=${Date.now()}`, {
+          mode: 'no-cors',
+          cache: 'no-store',
+        }).catch(() => {
+          /* ignore */
+        });
       }
     };
     triggerWakeup();
@@ -293,16 +537,16 @@ export const App: React.FC = () => {
               window.history.replaceState({}, document.title, window.location.pathname);
             }
           } catch {
-        // Silently ignored
-      }
+            // Silently ignored
+          }
         }
 
         let savedDailyToken = '';
         try {
           savedDailyToken = localStorage.getItem('upstox_daily_token') || '';
         } catch {
-        // Silently ignored
-      }
+          // Silently ignored
+        }
 
         const headers: Record<string, string> = {};
         if (savedDailyToken) {
@@ -310,9 +554,9 @@ export const App: React.FC = () => {
         }
 
         const [botRes, configRes, historyRes] = await Promise.allSettled([
-          fetch('/api/bot/config').then(r => r.ok ? r.json() : null),
-          fetch('/api/market/config', { headers }).then(r => r.ok ? r.json() : null),
-          fetch('/api/history').then(r => r.ok ? r.json() : null),
+          fetch('/api/bot/config').then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/market/config', { headers }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/history').then((r) => (r.ok ? r.json() : null)),
         ]);
 
         if (botRes.status === 'fulfilled' && botRes.value) {
@@ -326,21 +570,23 @@ export const App: React.FC = () => {
               preferredMode = saved as ExecutionMode;
             }
           } catch {
-      // Ignored
-    }
+            // Ignored
+          }
           const finalMode: ExecutionMode =
             preferredMode ||
             (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE'
               ? botRes.value.mode
               : 'PAPER_TRADING');
           setMode(finalMode);
-          setBotConfig(prev => ({ ...prev, ...botRes.value, mode: finalMode }));
+          setBotConfig((prev) => ({ ...prev, ...botRes.value, mode: finalMode }));
           if (preferredMode && botRes.value.mode !== preferredMode) {
             fetch('/api/bot/config', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ...botRes.value, mode: preferredMode }),
-            }).catch(() => { /* ignore */ });
+            }).catch(() => {
+              /* ignore */
+            });
           }
         }
         if (configRes.status === 'fulfilled' && configRes.value) {
@@ -357,29 +603,33 @@ export const App: React.FC = () => {
                 }
               }
             } catch {
-      // Ignored
-    }
+              // Ignored
+            }
           }
           if (cfg.tokenExpired && isJwtExpired) {
             try {
               localStorage.removeItem('upstox_daily_token');
             } catch {
-        // Silently ignored
-      }
+              // Silently ignored
+            }
             cfg.accessToken = '';
           } else if (cfg.isConnected && cfg.accessToken) {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
             } catch {
-        // Silently ignored
-      }
+              // Silently ignored
+            }
           } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
             cfg.accessToken = savedDailyToken;
             cfg.isConnected = true;
           }
-          setApiConfig(prev => ({ ...prev, ...cfg }));
+          setApiConfig((prev) => ({ ...prev, ...cfg }));
         }
-        if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value) && historyRes.value.length > 0) {
+        if (
+          historyRes.status === 'fulfilled' &&
+          Array.isArray(historyRes.value) &&
+          historyRes.value.length > 0
+        ) {
           fetchHistory();
         }
       } catch (err) {
@@ -397,10 +647,10 @@ export const App: React.FC = () => {
               try {
                 localStorage.setItem('upstox_daily_token', cfg.accessToken);
               } catch {
-      // Ignored
-    }
+                // Ignored
+              }
             }
-            setApiConfig(prev => ({
+            setApiConfig((prev) => ({
               ...prev,
               isConnected: cfg.isConnected,
               accessToken: cfg.accessToken || prev.accessToken,
@@ -418,8 +668,8 @@ export const App: React.FC = () => {
           }
         }
       } catch {
-      // Ignored
-    }
+        // Ignored
+      }
     }, 4000);
     return () => clearInterval(configSyncInterval);
   }, []);
@@ -434,8 +684,8 @@ export const App: React.FC = () => {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
           } catch {
-        // Silently ignored
-      }
+            // Silently ignored
+          }
         }
 
         const headers: Record<string, string> = {};
@@ -447,7 +697,11 @@ export const App: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           // Support both array and { quotes: [...] } format from Upstox
-          const quotesList = Array.isArray(data) ? data : (Array.isArray(data?.quotes) ? data.quotes : null);
+          const quotesList = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.quotes)
+              ? data.quotes
+              : null;
           if (quotesList && quotesList.length > 0 && isMounted) {
             const uniqueQuotes = deduplicateQuotes([...quotesList, ...INITIAL_WATCHLIST_SYMBOLS]);
             setQuotes(uniqueQuotes);
@@ -474,14 +728,19 @@ export const App: React.FC = () => {
       es.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === 'QUOTES' && Array.isArray(msg.data) && msg.data.length > 0 && isMounted) {
+          if (
+            msg.type === 'QUOTES' &&
+            Array.isArray(msg.data) &&
+            msg.data.length > 0 &&
+            isMounted
+          ) {
             const uniqueQuotes = deduplicateQuotes([...msg.data, ...INITIAL_WATCHLIST_SYMBOLS]);
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
           }
         } catch {
-      // Ignored
-    }
+          // Ignored
+        }
       };
     } catch {
       // Ignored
@@ -541,17 +800,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!chartTradeContext) return;
     const active = positions.find(
-      (p) => p.id === chartTradeContext.id || p.symbol === chartTradeContext.symbol
+      (p) => p.id === chartTradeContext.id || p.symbol === chartTradeContext.symbol,
     );
     const lastCandleClose = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
     if (active) {
-      const liveLtp = lastCandleClose > 0 && Math.abs(lastCandleClose - active.buyPrice) < active.buyPrice * 5
-        ? lastCandleClose
-        : Number(active.currentLTP || active.buyPrice);
+      const liveLtp =
+        lastCandleClose > 0 && Math.abs(lastCandleClose - active.buyPrice) < active.buyPrice * 5
+          ? lastCandleClose
+          : Number(active.currentLTP || active.buyPrice);
       const livePnl = Number(((liveLtp - active.buyPrice) * active.quantity).toFixed(2));
       setChartTradeContext((prev: any) => {
         if (!prev) return prev;
-        if (prev.currentLTP === liveLtp && prev.pnl === livePnl && prev.stopLoss === active.stopLoss) return prev;
+        if (
+          prev.currentLTP === liveLtp &&
+          prev.pnl === livePnl &&
+          prev.stopLoss === active.stopLoss
+        )
+          return prev;
         return {
           ...prev,
           ...active,
@@ -562,7 +827,9 @@ export const App: React.FC = () => {
     } else if (lastCandleClose > 0) {
       setChartTradeContext((prev: any) => {
         if (!prev || prev.currentLTP === lastCandleClose) return prev;
-        const livePnl = Number(((lastCandleClose - prev.buyPrice) * (prev.quantity || 1)).toFixed(2));
+        const livePnl = Number(
+          ((lastCandleClose - prev.buyPrice) * (prev.quantity || 1)).toFixed(2),
+        );
         return {
           ...prev,
           currentLTP: lastCandleClose,
@@ -578,12 +845,21 @@ export const App: React.FC = () => {
       (q) =>
         q.symbol === selectedSymbol ||
         q.instrumentKey === selectedInstrumentKey ||
-        (selectedSymbol.includes('BANK') && q.symbol.includes('BANK') && q.segment === 'INDEX')
-    ) || (() => {
+        (selectedSymbol.includes('BANK') && q.symbol.includes('BANK') && q.segment === 'INDEX'),
+    ) ||
+    (() => {
       // If viewing an option contract from chartTradeContext, synthesize quote from trade context
-      if (chartTradeContext && (chartTradeContext.symbol === selectedSymbol || selectedSymbol.includes(chartTradeContext.symbol))) {
-        const lastCandlePrice = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
-        const ltp = lastCandlePrice > 0 ? lastCandlePrice : Number(chartTradeContext.currentLTP || chartTradeContext.buyPrice || 0);
+      if (
+        chartTradeContext &&
+        (chartTradeContext.symbol === selectedSymbol ||
+          selectedSymbol.includes(chartTradeContext.symbol))
+      ) {
+        const lastCandlePrice =
+          candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
+        const ltp =
+          lastCandlePrice > 0
+            ? lastCandlePrice
+            : Number(chartTradeContext.currentLTP || chartTradeContext.buyPrice || 0);
         const buy = Number(chartTradeContext.buyPrice || ltp);
         const diff = ltp - buy;
         const diffPct = buy > 0 ? (diff / buy) * 100 : 0;
@@ -604,7 +880,9 @@ export const App: React.FC = () => {
         } as StockQuote;
       }
       // If an open position matches selectedSymbol, use its live position price
-      const matchPos = positions.find((p) => p.symbol === selectedSymbol || selectedSymbol.includes(p.symbol));
+      const matchPos = positions.find(
+        (p) => p.symbol === selectedSymbol || selectedSymbol.includes(p.symbol),
+      );
       if (matchPos) {
         const ltp = Number(matchPos.currentLTP || matchPos.buyPrice || 0);
         const buy = Number(matchPos.buyPrice || ltp);
@@ -655,7 +933,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!currentQuote || !currentQuote.ltp || currentQuote.ltp <= 0) return;
-    setCandles(prev => {
+    setCandles((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       if (!last || !last.close || last.close <= 0) return prev;
@@ -681,11 +959,13 @@ export const App: React.FC = () => {
     setAiLoading(true);
 
     const realOptMetrics = (() => {
-      if (!optionChainData || !optionChainData.strikes || optionChainData.strikes.length === 0) return undefined;
+      if (!optionChainData || !optionChainData.strikes || optionChainData.strikes.length === 0)
+        return undefined;
       const isBull = (currentQuote.changePercent || 0) >= 0;
       const optType: 'CE' | 'PE' = isBull ? 'CE' : 'PE';
       const sortedStrikes = [...optionChainData.strikes].sort(
-        (a, b) => Math.abs(a.strikePrice - currentQuote.ltp) - Math.abs(b.strikePrice - currentQuote.ltp)
+        (a, b) =>
+          Math.abs(a.strikePrice - currentQuote.ltp) - Math.abs(b.strikePrice - currentQuote.ltp),
       );
       const atm = sortedStrikes[0];
       if (!atm) return undefined;
@@ -722,26 +1002,29 @@ export const App: React.FC = () => {
       };
     })();
 
-    const sig = candles.length >= 20 ? analyzeTradingSignals(
-      currentQuote.symbol,
-      currentQuote.name,
-      currentQuote.instrumentKey,
-      candles,
-      currentQuote.ltp,
-      botConfig.selectedStrategy,
-      realOptMetrics?.ltp,
-      realOptMetrics
-    ) : null;
+    const sig =
+      candles.length >= 20
+        ? analyzeTradingSignals(
+            currentQuote.symbol,
+            currentQuote.name,
+            currentQuote.instrumentKey,
+            candles,
+            currentQuote.ltp,
+            botConfig.selectedStrategy,
+            realOptMetrics?.ltp,
+            realOptMetrics,
+          )
+        : null;
 
     if (sig) {
       setActiveSignal(sig);
-      setSignals(prev => [sig, ...prev.filter(s => s.id !== sig.id).slice(0, 19)]);
+      setSignals((prev) => [sig, ...prev.filter((s) => s.id !== sig.id).slice(0, 19)]);
       if (soundEnabled) {
         soundEngine.play('SIGNAL');
       }
     }
 
-    const lastCandle = candles[candles.length - 1] || {} as any;
+    const lastCandle = candles[candles.length - 1] || ({} as any);
     try {
       const res = await fetch('/api/gemini/market-analysis', {
         method: 'POST',
@@ -752,10 +1035,17 @@ export const App: React.FC = () => {
           changePercent: currentQuote.changePercent,
           interval: chartInterval,
           indicators: {
-            supertrend: { signal: lastCandle.supertrendDir || 'BUY', value: lastCandle.supertrend || currentQuote.ltp },
-            emaCross: { signal: (lastCandle.ema9 || 0) >= (lastCandle.ema21 || 0) ? 'BULLISH' : 'BEARISH' },
+            supertrend: {
+              signal: lastCandle.supertrendDir || 'BUY',
+              value: lastCandle.supertrend || currentQuote.ltp,
+            },
+            emaCross: {
+              signal: (lastCandle.ema9 || 0) >= (lastCandle.ema21 || 0) ? 'BULLISH' : 'BEARISH',
+            },
             rsi: { value: lastCandle.rsi || 55 },
-            macd: { cross: (lastCandle.macd || 0) >= (lastCandle.macdSignal || 0) ? 'BULLISH' : 'BEARISH' },
+            macd: {
+              cross: (lastCandle.macd || 0) >= (lastCandle.macdSignal || 0) ? 'BULLISH' : 'BEARISH',
+            },
             vwap: { value: currentQuote.vwap || currentQuote.ltp },
           },
         }),
@@ -776,7 +1066,10 @@ export const App: React.FC = () => {
     // Intelligent institutional fallback analysis derived from technical indicators
     const isBull = (currentQuote.changePercent || 0) >= 0;
     const ltp = currentQuote.ltp;
-    const baseScore = Math.min(94, Math.max(78, Math.round(75 + Math.abs(currentQuote.changePercent || 0) * 8)));
+    const baseScore = Math.min(
+      94,
+      Math.max(78, Math.round(75 + Math.abs(currentQuote.changePercent || 0) * 8)),
+    );
     setGeminiAnalysis({
       sentiment: isBull ? 'BULLISH' : 'BEARISH',
       confidenceScore: baseScore,
@@ -813,42 +1106,45 @@ export const App: React.FC = () => {
     setAiLoading(false);
   }, [currentQuote, candles, chartInterval, botConfig.selectedStrategy, soundEnabled]);
 
-  const fetchOptionChain = useCallback(async (expiryOverride?: string, symbolOverride?: string) => {
-    setOptionChainLoading(true);
-    let token = apiConfig.accessToken;
-    if (!token) {
-      try {
-        token = localStorage.getItem('upstox_daily_token') || '';
-      } catch {
-        // Silently ignored
-      }
-    }
-
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const targetSymbol = symbolOverride || selectedSymbol;
-    try {
-      const qs = new URLSearchParams({ symbol: targetSymbol });
-      if (expiryOverride && typeof expiryOverride === 'string') {
-        qs.set('expiry', expiryOverride);
-      }
-      const res = await fetch(`/api/market/optionchain?${qs.toString()}`, { headers });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.strikes && data.strikes.length > 0) {
-          setOptionChainData(data);
-          return;
+  const fetchOptionChain = useCallback(
+    async (expiryOverride?: string, symbolOverride?: string) => {
+      setOptionChainLoading(true);
+      let token = apiConfig.accessToken;
+      if (!token) {
+        try {
+          token = localStorage.getItem('upstox_daily_token') || '';
+        } catch {
+          // Silently ignored
         }
       }
-    } catch (e) {
-      console.warn('Real option chain fetch notice:', e);
-    } finally {
-      setOptionChainLoading(false);
-    }
-  }, [selectedSymbol, apiConfig.accessToken]);
+
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const targetSymbol = symbolOverride || selectedSymbol;
+      try {
+        const qs = new URLSearchParams({ symbol: targetSymbol });
+        if (expiryOverride && typeof expiryOverride === 'string') {
+          qs.set('expiry', expiryOverride);
+        }
+        const res = await fetch(`/api/market/optionchain?${qs.toString()}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.strikes && data.strikes.length > 0) {
+            setOptionChainData(data);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Real option chain fetch notice:', e);
+      } finally {
+        setOptionChainLoading(false);
+      }
+    },
+    [selectedSymbol, apiConfig.accessToken],
+  );
 
   // Fetch real Upstox long-term holdings
   const fetchHoldings = useCallback(async () => {
@@ -871,25 +1167,29 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setHoldings(data.map((h: any) => ({
-            symbol: h.symbol,
-            companyName: h.companyName || h.symbol,
-            instrumentKey: h.instrumentKey,
-            isin: h.isin,
-            quantity: h.quantity,
-            avgPrice: h.buyPrice ?? h.avgPrice,
-            buyPrice: h.buyPrice ?? h.avgPrice,
-            currentLTP: h.currentLTP,
-            closePrice: h.closePrice,
-            isBuyPriceLocked: h.isBuyPriceLocked,
-            isUpstoxZeroPrice: h.isUpstoxZeroPrice,
-            investedValue: h.investedValue || (h.quantity || 0) * (h.buyPrice || 0),
-            currentValue: h.currentValue || (h.quantity || 0) * (h.currentLTP || 0),
-            pnl: h.pnl || ((h.currentLTP - (h.buyPrice || h.avgPrice)) * h.quantity),
-            pnlPercent: h.pnlPercent || (h.buyPrice > 0 ? ((h.currentLTP - h.buyPrice) / h.buyPrice) * 100 : 0),
-            fiftyPercentTarget: h.fiftyPercentTarget,
-            algoForecast: h.algoForecast,
-          })));
+          setHoldings(
+            data.map((h: any) => ({
+              symbol: h.symbol,
+              companyName: h.companyName || h.symbol,
+              instrumentKey: h.instrumentKey,
+              isin: h.isin,
+              quantity: h.quantity,
+              avgPrice: h.buyPrice ?? h.avgPrice,
+              buyPrice: h.buyPrice ?? h.avgPrice,
+              currentLTP: h.currentLTP,
+              closePrice: h.closePrice,
+              isBuyPriceLocked: h.isBuyPriceLocked,
+              isUpstoxZeroPrice: h.isUpstoxZeroPrice,
+              investedValue: h.investedValue || (h.quantity || 0) * (h.buyPrice || 0),
+              currentValue: h.currentValue || (h.quantity || 0) * (h.currentLTP || 0),
+              pnl: h.pnl || (h.currentLTP - (h.buyPrice || h.avgPrice)) * h.quantity,
+              pnlPercent:
+                h.pnlPercent ||
+                (h.buyPrice > 0 ? ((h.currentLTP - h.buyPrice) / h.buyPrice) * 100 : 0),
+              fiftyPercentTarget: h.fiftyPercentTarget,
+              algoForecast: h.algoForecast,
+            })),
+          );
         }
       }
     } catch (e) {
@@ -905,7 +1205,7 @@ export const App: React.FC = () => {
         if (Array.isArray(data)) {
           setTradeHistory((prev) => {
             const map = new Map<string, Position>();
-            prev.forEach(t => map.set(t.id, t));
+            prev.forEach((t) => map.set(t.id, t));
             data.forEach((t: any) => map.set(t.id, { ...t, mode: t.mode || 'PAPER_TRADING' }));
             return Array.from(map.values()).sort((a, b) => {
               const timeA = new Date(a.closeTime || 0).getTime();
@@ -959,7 +1259,10 @@ export const App: React.FC = () => {
             mode: 'PAPER_TRADING',
             productType: p.productType || 'INTRADAY',
             pnl: Number((p.pnl || 0).toFixed(2)),
-            pnlPercent: p.buyPrice > 0 ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2)) : 0,
+            pnlPercent:
+              p.buyPrice > 0
+                ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2))
+                : 0,
             openedAt: p.openedAt || new Date().toLocaleTimeString(),
           }));
         }
@@ -1062,8 +1365,8 @@ export const App: React.FC = () => {
             }
           }
         } catch {
-      // Ignored
-    }
+          // Ignored
+        }
       }
     } catch (e) {
       console.warn('Positions fetch notice:', e);
@@ -1105,8 +1408,8 @@ export const App: React.FC = () => {
       return;
     }
 
-    const matchedHolding = holdings.find(h => h.symbol === orderData.symbol);
-    const matchedQuote = quotes.find(q => q.symbol === orderData.symbol);
+    const matchedHolding = holdings.find((h) => h.symbol === orderData.symbol);
+    const matchedQuote = quotes.find((q) => q.symbol === orderData.symbol);
     const isOpt = /\b(CE|PE)\b/i.test(orderData.symbol);
     const resolvedInstrumentKey =
       orderData.instrumentKey ||
@@ -1134,7 +1437,7 @@ export const App: React.FC = () => {
       });
       const data = await res.json();
       if (!data.success) {
-        setBotLogs(prev => [
+        setBotLogs((prev) => [
           {
             id: Date.now().toString(),
             timestamp: new Date().toLocaleTimeString(),
@@ -1170,11 +1473,11 @@ export const App: React.FC = () => {
       mode,
     };
 
-    setOrders(prev => [newOrder, ...prev]);
+    setOrders((prev) => [newOrder, ...prev]);
 
     // Update positions locally for immediate UI feedback
     if (orderData.transactionType === 'SELL') {
-      const existing = positions.find(p => p.symbol === orderData.symbol);
+      const existing = positions.find((p) => p.symbol === orderData.symbol);
       if (existing) {
         handleSquareOffPosition(existing.id);
         setIsOrderModalOpen(false);
@@ -1197,7 +1500,7 @@ export const App: React.FC = () => {
       mode,
       openedAt: new Date().toLocaleTimeString(),
     };
-    setPositions(prev => [newPos, ...prev]);
+    setPositions((prev) => [newPos, ...prev]);
 
     if (soundEnabled) {
       soundEngine.play('ORDER_FILLED');
@@ -1207,7 +1510,7 @@ export const App: React.FC = () => {
 
   // Square off single position (both Paper Trading and Upstox Live)
   const handleSquareOffPosition = async (id: string) => {
-    const pos = positions.find(p => p.id === id);
+    const pos = positions.find((p) => p.id === id);
     if (!pos) return;
 
     const sellPrice = pos.currentLTP;
@@ -1234,7 +1537,7 @@ export const App: React.FC = () => {
       });
       const data = await res.json();
       if (posMode === 'UPSTOX_LIVE' && !data.success) {
-        setBotLogs(prev => [
+        setBotLogs((prev) => [
           {
             id: Date.now().toString(),
             timestamp: new Date().toLocaleTimeString(),
@@ -1256,8 +1559,8 @@ export const App: React.FC = () => {
       closeTime: new Date().toISOString(),
     };
 
-    setPositions(prev => prev.filter(p => p.id !== id));
-    setTradeHistory(prev => [closedPos, ...prev]);
+    setPositions((prev) => prev.filter((p) => p.id !== id));
+    setTradeHistory((prev) => [closedPos, ...prev]);
 
     // Record close order
     const exitOrderIdTime = Date.now().toString().slice(-6);
@@ -1277,7 +1580,7 @@ export const App: React.FC = () => {
       mode,
       notes: 'Manual Square-Off',
     };
-    setOrders(prev => [exitOrder, ...prev]);
+    setOrders((prev) => [exitOrder, ...prev]);
 
     if (soundEnabled) {
       soundEngine.play(grossPnL >= 0 ? 'SUCCESS' : 'ALERT');
@@ -1286,14 +1589,12 @@ export const App: React.FC = () => {
           language === 'ml'
             ? `ലാഭം ₹${grossPnL.toFixed(0)} ബുക്ക് ചെയ്തു!`
             : `Profit of ${grossPnL.toFixed(0)} rupees locked!`,
-          language
+          language,
         );
       } else {
         soundEngine.speak(
-          language === 'ml'
-            ? `സ്റ്റോപ്പ് ലോസ് എക്സിറ്റ് ആയി!`
-            : `Stop loss exit triggered!`,
-          language
+          language === 'ml' ? `സ്റ്റോപ്പ് ലോസ് എക്സിറ്റ് ആയി!` : `Stop loss exit triggered!`,
+          language,
         );
       }
     }
@@ -1301,7 +1602,7 @@ export const App: React.FC = () => {
 
   // Square off all positions
   const handleSquareOffAll = () => {
-    positions.forEach(p => handleSquareOffPosition(p.id));
+    positions.forEach((p) => handleSquareOffPosition(p.id));
   };
 
   const handleSyncHistoryBrokerage = async () => {
@@ -1317,9 +1618,14 @@ export const App: React.FC = () => {
     }
   };
 
-
   const handleResetPaperAccount = async () => {
-    if (!window.confirm(language === 'ml' ? 'നിങ്ങളുടെ പേപ്പർ ട്രേഡിംഗ് അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണമെന്നുറപ്പാണോ?' : 'Are you sure you want to reset your paper trading account?')) {
+    if (
+      !window.confirm(
+        language === 'ml'
+          ? 'നിങ്ങളുടെ പേപ്പർ ട്രേഡിംഗ് അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണമെന്നുറപ്പാണോ?'
+          : 'Are you sure you want to reset your paper trading account?',
+      )
+    ) {
       return;
     }
     try {
@@ -1336,8 +1642,8 @@ export const App: React.FC = () => {
           localStorage.removeItem('aizabiz_persisted_orders_v2');
           localStorage.removeItem('aizabiz_persisted_trade_history_v2');
         } catch {
-      // Ignored
-    }
+          // Ignored
+        }
         alert(language === 'ml' ? 'അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു!' : 'Account reset successfully!');
         window.location.reload();
       }
@@ -1347,44 +1653,51 @@ export const App: React.FC = () => {
   };
 
   // Dedicated Option Premium & Instrument Chart Handler (Supports running positions, history, orders & holdings)
-  const handleViewChart = useCallback((sym: string, key?: string, context?: any) => {
-    setSelectedSymbol(sym);
-    setChartTradeContext(context || null);
+  const handleViewChart = useCallback(
+    (sym: string, key?: string, context?: any) => {
+      setSelectedSymbol(sym);
+      setChartTradeContext(context || null);
 
-    const isOption = /\b(CE|PE)\b/i.test(sym) || sym.toUpperCase().endsWith('CE') || sym.toUpperCase().endsWith('PE');
-    if (key && (key.startsWith('NSE_FO|') || key.startsWith('BSE_FO|') || isOption)) {
-      setSelectedInstrumentKey(key);
-    } else if (isOption) {
-      setSelectedInstrumentKey(key || `NSE_FO|${sym}`);
-    } else {
-      const matched = quotes.find((q) => q.symbol === sym);
-      if (matched?.instrumentKey) {
-        setSelectedInstrumentKey(matched.instrumentKey);
-      } else if (sym.toUpperCase().includes('BANKEX')) {
-        setSelectedInstrumentKey('BSE_INDEX|BANKEX');
-      } else if (sym.toUpperCase().includes('SENSEX')) {
-        setSelectedInstrumentKey('BSE_INDEX|SENSEX');
-      } else if (sym.toUpperCase().includes('BANK')) {
-        setSelectedInstrumentKey('NSE_INDEX|Nifty Bank');
-      } else if (sym.toUpperCase().includes('FIN')) {
-        setSelectedInstrumentKey('NSE_INDEX|Nifty Fin Service');
-      } else if (sym.toUpperCase().includes('NIFTY')) {
-        setSelectedInstrumentKey('NSE_INDEX|Nifty 50');
+      const isOption =
+        /\b(CE|PE)\b/i.test(sym) ||
+        sym.toUpperCase().endsWith('CE') ||
+        sym.toUpperCase().endsWith('PE');
+      if (key && (key.startsWith('NSE_FO|') || key.startsWith('BSE_FO|') || isOption)) {
+        setSelectedInstrumentKey(key);
+      } else if (isOption) {
+        setSelectedInstrumentKey(key || `NSE_FO|${sym}`);
       } else {
-        setSelectedInstrumentKey(key || sym);
+        const matched = quotes.find((q) => q.symbol === sym);
+        if (matched?.instrumentKey) {
+          setSelectedInstrumentKey(matched.instrumentKey);
+        } else if (sym.toUpperCase().includes('BANKEX')) {
+          setSelectedInstrumentKey('BSE_INDEX|BANKEX');
+        } else if (sym.toUpperCase().includes('SENSEX')) {
+          setSelectedInstrumentKey('BSE_INDEX|SENSEX');
+        } else if (sym.toUpperCase().includes('BANK')) {
+          setSelectedInstrumentKey('NSE_INDEX|Nifty Bank');
+        } else if (sym.toUpperCase().includes('FIN')) {
+          setSelectedInstrumentKey('NSE_INDEX|Nifty Fin Service');
+        } else if (sym.toUpperCase().includes('NIFTY')) {
+          setSelectedInstrumentKey('NSE_INDEX|Nifty 50');
+        } else {
+          setSelectedInstrumentKey(key || sym);
+        }
       }
-    }
-    setActiveTab('CHART');
-  }, [quotes]);
+      setActiveTab('CHART');
+    },
+    [quotes],
+  );
 
   // Execute signal directly with live Upstox lot size and account capital affordability check
   const handleExecuteSignal = async (sig: TradingSignal) => {
     const price = sig.recommendedOptionStrike ? sig.recommendedOptionStrike.ltp : sig.price;
     const rawSym = sig.symbol || '';
     const isAlreadyOptionSym = /\b(CE|PE)\b/i.test(rawSym);
-    const symbol = !isAlreadyOptionSym && sig.recommendedOptionStrike
-      ? `${rawSym} ${sig.recommendedOptionStrike.strikePrice} ${sig.recommendedOptionStrike.optionType}`
-      : rawSym;
+    const symbol =
+      !isAlreadyOptionSym && sig.recommendedOptionStrike
+        ? `${rawSym} ${sig.recommendedOptionStrike.strikePrice} ${sig.recommendedOptionStrike.optionType}`
+        : rawSym;
     const isOptionTrade = /\b(CE|PE)\b/i.test(symbol) || Boolean(sig.recommendedOptionStrike);
 
     let liveLot = sig.recommendedOptionStrike?.lotSize || 0;
@@ -1405,12 +1718,17 @@ export const App: React.FC = () => {
           }
         }
       } catch {
-      // Ignored
-    }
+        // Ignored
+      }
     }
 
     const baseLot = liveLot > 0 ? liveLot : 1;
-    const oneLotCharges = calculateTradeCharges(price, baseLot, isOptionTrade, sig.target1 || price * 1.25);
+    const oneLotCharges = calculateTradeCharges(
+      price,
+      baseLot,
+      isOptionTrade,
+      sig.target1 || price * 1.25,
+    );
     const oneLotCost = oneLotCharges.tradeValue;
     const oneLotBrokerage = oneLotCharges.roundTripCharges;
     const oneLotTotalWithBrokerage = oneLotCharges.totalRequiredWithBrokerage;
@@ -1428,7 +1746,7 @@ export const App: React.FC = () => {
           : paperAccountBalance;
 
     if (oneLotTotalWithBrokerage > effectiveCap) {
-      setBotLogs(prev => [
+      setBotLogs((prev) => [
         {
           id: Date.now().toString(),
           timestamp: new Date().toLocaleTimeString(),
@@ -1440,7 +1758,13 @@ export const App: React.FC = () => {
       return;
     }
 
-    const lotCalc = calculateAffordableLotsWithBrokerage(price, baseLot, effectiveCap, isOptionTrade, 5);
+    const lotCalc = calculateAffordableLotsWithBrokerage(
+      price,
+      baseLot,
+      effectiveCap,
+      isOptionTrade,
+      5,
+    );
     if (lotCalc.affordableLots <= 0) {
       return;
     }
@@ -1468,97 +1792,38 @@ export const App: React.FC = () => {
   };
 
   // Accurate PnL Calculation: Separate Today's Trading P&L vs Total Cumulative P&L
-  const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const totalNetMtm = positions.reduce((acc, p) => {
-    const gross = (p.pnl || 0);
-    // Use tracked live brokerage from Upstox API or fallback formula
-    const brok = p.brokerageCharges || calculateTradeCharges(p.buyPrice, p.quantity, p.isOption !== false, p.currentLTP).roundTripCharges;
-    return acc + (gross - brok);
-  }, 0);
-
-  // Filter closed trades strictly executed today (IST based on when the trade was opened)
-  const getTradeSessionDate = (t: Position) => {
-    if (t.openedAtMs && !isNaN(Number(t.openedAtMs))) {
-      return new Date(Number(t.openedAtMs)).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    }
-    if (t.openedAt && !isNaN(new Date(t.openedAt).getTime())) {
-      return new Date(t.openedAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    }
-    if (t.closeTime && !isNaN(new Date(t.closeTime).getTime())) {
-      return new Date(t.closeTime).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    }
-    return todayIst;
-  };
-
-  const modeTradeHistory = useMemo(() => {
-    return tradeHistory.filter((t) => (t.mode || 'PAPER_TRADING') === mode);
-  }, [tradeHistory, mode]);
-
-  const modeOrders = useMemo(() => {
-    return orders.filter((o) => (o.mode || 'PAPER_TRADING') === mode);
-  }, [orders, mode]);
-
-  const todayClosedTrades = modeTradeHistory.filter((t) => getTradeSessionDate(t) === todayIst);
-
-  const todayRealizedNet = todayClosedTrades.reduce((acc, t) => {
-    const gross = Number(t.realizedPnL ?? 0);
-    const brok = Number(t.brokerageCharges || calculateTradeCharges(t.buyPrice || 0, t.quantity || 1, t.isOption !== false, t.sellPrice || t.currentLTP || t.buyPrice || 0).roundTripCharges);
-    return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : (gross - brok));
-  }, 0);
-
-  const totalRealizedNet = modeTradeHistory.reduce((acc, t) => {
-    const gross = Number(t.realizedPnL ?? 0);
-    const brok = Number(t.brokerageCharges || calculateTradeCharges(t.buyPrice || 0, t.quantity || 1, t.isOption !== false, t.sellPrice || t.currentLTP || t.buyPrice || 0).roundTripCharges);
-    return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : (gross - brok));
-  }, 0);
-
-  // Today's Trading P&L (Today's Realized Net + Open Positions Net MTM)
-  const todayProfit = todayRealizedNet + totalNetMtm;
-
-  // Total Cumulative P&L (All-Time Realized Net + Open Positions Net MTM)
-  const totalCumulativeProfit = totalRealizedNet + totalNetMtm;
-
-  // Paper Trading Virtual Account Capital (Base ₹2,000 + total realized profit - open positions invested)
-  const openPositionsInvested = positions.reduce((acc, p) => acc + (Number(p.buyPrice || 0) * Math.max(1, Number(p.quantity || 1))), 0);
-  const paperAccountBalance = 2000 + totalRealizedNet - openPositionsInvested;
+  const {
+    totalNetMtm,
+    modeTradeHistory,
+    modeOrders,
+    todayProfit,
+    totalCumulativeProfit,
+    paperAccountBalance,
+  } = useAccountMetrics({ positions, tradeHistory, orders, mode });
 
   // Price alert handlers
-  const handleAddAlert = (
-    symbol: string,
-    instrumentKey: string,
-    targetPrice: number,
-    condition: 'GREATER_THAN' | 'LESS_THAN'
-  ) => {
-    const newAlert: PriceAlert = {
-      id: `alert_${Date.now()}`,
-      symbol,
-      instrumentKey,
-      targetPrice,
-      condition,
-      isActive: true,
-    };
-    setPriceAlerts(prev => [...prev, newAlert]);
-  };
-
-  const handleRemoveAlert = (id: string) => {
-    setPriceAlerts(prev => prev.filter(a => a.id !== id));
-  };
+  const { handleAddAlert, handleRemoveAlert } = usePriceAlerts({
+    quotes,
+    priceAlerts,
+    soundEnabled,
+    setPriceAlerts,
+  });
 
   // 1. Live update of open positions & price alerts on quotes tick
   useEffect(() => {
     if (quotes.length === 0) return;
 
     // A. Update open positions MTM P&L (supports both Equity/Index and Option Strikes via optionChainData or quotes)
-    setPositions(prev => {
+    setPositions((prev) => {
       if (prev.length === 0) return prev;
-      return prev.map(pos => {
+      return prev.map((pos) => {
         let currentLTP = pos.currentLTP;
         const isOpt = pos.symbol.includes('CE') || pos.symbol.includes('PE');
 
         if (isOpt) {
           // 1. Check if live quote exists directly for the option instrumentKey
           const directOptQuote = quotes.find(
-            item => item.instrumentKey === pos.instrumentKey || item.symbol === pos.symbol
+            (item) => item.instrumentKey === pos.instrumentKey || item.symbol === pos.symbol,
           );
           if (directOptQuote && directOptQuote.ltp > 0 && directOptQuote.ltp < pos.buyPrice * 50) {
             currentLTP = directOptQuote.ltp;
@@ -1568,7 +1833,7 @@ export const App: React.FC = () => {
             if (strikeMatch) {
               const strikeNum = Number(strikeMatch[1]);
               const optType = strikeMatch[2].toUpperCase();
-              const row = optionChainData.strikes.find(s => s.strikePrice === strikeNum);
+              const row = optionChainData.strikes.find((s) => s.strikePrice === strikeNum);
               if (row) {
                 const chainLtp = optType === 'CE' ? row.callLTP : row.putLTP;
                 if (chainLtp > 0) currentLTP = chainLtp;
@@ -1576,12 +1841,16 @@ export const App: React.FC = () => {
             }
           }
         } else {
-          const q = quotes.find(item => pos.symbol.startsWith(item.symbol) || item.symbol === pos.symbol);
+          const q = quotes.find(
+            (item) => pos.symbol.startsWith(item.symbol) || item.symbol === pos.symbol,
+          );
           if (q && q.ltp > 0) currentLTP = q.ltp;
         }
 
         const isBuy = pos.type === 'BUY' || !pos.type;
-        const pnl = isBuy ? (currentLTP - pos.buyPrice) * pos.quantity : (pos.buyPrice - currentLTP) * pos.quantity;
+        const pnl = isBuy
+          ? (currentLTP - pos.buyPrice) * pos.quantity
+          : (pos.buyPrice - currentLTP) * pos.quantity;
         const pnlPercent = pos.buyPrice > 0 ? (pnl / (pos.buyPrice * pos.quantity)) * 100 : 0;
         const highestPnl = Math.max((pos as any).highestPnl || 0, pnl);
         return {
@@ -1593,29 +1862,6 @@ export const App: React.FC = () => {
           highestPnl,
         };
       });
-    });
-
-    // B. Check Price Alerts
-    setPriceAlerts(prev => {
-      let triggered = false;
-      const updated = prev.map(alert => {
-        if (!alert.isActive) return alert;
-        const q = quotes.find(item => item.symbol === alert.symbol);
-        if (!q) return alert;
-        const isHit =
-          (alert.condition === 'GREATER_THAN' && q.ltp >= alert.targetPrice) ||
-          (alert.condition === 'LESS_THAN' && q.ltp <= alert.targetPrice);
-        if (isHit) {
-          triggered = true;
-          return { ...alert, isActive: false };
-        }
-        return alert;
-      });
-
-      if (triggered && soundEnabled) {
-        soundEngine.play('ALERT');
-      }
-      return updated;
     });
   }, [quotes, soundEnabled]);
 
@@ -1629,8 +1875,8 @@ export const App: React.FC = () => {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
           } catch {
-      // Ignored
-    }
+            // Ignored
+          }
         }
         const headers: Record<string, string> = {};
         if (token) {
@@ -1649,25 +1895,32 @@ export const App: React.FC = () => {
               timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
               message: l.message || '',
               type: l.type || 'INFO',
-            }))
+            })),
           );
         }
-        if (sigsRes.status === 'fulfilled' && Array.isArray(sigsRes.value) && sigsRes.value.length > 0) {
+        if (
+          sigsRes.status === 'fulfilled' &&
+          Array.isArray(sigsRes.value) &&
+          sigsRes.value.length > 0
+        ) {
           setSignals(sigsRes.value);
           // Match the signal for the currently selected symbol (e.g. NIFTY 50), instead of taking index 0
           const matchingSig = sigsRes.value.find(
             (s: any) =>
               s.symbol?.includes(selectedSymbol) ||
               s.name?.includes(selectedSymbol) ||
-              (selectedSymbol.includes('NIFTY 50') && s.symbol?.includes('NIFTY') && !s.symbol?.includes('BANK') && !s.symbol?.includes('FIN')) ||
+              (selectedSymbol.includes('NIFTY 50') &&
+                s.symbol?.includes('NIFTY') &&
+                !s.symbol?.includes('BANK') &&
+                !s.symbol?.includes('FIN')) ||
               (selectedSymbol.includes('BANK') && s.symbol?.includes('BANK')) ||
-              (selectedSymbol.includes('SENSEX') && s.symbol?.includes('SENSEX'))
+              (selectedSymbol.includes('SENSEX') && s.symbol?.includes('SENSEX')),
           );
           setActiveSignal(matchingSig || sigsRes.value[0]);
         }
       } catch {
-      // Ignored
-    }
+        // Ignored
+      }
       fetchLivePositions();
     };
 
@@ -1696,7 +1949,7 @@ export const App: React.FC = () => {
             'NSE / BSE',
             '🔔 മാർക്കറ്റ് ട്രേഡിങ് ആരംഭിച്ചു (09:15 AM IST)!',
             'അൽഗോരിതം 09:18 AM മുതൽ തത്സമയ ബ്രേക്ക്ഔട്ട് ട്രേഡുകൾ എടുത്തു തുടങ്ങും.',
-            !soundEnabled
+            !soundEnabled,
           );
           if (banner) setLightingBanner(banner);
         } else if (nextSession.phase === 'CLOSED_POST_MARKET') {
@@ -1705,7 +1958,7 @@ export const App: React.FC = () => {
             'NSE / BSE',
             '🏁 ഇന്നത്തെ മാർക്കറ്റ് ട്രേഡിങ് അവസാനിച്ചു (03:30 PM IST)!',
             'ഇന്നത്തെ ട്രേഡിങ് സമയം പൂർത്തിയായി. അടുത്ത ട്രേഡിങ് സെഷൻ രാവിലെ 09:15 AM-ന് ആരംഭിക്കും.',
-            !soundEnabled
+            !soundEnabled,
           );
           if (banner) setLightingBanner(banner);
         }
@@ -1739,7 +1992,7 @@ export const App: React.FC = () => {
           `⚡ പുതിയ ട്രേഡ് എടുത്തു: ${pos.symbol}`,
           `Buy Price: ₹${buyPx.toFixed(2)} | Qty: ${pos.quantity} — അൽഗോരിതം Peak-Locked Stop-Loss നിരീക്ഷിക്കുന്നു.`,
           !soundEnabled,
-          pnl
+          pnl,
         );
         if (banner) setLightingBanner(banner);
       } else {
@@ -1750,7 +2003,7 @@ export const App: React.FC = () => {
             `🏆 +50% ജാക്ക്പോട്ട് ലാഭം! ${pos.symbol}`,
             `വാങ്ങിയ വിലയുടെ (₹${buyPx.toFixed(2)}) 50% ലാഭ ലക്ഷ്യം (₹${curPx.toFixed(2)}) മറികടന്നു! ലാഭം: +₹${pnl.toFixed(2)}`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         } else if (currentTier === 3 && prev.tier < 3) {
@@ -1760,7 +2013,7 @@ export const App: React.FC = () => {
             `🚀 ഉയർന്ന ലാഭം (+₹${pnl.toFixed(0)}): ${pos.symbol}`,
             `LTP ₹${curPx.toFixed(2)}-ലേക്ക് കുതിച്ചു! Auto-Moving Peak Stop-Loss ലാഭം സുരക്ഷിതമായി ലോക്ക് ചെയ്തു.`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         } else if (currentTier === 2 && prev.tier < 2) {
@@ -1770,7 +2023,7 @@ export const App: React.FC = () => {
             `🟢 മികച്ച ലാഭത്തിലേക്ക് (+₹${pnl.toFixed(0)}): ${pos.symbol}`,
             `ട്രേഡ് നല്ല ലാഭത്തിലാണ് (LTP: ₹${curPx.toFixed(2)}). Zero-Loss ബ്രേക്ക്-ഈവൻ സംരക്ഷണം ആക്ടീവ് ആയി.`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         } else if (currentTier === -1 && prev.tier > -1) {
@@ -1780,7 +2033,7 @@ export const App: React.FC = () => {
             `⚠️ സ്റ്റോപ്പ്-ലോസ് / നഷ്ട മുന്നറിയിപ്പ് (${pos.symbol})`,
             `നിലവിലെ P&L: ₹${pnl.toFixed(2)}. അൽഗോരിതം ₹400 Max SL Cap & 1m സപ്പോർട്ട് പരിശോധിക്കുന്നു.`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         }
@@ -1795,7 +2048,9 @@ export const App: React.FC = () => {
       const buyPx = Number(h.buyPrice ?? h.avgPrice ?? 0);
       const curPx = Number(h.currentLTP || 0);
       const pnl = Number(h.pnl || 0);
-      const is50Hit = Boolean(h.fiftyPercentTarget?.isReached || (buyPx > 0 && curPx >= buyPx * 1.5));
+      const is50Hit = Boolean(
+        h.fiftyPercentTarget?.isReached || (buyPx > 0 && curPx >= buyPx * 1.5),
+      );
       const prev = prevHoldingsRef.current[key];
 
       if (prev) {
@@ -1806,7 +2061,7 @@ export const App: React.FC = () => {
             `⚡ ഹോൾഡിങ്ങ് +50% ലാഭ ലക്ഷ്യം മറികടന്നു: ${h.symbol}!`,
             `വാങ്ങിയ വില ₹${buyPx.toFixed(2)} -> ഇപ്പോൾ ₹${curPx.toFixed(2)} (+₹${pnl.toFixed(2)} ലാഭം)!`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         } else if (pnl > 0 && prev.pnl <= 0) {
@@ -1816,7 +2071,7 @@ export const App: React.FC = () => {
             `💎 ഹോൾഡിങ്ങ് ലാഭത്തിലായി: ${h.symbol}`,
             `LTP ₹${curPx.toFixed(2)} — നിലവിലെ ലാഭം: +₹${pnl.toFixed(2)} (${h.pnlPercent?.toFixed(2)}%)`,
             !soundEnabled,
-            pnl
+            pnl,
           );
           if (banner) setLightingBanner(banner);
         }
@@ -1833,10 +2088,8 @@ export const App: React.FC = () => {
   }, [lightingBanner]);
 
   const t = translations[language];
-
   return (
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-full max-w-full bg-[#070a12] text-slate-100 overflow-hidden font-sans select-none">
-      {/* 1. TOP HEADER */}
       <Header
         isWsConnected={isWsConnected}
         mode={mode}
@@ -1844,16 +2097,18 @@ export const App: React.FC = () => {
           try {
             localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
           } catch {
-      // Ignored
-    }
+            // Ignored
+          }
           setMode(newMode);
-          setBotConfig(prev => {
+          setBotConfig((prev) => {
             const updated = { ...prev, mode: newMode };
             fetch('/api/bot/config', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updated),
-            }).catch(() => { /* ignore */ });
+            }).catch(() => {
+              /* ignore */
+            });
             return updated;
           });
         }}
@@ -1875,224 +2130,76 @@ export const App: React.FC = () => {
         botEnabled={botConfig.enabled}
         onToggleBot={() => {
           const newState = !botConfig.enabled;
-          setBotConfig(prev => {
+          setBotConfig((prev) => {
             const updated = { ...prev, enabled: newState, dailyLossLocked: false };
             fetch('/api/bot/config', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(updated),
-            }).catch(() => { /* ignore */ });
+            }).catch(() => {
+              /* ignore */
+            });
             return updated;
           });
         }}
       />
 
-      {/* 1.1 UNIFIED LIVE TERMINAL RIBBON (Market Timing, Feed Status & Alert Controls - Desktop Only) */}
-      <div className="hidden sm:flex w-full px-2 sm:px-4 py-1 text-[11px] font-mono items-center justify-between gap-2 border-b shrink-0 bg-[#070b14]/95 border-slate-800/80 text-slate-300 overflow-x-auto no-scrollbar shadow-inner">
-        {/* Left: Feed Status & IST Clock */}
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[10px]">
-            <span className="flex h-2 w-2 relative shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-emerald-400"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="font-bold text-slate-200 font-sans">
-              {apiConfig.isConnected
-                ? (language === 'ml' ? 'UPSTOX ലൈവ്' : 'UPSTOX LIVE')
-                : (language === 'ml' ? 'NSE/BSE ലൈവ്' : 'NSE/BSE LIVE')}
-            </span>
-          </div>
+      <AppTopSections
+        apiConfig={apiConfig}
+        language={language}
+        lightingBanner={lightingBanner}
+        setLightingBanner={setLightingBanner}
+        triggerAlertEvent={triggerAlertEvent}
+        marketSession={marketSession}
+      />
 
-          <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-            <span className="text-slate-500 font-sans">IST:</span>
-            <strong className="text-cyan-300 font-bold">{marketSession.istTimeFormatted}</strong>
-          </span>
-        </div>
-
-        {/* Center: Market Phase & Countdown Pill with Neon Border */}
-        <div className="flex items-center gap-1.5 shrink-0 text-[10px] font-bold">
-          <span
-            className={`px-2 py-0.5 rounded-lg border font-mono transition-all ${
-              marketSession.isMarketOpen
-                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                : 'bg-amber-950/60 border-amber-500/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
-            }`}
-          >
-            {language === 'ml' ? marketSession.labelMl : marketSession.labelEn}
-          </span>
-          <span className="hidden sm:inline-flex px-2 py-0.5 rounded-lg bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 font-mono">
-            ⏳ {marketSession.countdownLabelMl}
-          </span>
-        </div>
-
-        {/* Right: Lighting & Sound Test Alert Button */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              const banner = triggerAlertEvent(
-                'FIFTY_PERCENT_JACKPOT',
-                'SOUND & LIGHTING TEST',
-                '⚡ ലൈറ്റിംഗ് & സൗണ്ട് അലേർട്ട് ടെസ്റ്റ് വിജയകരം!',
-                'ട്രേഡ് എൻട്രി, നഷ്ടം, ലാഭം, ഹോൾഡിങ്ങ് ലാഭം, +50% ജാക്ക്പോട്ട് അലേർട്ടുകൾ സജ്ജമാണ്!',
-                false
-              );
-              if (banner) setLightingBanner(banner);
-            }}
-            className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition flex items-center gap-1 shadow-sm active:scale-95"
-            title="Test Sound & Lighting Alert"
-          >
-            <span>🔔</span>
-            <span className="hidden xs:inline">{language === 'ml' ? 'അലേർട്ട് ടെസ്റ്റ്' : 'Test Alert'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Multi-Tier Visual Lighting Alert Banner (Trade Entry / Loss / Profit / +50% Jackpot / Holdings) */}
-      {lightingBanner && lightingBanner.active && (
-        <div
-          className={`w-full px-4 py-2 border-b flex items-center justify-between gap-3 shrink-0 transition-all duration-300 ${
-            lightingBanner.colorTheme === 'GOLD_JACKPOT'
-              ? 'bg-gradient-to-r from-amber-600/35 via-yellow-500/25 to-emerald-600/35 border-amber-400 text-amber-100 shadow-[0_0_30px_rgba(251,191,36,0.45)] animate-pulse'
-              : lightingBanner.colorTheme === 'EMERALD_HIGH'
-                ? 'bg-gradient-to-r from-emerald-600/35 via-teal-500/25 to-cyan-600/35 border-emerald-400 text-emerald-100 shadow-[0_0_25px_rgba(16,185,129,0.4)]'
-                : lightingBanner.colorTheme === 'ROSE_LOSS'
-                  ? 'bg-gradient-to-r from-rose-600/35 via-red-600/25 to-orange-600/35 border-rose-400 text-rose-100 shadow-[0_0_25px_rgba(244,63,94,0.4)]'
-                  : 'bg-gradient-to-r from-cyan-600/30 via-indigo-600/25 to-emerald-600/30 border-cyan-400 text-cyan-100'
-          }`}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="w-3 h-3 rounded-full bg-white animate-ping shrink-0" />
-            <div className="min-w-0">
-              <div className="text-xs sm:text-sm font-black tracking-wide truncate">
-                {lightingBanner.titleMl}
-              </div>
-              <div className="text-[11px] font-medium opacity-95 truncate">
-                {lightingBanner.subtitleMl}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLightingBanner(null)}
-            className="px-2.5 py-1 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[10px] font-bold border border-white/20 shrink-0"
-          >
-            ✕ Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* 2. TICKER BAR - The only continuous market strip on mobile */}
       <TickerBar
         quotes={quotes}
         selectedSymbol={selectedSymbol}
         onSelectSymbol={(sym, key) => {
           setSelectedSymbol(sym);
           if (key) setSelectedInstrumentKey(key);
-          
+
           // Auto-sync Algo Bot focus when clicking an index in the ticker bar
           const indexPriorityMap: Record<string, string> = {
             'NIFTY 50': 'NIFTY_50_ONLY',
-            'BANKNIFTY': 'BANKNIFTY_ONLY',
-            'SENSEX': 'SENSEX_ONLY',
-            'FINNIFTY': 'FINNIFTY_ONLY',
-            'MIDCPNIFTY': 'MIDCPNIFTY_ONLY',
-            'BANKEX': 'BANKEX_ONLY'
+            BANKNIFTY: 'BANKNIFTY_ONLY',
+            SENSEX: 'SENSEX_ONLY',
+            FINNIFTY: 'FINNIFTY_ONLY',
+            MIDCPNIFTY: 'MIDCPNIFTY_ONLY',
+            BANKEX: 'BANKEX_ONLY',
           };
-          
+
           if (indexPriorityMap[sym]) {
-            setBotConfig(prev => {
+            setBotConfig((prev) => {
               const updated = { ...prev, selectedIndexPriority: indexPriorityMap[sym] as any };
               fetch('/api/bot/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updated),
-              }).catch(() => { /* ignore */ });
+              }).catch(() => {
+                /* ignore */
+              });
               return updated;
             });
           }
         }}
       />
 
-      {/* 2.1 LIVE ALGO INSPECTION BANNER (Texting/Inspection Status - Desktop Only to save vertical mobile space) */}
-      <div className="hidden md:flex bg-slate-950/90 border-b border-slate-800/80 px-3 py-1 items-center justify-between gap-2 overflow-hidden text-xs">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="flex h-2 w-2 relative shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="text-[10px] font-black uppercase text-emerald-400 font-mono tracking-wider shrink-0">
-            {language === 'ml' ? 'അൽഗോരിതം പരിശോധന:' : 'ALGO ENGINE:'}
-          </span>
-          <span className="text-slate-300 text-[11px] font-semibold truncate animate-fade-in">
-            {botLogs.length > 0 && botLogs[0]?.message
-              ? botLogs[0].message
-              : (language === 'ml' 
-                  ? 'ഇൻസ്റ്റിറ്റ്യൂഷണൽ ഡാറ്റയും ഓപ്ഷൻ ഗ്രീക്സും തത്സമയം നിരീക്ഷിച്ച് കൊണ്ടിരിക്കുന്നു...' 
-                  : 'Continuously scanning institutional order flow, Option Greeks, and FVG levels...')}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono text-slate-400">
-          <span className="text-emerald-400 font-bold">24x7 Cloud Active</span>
-          <span>•</span>
-          <span>Zero Net Cut Drift</span>
-        </div>
-      </div>
+      <AppInspectionBanner botLogs={botLogs} language={language} />
 
-      {/* Upstox Static IP Whitelist Notice (Only if an old IP rejection log is present) */}
-      {!dismissedIpWarning && botLogs.some((l) => l.message && l.message.includes('static IP restrictions') && (Date.now() - Number(l.id || 0) < 15 * 60 * 1000)) && (
-        <div className="bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 border-b border-amber-500/50 px-3.5 py-2 flex items-center justify-between gap-3 text-xs flex-wrap shadow-lg">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-amber-400 font-black text-sm shrink-0">🛡️</span>
-            <div className="flex flex-col">
-              <span className="text-amber-300 font-extrabold text-[12px]">
-                {language === 'ml'
-                  ? 'Upstox SEBI Static IP വെരിഫിക്കേഷൻ'
-                  : 'Upstox SEBI Static IP Whitelist Required'}
-              </span>
-              <span className="text-slate-300 text-[11px]">
-                {language === 'ml'
-                  ? `Upstox Developer Console-ൽ 8.234.113.241, 34.34.254.178, 34.34.244.48 എന്നീ 3 IP-കളും Whitelist ചെയ്യുക.`
-                  : `Please ensure IPs (8.234.113.241, 34.34.254.178, 34.34.244.48) are saved in Upstox Developer Console.`}
-              </span>
-
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => {
-                const allThree = '8.234.113.241, 34.34.254.178, 34.34.244.48';
-                navigator.clipboard?.writeText(allThree);
-                setIpCopiedNotice(true);
-                setTimeout(() => setIpCopiedNotice(false), 3000);
-              }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3 py-1 rounded text-[11px] transition shadow flex items-center gap-1 active:scale-95"
-            >
-              📋 {ipCopiedNotice 
-                    ? (language === 'ml' ? '✓ 3 IP-കളും കോപ്പി ചെയ്തു!' : '✓ All 3 IPs Copied!') 
-                    : (language === 'ml' ? '3 IP-കളും കോപ്പി ചെയ്യുക' : 'Copy All 3 IPs')}
-            </button>
-            <button
-              onClick={() => setIsApiModalOpen(true)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1 rounded text-[11px] border border-slate-700 transition flex items-center gap-1 active:scale-95"
-            >
-              ⚙️ {language === 'ml' ? 'സെറ്റിംഗ്സ്' : 'Settings'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setDismissedIpWarning(true)}
-              className="px-2 py-1 rounded bg-black/40 hover:bg-black/60 text-slate-300 hover:text-white text-[11px] font-bold border border-white/20 transition active:scale-95"
-              title="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      <AppIpWhitelistNotice
+        botLogs={botLogs}
+        dismissedIpWarning={dismissedIpWarning}
+        ipCopiedNotice={ipCopiedNotice}
+        language={language}
+        setDismissedIpWarning={setDismissedIpWarning}
+        setIpCopiedNotice={setIpCopiedNotice}
+        setIsApiModalOpen={setIsApiModalOpen}
+      />
 
       {/* 3. MAIN WORKSPACE */}
       <div className="flex flex-1 w-full max-w-full min-w-0 min-h-0 overflow-hidden">
-        {/* Left Watchlist Sidebar (Desktop) */}
         <div className="hidden lg:flex w-72 border-r border-slate-800/80 bg-slate-950/40 p-3 flex-col shrink-0 min-h-0">
           <Watchlist
             quotes={quotes}
@@ -2112,627 +2219,104 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Center/Right Dynamic Tab Content */}
         <div className="flex-1 flex flex-col w-full max-w-full min-w-0 min-h-0 overflow-hidden p-1 sm:p-3">
-          {/* Desktop Navigation Bar */}
-          <div className="hidden lg:flex items-center justify-between border-b border-slate-800 pb-2 mb-2 shrink-0 overflow-x-auto no-scrollbar gap-2">
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setActiveTab('WATCHLIST')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'WATCHLIST'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>{t.watchlist}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('CHART')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'CHART'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <BarChart2 className="w-3.5 h-3.5" />
-                <span>{t.chart}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('BOT')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'BOT'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>{t.algoBot}</span>
-                {botConfig.enabled && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('OPTIONS')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'OPTIONS'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>{t.optionChain}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('ORDERS')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm relative ${
-                  activeTab === 'ORDERS'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>{t.ordersPositions}</span>
-                {positions.length > 0 && (
-                  <span className="px-1.5 py-0.2 bg-emerald-500 text-slate-950 font-black text-[9px] rounded-full">
-                    {positions.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('HOLDINGS')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm relative ${
-                  activeTab === 'HOLDINGS'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <PieChart className="w-3.5 h-3.5" />
-                <span>{language === 'ml' ? 'ഹോൾഡിങ്സ്' : 'Holdings'}</span>
-                {holdings.length > 0 && (
-                  <span className="px-1.5 py-0.2 bg-indigo-500/30 text-indigo-300 font-bold text-[9px] rounded-full border border-indigo-500/40">
-                    {holdings.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => setActiveTab('HEATMAP')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'HEATMAP'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <PieChart className="w-3.5 h-3.5" />
-                <span>{language === 'ml' ? 'ഹീറ്റ്മാപ്പ്' : 'Heatmap'}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('AI')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'AI'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>{t.aiAdvisor}</span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('INVEST')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition shadow-sm ${
-                  activeTab === 'INVEST'
-                    ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                    : 'bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                <PieChart className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{language === 'ml' ? 'നിക്ഷേപം (Invest)' : 'Invest (MF & IPO)'}</span>
-              </button>
-            </div>
-
-            {/* Quick Action Button */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setOrderModalData({
-                    symbol: selectedSymbol,
-                    price: currentQuote.ltp,
-                    type: 'BUY',
-                  });
-                  setIsOrderModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition shadow-sm shadow-emerald-500/20 flex items-center gap-1"
-              >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>{t.quickBuy}</span>
-              </button>
-              <button
-                onClick={() => {
-                  setOrderModalData({
-                    symbol: selectedSymbol,
-                    price: currentQuote.ltp,
-                    type: 'SELL',
-                  });
-                  setIsOrderModalOpen(true);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs transition shadow-sm shadow-rose-500/20 flex items-center gap-1"
-              >
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span>{t.quickSell}</span>
-              </button>
-            </div>
-          </div>
+          <AppDesktopNav
+            t={t}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            botConfig={botConfig}
+            currentQuote={currentQuote}
+            holdings={holdings}
+            positions={positions}
+            selectedSymbol={selectedSymbol}
+            language={language}
+            setIsOrderModalOpen={setIsOrderModalOpen}
+            setOrderModalData={setOrderModalData}
+          />
 
           {/* View Container */}
-          <div className="flex-1 w-full max-w-full min-w-0 min-h-0 overflow-hidden relative">
-            {activeTab === 'WATCHLIST' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden p-1 sm:p-2 bg-slate-950/40 rounded-xl border border-slate-800/80">
-                <Watchlist
-                  quotes={quotes}
-                  selectedSymbol={selectedSymbol}
-                  onSelectSymbol={(sym, key) => {
-                    setSelectedSymbol(sym);
-                    if (key) setSelectedInstrumentKey(key);
-                    setActiveTab('CHART');
-                  }}
-                  language={language}
-                  onOpenOrderModal={(type, sym, prc) => {
-                    setOrderModalData({ symbol: sym, price: prc, type });
-                    setIsOrderModalOpen(true);
-                  }}
-                  priceAlerts={priceAlerts}
-                  onAddAlert={handleAddAlert}
-                  onRemoveAlert={handleRemoveAlert}
-                />
-              </div>
-            )}
-
-            {activeTab === 'CHART' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden flex flex-col">
-                {chartTradeContext && (
-                  <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 border-b border-indigo-500/40 px-3 py-2 flex items-center justify-between text-xs shrink-0 flex-wrap gap-2 shadow-md">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[10px] font-black px-2 py-0.5 rounded border ${
-                        chartTradeContext.isOption !== false 
-                          ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40' 
-                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                      }`}>
-                        {chartTradeContext.isOption !== false ? '🎯 OPTION PREMIUM CHART' : '📈 INSTRUMENT CHART'}
-                      </span>
-                      <strong className="text-white font-mono text-sm">{chartTradeContext.symbol || selectedSymbol}</strong>
-                      {chartTradeContext.buyPrice && (
-                        <span className="text-slate-300 font-mono text-xs">
-                          {language === 'ml' ? 'വാങ്ങിയത്' : 'Entry'}: <strong className="text-slate-100">₹{chartTradeContext.buyPrice.toFixed(2)}</strong>
-                        </span>
-                      )}
-                      {chartTradeContext.target && (
-                        <span className="text-emerald-400 font-mono text-xs">
-                          {language === 'ml' ? 'ടാർഗെറ്റ്' : 'Target'}: <strong>₹{chartTradeContext.target.toFixed(2)}</strong>
-                        </span>
-                      )}
-                      {chartTradeContext.stopLoss && (
-                        <span className="text-rose-400 font-mono text-xs">
-                          {language === 'ml' ? 'സ്റ്റോപ്പ് ലോസ്' : 'SL'}: <strong>₹{chartTradeContext.stopLoss.toFixed(2)}</strong>
-                        </span>
-                      )}
-                      {chartTradeContext.currentLTP && (
-                        <span className="text-cyan-300 font-mono text-xs">
-                          LTP: <strong>₹{chartTradeContext.currentLTP.toFixed(2)}</strong>
-                        </span>
-                      )}
-                      {chartTradeContext.pnl !== undefined && (
-                        <span className={`font-mono text-xs font-bold ${chartTradeContext.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          P&L: {chartTradeContext.pnl >= 0 ? '+' : ''}₹{Number(chartTradeContext.pnl).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setChartTradeContext(null);
-                          setActiveTab('ORDERS');
-                        }}
-                        className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold transition flex items-center gap-1.5 active:scale-95 shadow-sm"
-                      >
-                        <span>⬅️ {language === 'ml' ? 'തിരികെ ഓർഡറുകളിലേക്ക്' : 'Back to Orders'}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div className="flex-1 w-full max-w-full min-w-0 overflow-hidden">
-                  <CandlestickChart
-                    symbol={selectedSymbol}
-                    quote={currentQuote}
-                    candles={candles}
-                    interval={chartInterval}
-                    onChangeInterval={setChartInterval}
-                    language={language}
-                    onOpenOrderModal={(type, sym, prc) => {
-                    const isIndex = sym.includes('INDEX') || sym.includes('NIFTY') || sym.includes('SENSEX') || sym.includes('BANKEX');
-                    if (isIndex && activeSignal?.recommendedOptionStrike?.optionSymbol) {
-                      const opt = activeSignal.recommendedOptionStrike;
-                      const stdLot = getStandardIndexLotSize(opt.optionSymbol || selectedSymbol);
-                      setOrderModalData({
-                        symbol: opt.optionSymbol || selectedSymbol,
-                        price: opt.ltp || activeSignal.price || 100,
-                        type: 'BUY',
-                        instrumentKey: opt.instrumentKey || activeSignal.instrumentKey,
-                        quantity: opt.lotSize || stdLot,
-                        lotSize: opt.lotSize || stdLot,
-                      });
-                    } else if (isIndex && optionChainData?.strikes?.length) {
-                      const sorted = [...optionChainData.strikes].sort(
-                        (a, b) => Math.abs(a.strikePrice - prc) - Math.abs(b.strikePrice - prc)
-                      );
-                      const atm = sorted[0];
-                      const isCall = type === 'BUY';
-                      const optSymbol = `${selectedSymbol.replace(' 50', '')} ${atm.strikePrice} ${isCall ? 'CE' : 'PE'}`;
-                      const optLtp = isCall ? atm.callLTP : atm.putLTP;
-                      const optKey = isCall ? atm.callInstrumentKey : atm.putInstrumentKey;
-                      const lotSz = atm.lotSize || optionChainData.lotSize || getStandardIndexLotSize(selectedSymbol);
-                      setOrderModalData({
-                        symbol: optSymbol,
-                        price: optLtp || 100,
-                        type: 'BUY',
-                        instrumentKey: optKey,
-                        quantity: lotSz,
-                        lotSize: lotSz,
-                      });
-                    } else {
-                      setOrderModalData({ symbol: sym, price: prc, type });
-                    }
-                    setIsOrderModalOpen(true);
-                  }}
-                  onGenerateAiAnalysis={handleFetchGeminiAnalysis}
-                  aiLoading={aiLoading}
-                  signal={activeSignal}
-                />
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'BOT' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
-                <AlgoBotPanel
-                  botConfig={botConfig}
-                  onUpdateBotConfig={(cfg) => {
-                    if (cfg.mode) {
-                      try {
-                        localStorage.setItem('aizabiz_preferred_trading_mode', cfg.mode);
-                      } catch {
-      // Ignored
-    }
-                      setMode(cfg.mode);
-                    }
-                    setBotConfig(prev => {
-                      const updated = { ...prev, ...cfg };
-                      fetch('/api/bot/config', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(updated),
-                      }).catch(() => { /* ignore */ });
-                      return updated;
-                    });
-                  }}
-                  botLogs={botLogs}
-                  signals={signals}
-                  language={language}
-                  selectedSymbol={selectedSymbol}
-                  onSelectSymbol={(sym, key) => {
-                    setSelectedSymbol(sym);
-                    if (key) setSelectedInstrumentKey(key);
-                    else {
-                      const matched = quotes.find(q => q.symbol === sym);
-                      if (matched?.instrumentKey) setSelectedInstrumentKey(matched.instrumentKey);
-                    }
-                  }}
-                  onExecuteSignal={handleExecuteSignal}
-                  optionChainData={optionChainData}
-                  quotes={quotes}
-                  tradeHistory={modeTradeHistory}
-                  activeSignal={activeSignal}
-                  onSelectOptionTrade={(type, optSym, prc, instrKey, liveLotSize) => {
-                    setOrderModalData({
-                      symbol: optSym,
-                      price: prc,
-                      type,
-                      instrumentKey: instrKey,
-                      quantity: liveLotSize && liveLotSize > 0 ? liveLotSize : undefined,
-                      lotSize: liveLotSize,
-                    });
-                    setIsOrderModalOpen(true);
-                  }}
-                />
-              </div>
-            )}
-
-            {activeTab === 'OPTIONS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden">
-                <OptionChainView
-                  data={optionChainData}
-                  quotes={quotes}
-                  loading={optionChainLoading}
-                  onRefresh={fetchOptionChain}
-                  language={language}
-                  selectedSymbol={selectedSymbol}
-                  onSelectSymbol={(sym, key) => {
-                    setSelectedSymbol(sym);
-                    if (key) setSelectedInstrumentKey(key);
-                    fetchOptionChain(undefined, sym);
-                  }}
-                  onSelectOptionTrade={(type, optSym, prc, instrKey, liveLotSize) => {
-                    setOrderModalData({
-                      symbol: optSym,
-                      price: prc,
-                      type,
-                      instrumentKey: instrKey,
-                      quantity: liveLotSize && liveLotSize > 0 ? liveLotSize : undefined,
-                      lotSize: liveLotSize,
-                    });
-                    setIsOrderModalOpen(true);
-                  }}
-                  onViewChart={(sym, key) => handleViewChart(sym, key)}
-                />
-              </div>
-            )}
-
-            {activeTab === 'ORDERS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-28 lg:pb-4">
-                {/* Performance Overview: Total Realized + Open MTM PnL, Win/Loss Ratio, Avg Trade Duration */}
-                <PerformanceOverviewCard tradeHistory={modeTradeHistory} activePositions={positions} language={language} />
-
-                <OrderBookPositions
-                  positions={positions}
-                  orders={modeOrders}
-                  tradeHistory={modeTradeHistory}
-                  holdings={holdings}
-                  language={language}
-                  onSquareOffPosition={handleSquareOffPosition}
-                  onSquareOffAll={handleSquareOffAll}
-                  totalPnL={totalNetMtm}
-                  onRefreshHoldings={fetchHoldings}
-                  isConnected={apiConfig.isConnected}
-                  onOpenApiModal={() => setIsApiModalOpen(true)}
-                  onViewChart={handleViewChart}
-                  onSyncHistoryBrokerage={handleSyncHistoryBrokerage}
-                  onOpenOrderModal={(type, sym, prc, opts) => {
-                    setOrderModalData({ symbol: sym, price: prc, type, ...opts });
-                    setIsOrderModalOpen(true);
-                  }}
-                />
-                
-                {/* Visual Performance Overview: Daily Cumulative PnL Line Chart */}
-                <CumulativePnLChart tradeHistory={modeTradeHistory} language={language} />
-
-                <div className="mt-4">
-                  <AdvancedAnalytics history={modeTradeHistory as any} />
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'HOLDINGS' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll space-y-4 pb-28 lg:pb-4">
-                <OrderBookPositions
-                  positions={positions}
-                  orders={modeOrders}
-                  tradeHistory={modeTradeHistory}
-                  holdings={holdings}
-                  language={language}
-                  onSquareOffPosition={handleSquareOffPosition}
-                  onSquareOffAll={handleSquareOffAll}
-                  totalPnL={totalNetMtm}
-                  initialTab="HOLDINGS"
-                  onRefreshHoldings={fetchHoldings}
-                  isConnected={apiConfig.isConnected}
-                  onOpenApiModal={() => setIsApiModalOpen(true)}
-                  onViewChart={handleViewChart}
-                  onSyncHistoryBrokerage={handleSyncHistoryBrokerage}
-                  onOpenOrderModal={(type, sym, prc, opts) => {
-                    setOrderModalData({ symbol: sym, price: prc, type, ...opts });
-                    setIsOrderModalOpen(true);
-                  }}
-                />
-              </div>
-            )}
-
-            {activeTab === 'HEATMAP' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-hidden pb-28 lg:pb-4">
-                <MarketHeatmap quotes={quotes} />
-              </div>
-            )}
-
-            {activeTab === 'AI' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll grid grid-cols-1 lg:grid-cols-2 gap-4 pb-28 lg:pb-4">
-                <ErrorBoundary fallbackTitle="AI മാർക്കറ്റ് അഡ്വൈസർ ലോഡ് ചെയ്യുന്നതിൽ പിശക് (AI Advisor Error)">
-                  <GeminiAiAdvisor
-                    analysis={geminiAnalysis}
-                    loading={aiLoading}
-                    onRefreshAnalysis={handleFetchGeminiAnalysis}
-                    language={language}
-                    symbol={selectedSymbol}
-                  />
-                </ErrorBoundary>
-                <ErrorBoundary fallbackTitle="ലൈവ് AI സപ്പോർട്ട് ലോഡ് ചെയ്യുന്നതിൽ പിശക് (Live AI Support Error)">
-                  <LiveAiSupport apiConfig={apiConfig} quotesCount={quotes.length} />
-                </ErrorBoundary>
-              </div>
-            )}
-
-            {activeTab === 'INVEST' && (
-              <div className="h-full w-full max-w-full min-w-0 overflow-y-auto smooth-scroll pb-28 lg:pb-4">
-                <InvestmentPortal language={language} />
-              </div>
-            )}
-          </div>
+          <AppTabContent
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            quotes={quotes}
+            selectedSymbol={selectedSymbol}
+            setSelectedSymbol={setSelectedSymbol}
+            setSelectedInstrumentKey={setSelectedInstrumentKey}
+            language={language}
+            setOrderModalData={setOrderModalData}
+            setIsOrderModalOpen={setIsOrderModalOpen}
+            priceAlerts={priceAlerts}
+            handleAddAlert={handleAddAlert}
+            handleRemoveAlert={handleRemoveAlert}
+            currentQuote={currentQuote}
+            chartTradeContext={chartTradeContext}
+            setChartTradeContext={setChartTradeContext}
+            candles={candles}
+            chartInterval={chartInterval}
+            setChartInterval={setChartInterval}
+            activeSignal={activeSignal}
+            optionChainData={optionChainData}
+            getStandardIndexLotSize={getStandardIndexLotSize}
+            handleFetchGeminiAnalysis={handleFetchGeminiAnalysis}
+            aiLoading={aiLoading}
+            botConfig={botConfig}
+            setBotConfig={setBotConfig}
+            setMode={setMode}
+            botLogs={botLogs}
+            signals={signals}
+            handleExecuteSignal={handleExecuteSignal}
+            handleViewChart={handleViewChart}
+            handleSquareOffPosition={handleSquareOffPosition}
+            handleSquareOffAll={handleSquareOffAll}
+            positions={positions}
+            holdings={holdings}
+            totalNetMtm={totalNetMtm}
+            fetchHoldings={fetchHoldings}
+            apiConfig={apiConfig}
+            setIsApiModalOpen={setIsApiModalOpen}
+            handleSyncHistoryBrokerage={handleSyncHistoryBrokerage}
+            optionChainLoading={optionChainLoading}
+            fetchOptionChain={fetchOptionChain}
+            modeOrders={modeOrders}
+            modeTradeHistory={modeTradeHistory}
+            geminiAnalysis={geminiAnalysis}
+          />
         </div>
       </div>
 
-      {/* 4. MOBILE BOTTOM NAVIGATION BAR (Auto-aligns perfectly with safe-area on all iPhones & Androids) */}
-      <nav className="lg:hidden shrink-0 w-full max-w-full min-w-0 bg-[#090d16] border-t border-slate-800 flex items-center justify-around px-1 py-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] z-30 shadow-2xl">
-        <button
-          onClick={() => setActiveTab('WATCHLIST')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 ${
-            activeTab === 'WATCHLIST' ? 'text-indigo-400 font-extrabold bg-indigo-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'വാച്ച്ലിസ്റ്റ്' : 'Watchlist'}
-        >
-          <Layers className="w-4 h-4 mb-0.5" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'വാച്ച്' : 'Watch'}</span>
-        </button>
+      <AppMobileNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        botConfig={botConfig}
+        positions={positions}
+        language={language}
+      />
 
-        <button
-          onClick={() => setActiveTab('CHART')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 ${
-            activeTab === 'CHART' ? 'text-indigo-400 font-extrabold bg-indigo-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'ചാർട്ട്' : 'Chart'}
-        >
-          <BarChart2 className="w-4 h-4 mb-0.5" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'ചാർട്ട്' : 'Chart'}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('BOT')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 relative ${
-            activeTab === 'BOT' ? 'text-indigo-400 font-extrabold bg-indigo-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'അൽഗോ ട്രേഡിംഗ് ബോട്ട്' : 'Algo Bot'}
-        >
-          <Cpu className="w-4 h-4 mb-0.5" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'അൽഗോ' : 'Bot'}</span>
-          {botConfig.enabled && (
-            <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('OPTIONS')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 ${
-            activeTab === 'OPTIONS' ? 'text-cyan-400 font-extrabold bg-cyan-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ' : 'Option Chain'}
-        >
-          <Layers className="w-4 h-4 mb-0.5 text-cyan-400" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'ഓപ്ഷൻ' : 'Options'}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('ORDERS')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 relative ${
-            activeTab === 'ORDERS' ? 'text-indigo-400 font-extrabold bg-indigo-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'ഓർഡറുകളും പൊസിഷനുകളും' : 'Orders & Positions'}
-        >
-          <Briefcase className="w-4 h-4 mb-0.5" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'ഓർഡർ' : 'Orders'}</span>
-          {positions.length > 0 && (
-            <span className="absolute top-1 right-1.5 px-1 rounded-full bg-emerald-500 text-slate-950 font-black text-[8px]">
-              {positions.length}
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('AI')}
-          className={`min-h-[48px] min-w-[44px] flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition touch-manipulation select-none active:scale-95 ${
-            activeTab === 'AI' ? 'text-amber-400 font-extrabold bg-amber-500/10' : 'text-slate-400 hover:text-slate-200'
-          }`}
-          aria-label={language === 'ml' ? 'AI മാർക്കറ്റ് അനാലിസിസ്' : 'AI Market Analysis'}
-        >
-          <Sparkles className="w-4 h-4 mb-0.5 text-amber-400" />
-          <span className="text-[10px] leading-tight truncate">{language === 'ml' ? 'AI' : 'AI'}</span>
-        </button>
-      </nav>
-
-      {/* 5. MODALS */}
-      <OrderModal
-        isOpen={isOrderModalOpen}
-        onClose={() => setIsOrderModalOpen(false)}
-        symbol={orderModalData.symbol}
-        instrumentKey={orderModalData.instrumentKey}
-        defaultPrice={orderModalData.price}
-        initialType={orderModalData.type}
-        defaultQuantity={orderModalData.quantity}
-        defaultLotSize={(orderModalData as any).lotSize}
-        heldQuantity={orderModalData.heldQuantity}
-        defaultProductType={orderModalData.productType}
-        availableMargin={apiConfig.availableMargin}
-        maxCapitalPerTrade={botConfig.maxCapitalPerTrade}
+      <AppModals
+        isOrderModalOpen={isOrderModalOpen}
+        setIsOrderModalOpen={setIsOrderModalOpen}
+        orderModalData={orderModalData}
+        apiConfig={apiConfig}
+        botConfig={botConfig}
         mode={mode}
-        onPlaceOrder={handlePlaceOrder}
+        handlePlaceOrder={handlePlaceOrder}
         language={language}
-      />
-
-      <UpstoxApiModal
-        isOpen={isApiModalOpen}
-        onClose={() => setIsApiModalOpen(false)}
-        config={apiConfig}
-        onRefreshPortfolio={() => {
-          fetchHoldings();
-          fetchLivePositions();
-        }}
-        onSaveConfig={async (cfg) => {
-          setApiConfig(prev => ({ ...prev, ...cfg }));
-          if (cfg.isConnected) {
-            setTimeout(() => {
-              fetchHoldings();
-              fetchLivePositions();
-            }, 300);
-          }
-          try {
-            await fetch('/api/market/save-config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(cfg),
-            });
-          } catch {
-      // Ignored
-    }
-        }}
-        language={language}
-      />
-
-      <AlertsModal
-        isOpen={isAlertsModalOpen}
+        isApiModalOpen={isApiModalOpen}
+        setIsApiModalOpen={setIsApiModalOpen}
+        fetchHoldings={fetchHoldings}
+        fetchLivePositions={fetchLivePositions}
+        setApiConfig={setApiConfig}
+        isAlertsModalOpen={isAlertsModalOpen}
         priceAlerts={priceAlerts}
-        onClose={() => setIsAlertsModalOpen(false)}
-        onAddAlert={handleAddAlert}
-        onRemoveAlert={handleRemoveAlert}
-        language={language}
-      />
-
-      <AndroidInstallModal
-        isOpen={isAndroidModalOpen}
-        onClose={() => setIsAndroidModalOpen(false)}
-        language={language}
-      />
-
-      <OnboardingSetupModal
-        isOpen={isOnboardingOpen}
-        onClose={() => setIsOnboardingOpen(false)}
-        defaultBotConfig={botConfig}
-        defaultApiConfig={apiConfig}
-        language={language}
-        onSave={(cfg: any) => {
-          setApiConfig(prev => ({ ...prev, ...cfg }));
-          setIsOnboardingOpen(false);
-        }}
-      />
-
-      <MasterPinLockModal
-        isLocked={isTerminalLocked}
-        onUnlock={() => setIsTerminalLocked(false)}
-        language={language}
+        setIsAlertsModalOpen={setIsAlertsModalOpen}
+        handleAddAlert={handleAddAlert}
+        handleRemoveAlert={handleRemoveAlert}
+        isAndroidModalOpen={isAndroidModalOpen}
+        setIsAndroidModalOpen={setIsAndroidModalOpen}
+        isOnboardingOpen={isOnboardingOpen}
+        setIsOnboardingOpen={setIsOnboardingOpen}
+        isTerminalLocked={isTerminalLocked}
+        setIsTerminalLocked={setIsTerminalLocked}
       />
     </div>
   );
