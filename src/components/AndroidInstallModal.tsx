@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Smartphone, Download, ArrowRight, Sparkles, ShieldCheck, HelpCircle } from 'lucide-react';
 import { Language } from '../types';
-import { translations } from '../translations';
 
 interface AndroidInstallModalProps {
   isOpen: boolean;
@@ -14,9 +13,8 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
   onClose,
   language,
 }) => {
-  const t = translations[language];
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [, setIsInstalled] = useState(false);
   const [activeTab, setActiveTab] = useState<'PWA' | 'APK' | 'GITHUB' | 'IP_FAQ'>('PWA');
   const [manualNote, setManualNote] = useState<string | null>(null);
 

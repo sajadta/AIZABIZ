@@ -89,10 +89,6 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
-  const [serverStaticIp, setServerStaticIp] = useState<string>('8.234.113.241');
-  const [serverSecondaryIp, setServerSecondaryIp] = useState<string>('34.34.254.178');
-  const [actualDetectedIp, setActualDetectedIp] = useState<string>('8.234.113.241');
-  const [ipMismatch, setIpMismatch] = useState<boolean>(false);
   const [proxyUrlInput, setProxyUrlInput] = useState<string>('http://8.234.113.241:8888');
   const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(true);
   const [isTestingProxy, setIsTestingProxy] = useState<boolean>(false);
@@ -114,17 +110,12 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (data.success) {
         setIsFixedProxyActive(Boolean(data.isFixedProxy));
         if (remove) setProxyUrlInput('');
-        if (data.serverOutboundIp) {
-          setServerStaticIp(data.serverOutboundIp);
-          setActualDetectedIp(data.serverOutboundIp);
-        }
         setStatusMsg({
           type: 'success',
           text: data.message || `✅ Proxy Updated! Static IP: ${data.serverOutboundIp}`,
         });
       } else {
         setIsFixedProxyActive(false);
-        setActualDetectedIp('34.34.244.48');
         setStatusMsg({
           type: 'error',
           text: (data.error || 'Failed to connect to proxy') + (data.suggestedFix ? ` — ${data.suggestedFix}` : ''),
@@ -132,7 +123,6 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       }
     } catch (e: any) {
       setIsFixedProxyActive(false);
-      setActualDetectedIp('34.34.244.48');
       setStatusMsg({
         type: 'error',
         text: 'Proxy test network error: ' + (e?.message || 'Failed'),
@@ -152,7 +142,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (!localTok) {
         try {
           localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {}
+        } catch { /* ignored */ }
       }
       setAccessToken(localTok);
       if (localTok.length > 30) {
@@ -175,10 +165,8 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             setSavedMobile(String(data.mobile));
             try {
               localStorage.setItem('upstox_saved_mobile', String(data.mobile));
-            } catch {}
+            } catch { /* ignored */ }
           }
-          setServerStaticIp('8.234.113.241');
-          setServerSecondaryIp('34.34.254.178');
           setProxyUrlInput('http://8.234.113.241:8888');
 
           fetch('/api/market/proxy-status')
@@ -186,7 +174,6 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             .then((pData) => {
               if (pData.success) {
                 setIsFixedProxyActive(Boolean(pData.isProxyActive));
-                if (pData.activeIp) setActualDetectedIp(pData.activeIp);
                 if (pData.configuredProxy) setProxyUrlInput(pData.configuredProxy);
               }
             })
@@ -227,7 +214,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         let localTok = '';
         try {
           localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {}
+        } catch { /* ignored */ }
         const reqHeaders: Record<string, string> = {};
         if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
 
@@ -240,7 +227,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           try {
             localStorage.setItem('upstox_daily_token', data.accessToken);
             localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch (e) {}
+          } catch { /* ignored */ }
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
@@ -259,7 +246,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                 : '🎉 Upstox Token automatically received! Live Trading & Holdings are now ACTIVE!',
           });
         }
-      } catch (e) {}
+      } catch { /* ignored */ }
     }, 2000);
     return () => clearInterval(pollTimer);
   }, [isOpen, config.isConnected, onSaveConfig, onRefreshPortfolio, language]);
@@ -273,7 +260,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         try {
           localStorage.setItem('upstox_daily_token', token);
           localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-        } catch (e) {}
+        } catch { /* ignored */ }
         await onSaveConfig({
           accessToken: token,
           isConnected: true,
@@ -306,7 +293,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
       if (!localTok) {
         try {
           localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {}
+        } catch { /* ignored */ }
       }
       const reqHeaders: Record<string, string> = {};
       if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
@@ -319,7 +306,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setAccessToken(data.accessToken);
           try {
             localStorage.setItem('upstox_daily_token', data.accessToken);
-          } catch {}
+          } catch { /* ignored */ }
         }
         await onSaveConfig({
           isConnected: true,
@@ -342,7 +329,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         if (data.tokenExpired) {
           try {
             localStorage.removeItem('upstox_daily_token');
-          } catch {}
+          } catch { /* ignored */ }
           await onSaveConfig({ isConnected: false, accessToken: '' });
         }
         setStatusMsg({
@@ -397,7 +384,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           const todayStr = new Date().toLocaleDateString('en-IN');
           localStorage.setItem('upstox_daily_token', cleanToken);
           localStorage.setItem('upstox_token_date', todayStr);
-        } catch (e) {}
+        } catch { /* ignored */ }
 
         await onSaveConfig({
           accessToken: cleanToken,
@@ -482,7 +469,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           setOtpSessionBackup(otpData.sessionBackup);
           try {
             localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
-          } catch {}
+          } catch { /* ignored */ }
         }
         setStatusMsg({
           type: 'success',
@@ -523,7 +510,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
         setSavedMobile(digitsOnly);
         try {
           localStorage.setItem('upstox_saved_mobile', digitsOnly);
-        } catch {}
+        } catch { /* ignored */ }
 
         const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
           mobile: digitsOnly,
@@ -539,7 +526,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             setOtpSessionBackup(otpData.sessionBackup);
             try {
               localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
-            } catch {}
+            } catch { /* ignored */ }
           }
           setStatusMsg({
             type: 'success',
@@ -563,7 +550,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           try {
             const raw = localStorage.getItem('upstox_otp_session_backup');
             if (raw) backupToUse = JSON.parse(raw);
-          } catch {}
+          } catch { /* ignored */ }
         }
         const { ok, data } = await postWithAutoRetryAndRelay('/api/market/totp-login', {
           totp: digitsOnly,
@@ -582,7 +569,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             localStorage.removeItem('upstox_otp_session_backup');
             localStorage.setItem('upstox_daily_token', data.accessToken);
             localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch (e) {}
+          } catch { /* ignored */ }
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
@@ -620,7 +607,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
           try {
             localStorage.setItem('upstox_daily_token', data.accessToken);
             localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch (e) {}
+          } catch { /* ignored */ }
           await onSaveConfig({
             accessToken: data.accessToken,
             isConnected: true,
@@ -659,7 +646,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             setOtpSessionBackup(otpData.sessionBackup);
             try {
               localStorage.setItem('upstox_otp_session_backup', JSON.stringify(otpData.sessionBackup));
-            } catch {}
+            } catch { /* ignored */ }
           }
           setStatusMsg({
             type: 'success',
@@ -707,7 +694,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
             ? 'ഇന്നത്തെ ടോക്കൺ നീക്കം ചെയ്തു. പേപ്പർ ട്രേഡിംഗ് മോഡിലേക്ക് മാറി.'
             : 'Daily token cleared. Switched to Paper Trading Mode.',
       });
-    } catch (e) {}
+    } catch { /* ignored */ }
   };
 
   return (
@@ -1396,7 +1383,7 @@ export const UpstoxApiModal: React.FC<UpstoxApiModalProps> = ({
                           setSavedMobile(val);
                           try {
                             localStorage.setItem('upstox_saved_mobile', val);
-                          } catch {}
+                          } catch { /* ignored */ }
                         }}
                         placeholder="10-digit Upstox mobile number"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-emerald-300 font-mono focus:border-emerald-500 focus:outline-none"

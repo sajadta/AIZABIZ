@@ -85,7 +85,7 @@ export const App: React.FC = () => {
       if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
         return savedMode;
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
     return 'PAPER_TRADING';
@@ -163,7 +163,7 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
     return [];
@@ -176,7 +176,7 @@ export const App: React.FC = () => {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
     return [];
@@ -186,7 +186,7 @@ export const App: React.FC = () => {
     if (orders.length > 0) {
       try {
         localStorage.setItem('aizabiz_persisted_orders_v2', JSON.stringify(orders));
-      } catch (e) {
+      } catch {
       // Ignored
     }
     }
@@ -196,7 +196,7 @@ export const App: React.FC = () => {
     if (tradeHistory.length > 0) {
       try {
         localStorage.setItem('aizabiz_persisted_trade_history_v2', JSON.stringify(tradeHistory));
-      } catch (e) {
+      } catch {
       // Ignored
     }
     }
@@ -292,7 +292,7 @@ export const App: React.FC = () => {
               localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
               window.history.replaceState({}, document.title, window.location.pathname);
             }
-          } catch (e) {
+          } catch {
         // Silently ignored
       }
         }
@@ -300,7 +300,7 @@ export const App: React.FC = () => {
         let savedDailyToken = '';
         try {
           savedDailyToken = localStorage.getItem('upstox_daily_token') || '';
-        } catch (e) {
+        } catch {
         // Silently ignored
       }
 
@@ -325,7 +325,7 @@ export const App: React.FC = () => {
             if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
               preferredMode = saved as ExecutionMode;
             }
-          } catch (e) {
+          } catch {
       // Ignored
     }
           const finalMode: ExecutionMode =
@@ -356,21 +356,21 @@ export const App: React.FC = () => {
                   isJwtExpired = true;
                 }
               }
-            } catch (e) {
+            } catch {
       // Ignored
     }
           }
           if (cfg.tokenExpired && isJwtExpired) {
             try {
               localStorage.removeItem('upstox_daily_token');
-            } catch (e) {
+            } catch {
         // Silently ignored
       }
             cfg.accessToken = '';
           } else if (cfg.isConnected && cfg.accessToken) {
             try {
               localStorage.setItem('upstox_daily_token', cfg.accessToken);
-            } catch (e) {
+            } catch {
         // Silently ignored
       }
           } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
@@ -396,7 +396,7 @@ export const App: React.FC = () => {
             if (cfg.isConnected && cfg.accessToken) {
               try {
                 localStorage.setItem('upstox_daily_token', cfg.accessToken);
-              } catch (e) {
+              } catch {
       // Ignored
     }
             }
@@ -417,7 +417,7 @@ export const App: React.FC = () => {
             }));
           }
         }
-      } catch (e) {
+      } catch {
       // Ignored
     }
     }, 4000);
@@ -433,7 +433,7 @@ export const App: React.FC = () => {
         if (!token) {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
-          } catch (e) {
+          } catch {
         // Silently ignored
       }
         }
@@ -479,11 +479,11 @@ export const App: React.FC = () => {
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
           }
-        } catch (e) {
+        } catch {
       // Ignored
     }
       };
-    } catch (e) {
+    } catch {
       // Ignored
     }
 
@@ -500,7 +500,7 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {
+      } catch {
         // Silently ignored
       }
     }
@@ -675,24 +675,6 @@ export const App: React.FC = () => {
     });
   }, [currentQuote?.ltp]);
 
-  // Generate realistic dynamic upcoming Thursday option expiries
-  const getUpcomingExpiries = useCallback(() => {
-    const dates: string[] = [];
-    const now = new Date();
-    const d = new Date(now);
-    while (dates.length < 3) {
-      const day = d.getDay();
-      const diff = (4 - day + 7) % 7;
-      d.setDate(d.getDate() + (diff === 0 && d <= now ? 7 : diff));
-      const dayStr = String(d.getDate()).padStart(2, '0');
-      const monthStr = d.toLocaleString('en-US', { month: 'short' }).toUpperCase();
-      const yearStr = d.getFullYear();
-      dates.push(`${dayStr}-${monthStr}-${yearStr}`);
-      d.setDate(d.getDate() + 7);
-    }
-    return dates;
-  }, []);
-
   // Fetch or Compute Gemini AI Market Analysis
   const handleFetchGeminiAnalysis = useCallback(async () => {
     if (!currentQuote) return;
@@ -831,18 +813,13 @@ export const App: React.FC = () => {
     setAiLoading(false);
   }, [currentQuote, candles, chartInterval, botConfig.selectedStrategy, soundEnabled]);
 
-  // Recalculate AI Trading Signals
-  const handleGenerateSignal = useCallback(() => {
-    handleFetchGeminiAnalysis();
-  }, [handleFetchGeminiAnalysis]);
-
   const fetchOptionChain = useCallback(async (expiryOverride?: string, symbolOverride?: string) => {
     setOptionChainLoading(true);
     let token = apiConfig.accessToken;
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {
+      } catch {
         // Silently ignored
       }
     }
@@ -879,7 +856,7 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {
+      } catch {
         // Silently ignored
       }
     }
@@ -938,7 +915,7 @@ export const App: React.FC = () => {
           });
         }
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
   }, []);
@@ -949,7 +926,7 @@ export const App: React.FC = () => {
     if (!token) {
       try {
         token = localStorage.getItem('upstox_daily_token') || '';
-      } catch (e) {
+      } catch {
         // Silently ignored
       }
     }
@@ -1084,7 +1061,7 @@ export const App: React.FC = () => {
               });
             }
           }
-        } catch (e) {
+        } catch {
       // Ignored
     }
       }
@@ -1172,7 +1149,7 @@ export const App: React.FC = () => {
         fetchHoldings();
       }
       fetchLivePositions();
-    } catch (e: any) {
+    } catch {
       if (mode === 'UPSTOX_LIVE') return;
     }
 
@@ -1268,7 +1245,7 @@ export const App: React.FC = () => {
         ]);
         return;
       }
-    } catch (e) {
+    } catch {
       // Ignored
     }
 
@@ -1358,7 +1335,7 @@ export const App: React.FC = () => {
         try {
           localStorage.removeItem('aizabiz_persisted_orders_v2');
           localStorage.removeItem('aizabiz_persisted_trade_history_v2');
-        } catch (e) {
+        } catch {
       // Ignored
     }
         alert(language === 'ml' ? 'അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു!' : 'Account reset successfully!');
@@ -1427,7 +1404,7 @@ export const App: React.FC = () => {
             liveLot = Number(data.lotSize);
           }
         }
-      } catch (e) {
+      } catch {
       // Ignored
     }
     }
@@ -1651,7 +1628,7 @@ export const App: React.FC = () => {
         if (!token) {
           try {
             token = localStorage.getItem('upstox_daily_token') || '';
-          } catch (e) {
+          } catch {
       // Ignored
     }
         }
@@ -1688,7 +1665,7 @@ export const App: React.FC = () => {
           );
           setActiveSignal(matchingSig || sigsRes.value[0]);
         }
-      } catch (e) {
+      } catch {
       // Ignored
     }
       fetchLivePositions();
@@ -1866,7 +1843,7 @@ export const App: React.FC = () => {
         setMode={(newMode) => {
           try {
             localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
-          } catch (e) {
+          } catch {
       // Ignored
     }
           setMode(newMode);
@@ -2432,7 +2409,7 @@ export const App: React.FC = () => {
                     if (cfg.mode) {
                       try {
                         localStorage.setItem('aizabiz_preferred_trading_mode', cfg.mode);
-                      } catch (e) {
+                      } catch {
       // Ignored
     }
                       setMode(cfg.mode);
@@ -2718,7 +2695,7 @@ export const App: React.FC = () => {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(cfg),
             });
-          } catch (e) {
+          } catch {
       // Ignored
     }
         }}

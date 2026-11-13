@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Layers, RefreshCw, LineChart, Target, ArrowRight, ArrowLeft, MoveHorizontal } from 'lucide-react';
 import { OptionChainData, Language, StockQuote } from '../types';
-import { translations } from '../translations';
 
 interface OptionChainViewProps {
   quotes?: StockQuote[];
@@ -35,7 +34,6 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   selectedSymbol = 'NIFTY 50',
   onSelectSymbol,
 }) => {
-  const t = translations[language];
   const [selectedExpiry, setSelectedExpiry] = useState<string>('');
   const [strikeRange, setStrikeRange] = useState<'ALL' | '10' | '5'>('10');
   const [scrollPosition, setScrollPosition] = useState<'LEFT' | 'CENTER' | 'RIGHT'>('CENTER');

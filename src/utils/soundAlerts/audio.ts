@@ -141,7 +141,7 @@ export function playTradingAlertSound(category: AlertCategory, enabled = true): 
         break;
       }
     }
-  } catch (e) {
+  } catch {
     // Ignore audio context autoplay errors until user interacts
   }
 }

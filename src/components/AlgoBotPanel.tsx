@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, Play, Square, ShieldAlert, Target, TrendingUp, CheckCircle2, Sliders, Zap, Activity, Terminal, Sparkles, ArrowRight, Send, BellRing, Layers, Flame, Check, AlertTriangle, Info, BarChart3, LineChart, ShieldCheck, Lock, Gauge, Brain } from 'lucide-react';
-import { BotConfig, BotLog, TradingSignal, StrategyKey, Language, OptionChainData, StockQuote, Position, MultiIndexAlphaItem } from '../types';
+import { BotConfig, BotLog, TradingSignal, Language, OptionChainData, StockQuote, Position, MultiIndexAlphaItem } from '../types';
 import { translations } from '../translations';
 
 interface AlgoBotPanelProps {
@@ -36,7 +36,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 }) => {
     const t = translations[language];
   const [scanMessageIndex, setScanMessageIndex] = useState(0);
-  const [showManualOverrides, setShowManualOverrides] = useState(false);
   const [hudTickerIndex, setHudTickerIndex] = useState(0);
   const [multiIndexData, setMultiIndexData] = useState<MultiIndexAlphaItem[]>([]);
   const [showIndexIntelligence, setShowIndexIntelligence] = useState(false);
@@ -52,7 +51,7 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
             setMultiIndexData(data);
           }
         }
-      } catch {}
+      } catch { /* ignored */ }
     };
     fetchMultiIndex();
     const interval = setInterval(fetchMultiIndex, 2500);
@@ -169,23 +168,18 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   const [testAlertSending, setTestAlertSending] = useState(false);
   const [testAlertResult, setTestAlertResult] = useState<{ success: boolean; message: string } | null>(null);
   const [supervisorAudit, setSupervisorAudit] = useState<any>(null);
-  const [supervisorLoading, setSupervisorLoading] = useState(false);
   const [deepAiScanning, setDeepAiScanning] = useState(false);
-  const [applyingAutoHeal, setApplyingAutoHeal] = useState(false);
   const [supervisorQuestion, setSupervisorQuestion] = useState('');
 
   const fetchSupervisorAudit = async () => {
     try {
-      setSupervisorLoading(true);
       const res = await fetch('/api/bot/supervisor-audit');
       if (res.ok) {
         const data = await res.json();
         setSupervisorAudit(data);
       }
-    } catch (e) {
+    } catch {
       // ignore transient error
-    } finally {
-      setSupervisorLoading(false);
     }
   };
 
@@ -217,32 +211,10 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
       });
       const data = await res.json();
       if (data.audit) setSupervisorAudit(data.audit);
-    } catch (e) {
+    } catch {
       // ignore
     } finally {
       setDeepAiScanning(false);
-    }
-  };
-
-  const handleApplySupervisorHeal = async (customPatch?: Record<string, any>) => {
-    setApplyingAutoHeal(true);
-    try {
-      const res = await fetch('/api/bot/supervisor-apply-fix', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(customPatch || {}),
-      });
-      const data = await res.json();
-      if (data.botConfig) {
-        onUpdateBotConfig(data.botConfig);
-      }
-      if (data.audit) {
-        setSupervisorAudit(data.audit);
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      setApplyingAutoHeal(false);
     }
   };
 
@@ -280,36 +252,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
     }
   };
 
-  const strategies: { key: StrategyKey; name: string; nameMl: string; desc: string; winRate: string }[] = [
-    {
-      key: 'PROFIT_MAX_100_PERCENT_MATRIX',
-      name: '100% Multi-Confluence Matrix',
-      nameMl: '100% മൾട്ടി-കൺഫ്ലുവൻസ് മാട്രിക്സ്',
-      desc: 'SuperTrend + EMA 9/21 + RSI Momentum + MACD + VWAP 5-layer algorithmic validation.',
-      winRate: '94.8% Backtested Win Rate',
-    },
-    {
-      key: 'SUPERTREND_EMA_CONFLUENCE',
-      name: 'SuperTrend & EMA (9/21/50)',
-      nameMl: 'സൂപ്പർട്രെൻഡ് & EMA ക്രോസ്സ്',
-      desc: 'Trend following breakout with dynamic ATR trailing stops.',
-      winRate: '88.5% Win Rate',
-    },
-    {
-      key: 'RSI_MOMENTUM_BREAKOUT',
-      name: 'RSI Momentum & Volume Surge',
-      nameMl: 'RSI മൊമെന്റം ബ്രേക്ക്ഔട്ട്',
-      desc: 'Overbought expansion & RSI bullish range shift with high institutional volume.',
-      winRate: '86.2% Win Rate',
-    },
-    {
-      key: 'VWAP_INSTITUTIONAL_REVERSION',
-      name: 'VWAP Institutional Bounce',
-      nameMl: 'VWAP ഇൻസ്റ്റിറ്റ്യൂഷണൽ ബൗൺസ്',
-      desc: 'Mean-reversion & institutional pullbacks at intraday volume benchmark.',
-      winRate: '84.0% Win Rate',
-    },
-  ];
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -734,14 +676,6 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
                   const isCall = signalType === 'BUY';
                   const isPut = signalType === 'SELL';
                   
-                  const isPriorityIndex = 
-                    (botConfig.selectedIndexPriority === 'NIFTY_50_ONLY' && item.name === 'NIFTY 50') ||
-                    (botConfig.selectedIndexPriority === 'BANKNIFTY_ONLY' && item.name === 'BANKNIFTY') ||
-                    (botConfig.selectedIndexPriority === 'SENSEX_ONLY' && item.name === 'SENSEX') ||
-                    (botConfig.selectedIndexPriority === 'FINNIFTY_ONLY' && item.name === 'FINNIFTY') ||
-                    (botConfig.selectedIndexPriority === 'MIDCPNIFTY_ONLY' && item.name === 'MIDCPNIFTY') ||
-                    (botConfig.selectedIndexPriority === 'BANKEX_ONLY' && item.name === 'BANKEX');
-
                   const isSelected = item.name === selectedSymbol;
                    const isTopPickNow = !!matrixItem?.isTopPick && botConfig.selectedIndexPriority === 'FULL_AUTO_MULTI_INDEX';
                    

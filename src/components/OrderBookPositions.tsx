@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Briefcase, TrendingUp, TrendingDown, AlertOctagon, Clock, CheckCircle2, XCircle, PieChart, Plus, Download, RefreshCw, BarChart2, Calendar, Sparkles, Filter, CheckCheck, Zap, Check, Lock, Edit2, X, Target } from 'lucide-react';
+import { Briefcase, TrendingUp, TrendingDown, AlertOctagon, Clock, CheckCircle2, PieChart, Plus, Download, RefreshCw, BarChart2, Calendar, Sparkles, Filter, CheckCheck, Zap, Check, Lock, Edit2, X, Target } from 'lucide-react';
 import { Order, Position, Holding, Language } from '../types';
 import { translations } from '../translations';
 import { CumulativePnLChart } from './CumulativePnLChart';
@@ -316,7 +316,6 @@ const PositionItem: React.FC<{
   const gross = pos.pnl || 0;
   const net = estCharges !== null ? gross - estCharges : gross;
   const target50Px = Number((buyPx * 1.5).toFixed(2));
-  const target50Profit = Number(((target50Px - buyPx) * qty).toFixed(2));
   const is50PctHit = buyPx > 0 && curPx >= target50Px;
   const progressTo50 = buyPx > 0 ? Math.max(0, Math.min(100, ((curPx - buyPx) / (buyPx * 0.5)) * 100)) : 0;
   const isHighProfit = net >= 1000 || is50PctHit;
@@ -502,87 +501,6 @@ const PositionItem: React.FC<{
             ))}
           </div>
         )}
-      </div>
-  );
-};
-
-const TradeHistoryItem: React.FC<{
-  pos: Position;
-  index: number;
-  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
-  language?: Language;
-}> = ({ pos, index, onViewChart, language = 'ml' }) => {
-  const isOpt = pos.isOption !== false;
-  const buyPx = Math.max(0, Number(pos.buyPrice || 0));
-  const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
-  const qty = Math.max(1, Number(pos.quantity || 1));
-
-  const estCharges = React.useMemo(() => {
-    if (Number((pos as any).brokerageCharges) > 0) {
-      return Number((pos as any).brokerageCharges);
-    }
-    return calculateTradeCharges(buyPx, qty, isOpt, sellPx).roundTripCharges;
-  }, [(pos as any).brokerageCharges, buyPx, qty, isOpt, sellPx]);
-
-  const gross = pos.realizedPnL || 0;
-  const net = gross - estCharges;
-
-  return (
-      <div className="p-0 rounded-2xl bg-slate-900/40 border border-slate-800/80 hover:border-slate-700/60 transition-all duration-300 relative overflow-hidden group shadow-lg">
-        <div className={`absolute inset-0 bg-gradient-to-tr ${gross >= 0 ? 'from-emerald-500/5' : 'from-rose-500/5'} to-transparent pointer-events-none opacity-30`} />
-        
-        <div className="p-4 sm:p-5 flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-3">
-              <div className={`p-1.5 rounded-lg border ${
-                gross >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-              }`}>
-                {gross >= 0 ? <CheckCheck className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-              </div>
-              <div>
-                <span className="text-sm font-black text-white block tracking-tight">{pos.symbol}</span>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{pos.openedAt}</span>
-              </div>
-            </div>
-            {onViewChart && (
-              <button
-                type="button"
-                onClick={() => onViewChart(pos.symbol, pos.instrumentKey)}
-                className="p-2 rounded-xl bg-slate-800/40 border border-slate-700/40 text-slate-400 hover:text-white transition"
-              >
-                <BarChart2 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 py-3 px-4 rounded-xl bg-black/30 border border-slate-800/30">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Buy Px</span>
-              <span className="text-slate-300 font-bold font-mono text-xs">₹{buyPx.toFixed(2)}</span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Exit Px</span>
-              <span className="text-slate-300 font-bold font-mono text-xs">₹{sellPx.toFixed(2)}</span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Gross</span>
-              <span className={`font-bold font-mono text-xs ${gross >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                {gross >= 0 ? '+' : ''}₹{gross.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Upstox Fees</span>
-              <span className="text-slate-400 font-bold font-mono text-xs">-₹{estCharges.toFixed(2)}</span>
-            </div>
-            <div className="flex flex-col gap-0.5 sm:text-right">
-              <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest">Net Realized</span>
-              <span className={`font-black font-mono text-sm ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'} drop-shadow-[0_0_8px_rgba(52,211,153,0.2)] flex items-center gap-1 justify-end`}>
-                {(pos as any).brokerageCharges > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="Upstox API Verified" />}
-                {net >= 0 ? '+' : ''}₹{net.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
   );
 };
@@ -1721,8 +1639,6 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
                   const buyPx = Number(pos.buyPrice || 0);
                   const sellPx = Number(pos.sellPrice || pos.currentLTP || buyPx);
                   const qty = Math.max(1, Number(pos.quantity || 1));
-                  const investedValue = buyPx * qty;
-                  const returnedValue = sellPx * qty;
 
                   return (
                     <div 

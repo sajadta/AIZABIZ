@@ -49,10 +49,6 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
   });
 
   const isTradingDay = day >= 1 && day <= 5;
-  const isMarketOpen =
-    isTradingDay && totalMinutes >= marketOpenMin && totalMinutes < marketCloseMin;
-  const isAlgoEntryWindowOpen =
-    isTradingDay && totalMinutes >= algoStartMin && totalMinutes <= algoCutoffMin;
 
   const formatDuration = (secDiff: number) => {
     const s = Math.max(0, Math.floor(secDiff));

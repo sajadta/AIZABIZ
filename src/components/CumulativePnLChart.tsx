@@ -108,7 +108,7 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
       });
     }
 
-    dailyMap.forEach((val, key) => {
+    dailyMap.forEach((val) => {
       runningCumulative += val.pnl;
       const displayLabel = val.rawDate.toLocaleDateString(language === 'ml' ? 'ml-IN' : 'en-US', {
         month: 'short',

@@ -25,7 +25,7 @@ class SoundEngine {
       gain.connect(this.ctx.destination);
       osc.start();
       osc.stop(this.ctx.currentTime + 0.25);
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
@@ -45,7 +45,7 @@ class SoundEngine {
       gain.connect(this.ctx.destination);
       osc.start();
       osc.stop(this.ctx.currentTime + 0.25);
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
@@ -67,7 +67,7 @@ class SoundEngine {
         osc.start(now + i * 0.08);
         osc.stop(now + i * 0.08 + 0.2);
       });
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
@@ -86,7 +86,7 @@ class SoundEngine {
       gain.connect(this.ctx.destination);
       osc.start();
       osc.stop(this.ctx.currentTime + 0.3);
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
@@ -122,7 +122,7 @@ class SoundEngine {
         utterance.lang = 'en-IN';
       }
       window.speechSynthesis.speak(utterance);
-    } catch (e) {
+    } catch {
       // Speech synthesis not available
     }
   }

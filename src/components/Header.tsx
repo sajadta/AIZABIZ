@@ -41,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   totalPnL,
   dailyProfit,
   cumulativeProfit,
-  isWsConnected,
+  isWsConnected: _isWsConnected,
   onOpenAlerts,
   virtualCapital = 2000,
   onResetPaperAccount,

@@ -50,7 +50,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   defaultStopLoss,
   defaultTarget,
   availableMargin = 0,
-  maxCapitalPerTrade = 2000,
+  maxCapitalPerTrade: _maxCapitalPerTrade = 2000,
   mode,
   onPlaceOrder,
   language,
@@ -104,7 +104,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           if (savedTok && savedTok.length > 30) {
             headers['Authorization'] = `Bearer ${savedTok}`;
           }
-        } catch {}
+        } catch { /* ignored */ }
 
         const qs = new URLSearchParams({ symbol });
         if (instrumentKey) qs.set('instrumentKey', instrumentKey);
@@ -116,7 +116,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           setLotSource(data.source || 'UPSTOX_LIVE');
           setQuantity(defaultQuantity && defaultQuantity > 0 ? defaultQuantity : fetchedLot);
         }
-      } catch (e) {
+      } catch {
         const fallbackLot = defaultLotSize || 1;
         setLotSize(fallbackLot);
         setQuantity(defaultQuantity || fallbackLot);
@@ -131,7 +131,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const [triggerPrice, setTriggerPrice] = useState<number>(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
   const [stopLoss, setStopLoss] = useState<number>(Number(((defaultPrice || 0) * 0.985).toFixed(2)));
   const [target, setTarget] = useState<number>(Number(((defaultPrice || 0) * 1.025).toFixed(2)));
-  const [isAmo, setIsAmo] = useState<boolean>(false);
+  const [isAmo] = useState<boolean>(false);
   const [liveUpstoxCharges, setLiveUpstoxCharges] = useState<{
     total: number;
     brokerage: number;
@@ -176,7 +176,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
         try {
           const savedTok = localStorage.getItem('upstox_daily_token');
           if (savedTok) headers['Authorization'] = `Bearer ${savedTok}`;
-        } catch {}
+        } catch { /* ignored */ }
         const res = await fetch(`/api/market/brokerage?${qs.toString()}`, { headers });
         if (res.ok) {
           const json = await res.json();
@@ -189,17 +189,12 @@ export const OrderModal: React.FC<OrderModalProps> = ({
             });
           }
         }
-      } catch {}
+      } catch { /* ignored */ }
     };
     fetchLiveBrokerage();
   }, [isOpen, symbol, instrumentKey, quantity, price, defaultPrice, orderType, productType, transactionType, effectivePrice]);
 
   if (!isOpen) return null;
-
-  const lotStep = isOptionOrFo ? (lotSize || 1) : 1;
-  const oneLotCharges = calculateTradeCharges(effectivePrice, lotStep, isOptionOrFo, target);
-  const oneLotCost = oneLotCharges.tradeValue;
-  const oneLotTotalWithBrokerage = oneLotCharges.totalRequiredWithBrokerage;
 
   const currentOrderCharges = calculateTradeCharges(effectivePrice, quantity, isOptionOrFo, target);
   const baseMargin = Number((effectivePrice * quantity * (productType === 'INTRADAY' && !isOptionOrFo ? 0.2 : 1)).toFixed(2));
@@ -209,6 +204,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   const estimatedMargin = Number((baseMargin + estimatedBrokerageAndTaxes).toFixed(2));
 
   // Strict Balance Protection for both UPSTOX_LIVE and PAPER_TRADING
+  const lotStep = isOptionOrFo ? (lotSize || 1) : 1;
   const effectiveAvailableBalance = Number(availableMargin || 0);
   const lotAffordability = calculateAffordableLotsWithBrokerage(
     effectivePrice,

@@ -322,57 +322,46 @@ export function analyzeTradingSignals(
 
   let detectedPatternEn = "Multi-Candle Structure Follow-Through";
   let detectedPatternMl = "മൾട്ടി-കാൻഡിൽ സ്ട്രക്ചർ കൺഫർമേഷൻ";
-  let patternDirection: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
 
   if (isClosedBullishEngulfing) {
     detectedPatternEn = "Bullish Engulfing + Follow-Through Breakout";
     detectedPatternMl = "ബുള്ളിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഔട്ട് കൺഫർമേഷൻ";
-    patternDirection = "BULLISH";
     bullishPoints += 16;
   } else if (isMorningStarReversal) {
     detectedPatternEn = "Morning Star 3-Candle Institutional Reversal";
     detectedPatternMl = "മോണിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ";
-    patternDirection = "BULLISH";
     bullishPoints += 18;
   } else if (isClosedHammerSupport) {
     detectedPatternEn = "Hammer Pin-Bar Liquidity Sweep & Breakout";
     detectedPatternMl = "ഹാമർ പിൻ-ബാർ സപ്പോർട്ട് ബൗൺസ്";
-    patternDirection = "BULLISH";
     bullishPoints += 15;
   } else if (isInsideBarBullBreakout) {
     detectedPatternEn = "Inside-Bar Volatility Expansion Breakout";
     detectedPatternMl = "ഇൻസൈഡ്-ബാർ വോളിയം ബ്രേക്ക്ഔട്ട്";
-    patternDirection = "BULLISH";
     bullishPoints += 15;
   } else if (isThreeSoldiersThrust) {
     detectedPatternEn = "3-Bar Institutional Momentum Thrust";
     detectedPatternMl = "3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ മൊമെന്റം ബ്രേക്ക്ഔട്ട്";
-    patternDirection = "BULLISH";
     bullishPoints += 14;
   } else if (isClosedBearishEngulfing) {
     detectedPatternEn = "Bearish Engulfing + Breakdown Confirmation";
     detectedPatternMl = "ബെയറിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഡൗൺ കൺഫർമേഷൻ";
-    patternDirection = "BEARISH";
     bearishPoints += 16;
   } else if (isEveningStarReversal) {
     detectedPatternEn = "Evening Star 3-Candle Institutional Reversal";
     detectedPatternMl = "ഈവനിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ";
-    patternDirection = "BEARISH";
     bearishPoints += 18;
   } else if (isClosedShootingStarResistance) {
     detectedPatternEn = "Shooting Star Supply Rejection Breakdown";
     detectedPatternMl = "ഷൂട്ടിംഗ് സ്റ്റാർ റെസിസ്റ്റൻസ് റിജക്ഷൻ";
-    patternDirection = "BEARISH";
     bearishPoints += 15;
   } else if (isInsideBarBearBreakdown) {
     detectedPatternEn = "Inside-Bar Downside Expansion Breakdown";
     detectedPatternMl = "ഇൻസൈഡ്-ബാർ ഡൗൺസൈഡ് ബ്രേക്ക്ഡൗൺ";
-    patternDirection = "BEARISH";
     bearishPoints += 15;
   } else if (isThreeCrowsThrust) {
     detectedPatternEn = "3-Bar Institutional Bearish Thrust";
     detectedPatternMl = "3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ ബെയറിഷ് ബ്രേക്ക്ഡൗൺ";
-    patternDirection = "BEARISH";
     bearishPoints += 14;
   }
 

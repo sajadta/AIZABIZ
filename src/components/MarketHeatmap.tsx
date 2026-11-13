@@ -185,10 +185,10 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       .attr('rx', 2);
 
     // Add interactivity
-    cell.on('mouseover', function(event, d) {
+    cell.on('mouseover', function() {
       d3.select(this).select('rect').attr('stroke', '#f8fafc').attr('stroke-width', 2);
     })
-    .on('mouseout', function(event, d) {
+    .on('mouseout', function() {
       d3.select(this).select('rect').attr('stroke', '#0f172a').attr('stroke-width', 2);
     });
 

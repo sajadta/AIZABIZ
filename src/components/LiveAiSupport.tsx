@@ -63,7 +63,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       } else {
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error: ' + (data.error || 'Server error. Please try again later.') }]);
       }
-    } catch (e) {
+    } catch {
       setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);
     } finally {
       setLoading(false);
@@ -86,8 +86,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
             apiTokenExists: !!apiConfig.accessToken,
             liveQuotesReceiving: quotesCount > 0,
             networkOnline: navigator.onLine,
-            // @ts-ignore
-            memory: performance?.memory?.usedJSHeapSize,
+            memory: (performance as Performance & { memory?: { usedJSHeapSize?: number } })?.memory?.usedJSHeapSize,
             executionEngine: 'Active (v2.4.1)',
             optionGreeksEngine: 'Active (Real-time)',
             timestamp: new Date().toISOString()
@@ -104,7 +103,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
         }
         setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: errText }]);
       }
-    } catch(e) {
+    } catch {
       setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);
     } finally {
       setLoading(false);

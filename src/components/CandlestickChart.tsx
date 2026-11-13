@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TrendingUp, Sliders, Sparkles, Layers, RefreshCw } from 'lucide-react';
 import { createChart, CrosshairMode, LineStyle, IChartApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
 import { CandleData, StockQuote, Language, TradingSignal } from '../types';
-import { translations } from '../translations';
 
 interface CandlestickChartProps {
   symbol: string;
@@ -29,7 +28,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   aiLoading,
   signal,
 }) => {
-  const t = translations[language];
   const [showSupertrend, setShowSupertrend] = useState(true);
   const [showEMA, setShowEMA] = useState(true);
   const [activeSubChart, setActiveSubChart] = useState<'RSI' | 'MACD' | 'NONE'>('RSI');
