@@ -992,9 +992,12 @@ export async function runEntryScan(ctx: {
                       if (fitsCapital) {
                         score += 350;
                         if (isSmallCapitalAccount) {
-                          if (totalRequiredWithBrokerage >= 1200 && totalRequiredWithBrokerage <= 5500 && absDelta >= 0.25) {
-                            score += 150; // Super bonus for compact capital with strong explosive potential
+                          // Crucial for small capital accounts: Prioritize strikes that can actually be executed!
+                          if (totalRequiredWithBrokerage <= effectiveCapital && ltp >= 1.5) {
+                            score += 500; // Massive +500 boost so affordable explosive options win over expensive blocked strikes!
                           }
+                          if (volume > 5000) score += 60;
+                          if (absDelta >= 0.04) score += 80;
                         } else {
                           // Primary User Mandate: "Kuranja muthal mudakkil maximum profit"
                           // Best sweet spot: 1 Lot requires only ₹2,500 - ₹8,500
@@ -1070,7 +1073,7 @@ export async function runEntryScan(ctx: {
 
                       // 0DTE Expiry Day Theta Crush Shield: On Expiry Day (expiryDate === toDate), NEVER buy deep OTM options that decay to ₹0!
                       const isExpiryDay0DTE = String(expiryDate || "") === toDate;
-                      if (isExpiryDay0DTE && absDelta < (isSmallCapitalAccount ? 0.04 : 0.42)) {
+                      if (isExpiryDay0DTE && absDelta < (isSmallCapitalAccount ? 0.02 : 0.42)) {
                         continue;
                       }
                       // Institutional Golden Sweet Spot: ATM / 1-Step ITM (Delta 0.46 - 0.65)
@@ -1092,7 +1095,11 @@ export async function runEntryScan(ctx: {
 
                       const distRatio =
                         Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1);
-                      score -= distRatio * 1600; // Heavily penalize distance from spot so true ATM / 1-step ITM always wins!
+                      if (!isSmallCapitalAccount) {
+                        score -= distRatio * 1600; // Heavily penalize distance from spot so true ATM / 1-step ITM wins for large accounts
+                      } else {
+                        score -= distRatio * 150; // Gentle distance penalty so affordable explosive options can win for small accounts
+                      }
 
                       scoredCandidates.push({
                         score,
