@@ -106,7 +106,7 @@ export let lastTradeExitTime = 0;
 export const recentClosedStrikes: Record<string, any> = {};
 export const intradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
 export const fiveYearHistoricalRegimeCache: Record<string, { timestamp: number; [key: string]: any }> = {};
-export let lastQuotesCache: { timestamp: number; data: Record<string, any> } = { timestamp: 0, data: {} };
+export let lastQuotesCache: { timestamp: number; data: Record<string, any>; quotes: any[] } = { timestamp: 0, data: {}, quotes: [] };
 export const optionContractCache: Record<string, { timestamp: number; data: any }> = {};
 export const optionChainCache: Record<string, { timestamp: number; data: any }> = {};
 export let cachedUpstoxLiveMargin: { timestamp: number; margin: number; utilizedMargin: number; payin: number; payout: number } = { timestamp: 0, margin: 0, utilizedMargin: 0, payin: 0, payout: 0 };
@@ -116,6 +116,10 @@ export const invalidTokens = new Set<string>();
 export let subscribedKeys: Set<string> = new Set();
 export let paperBalance = 2000; // Initial mock balance
 
+export let lastWebhookDiagnostic = "";
+export const setLastWebhookDiagnostic = (v: string) => { lastWebhookDiagnostic = v; };
+export const getLastWebhookDiagnostic = () => lastWebhookDiagnostic;
+
 export const setBotConfig = (newConfig: any) => {
   Object.assign(botConfig, newConfig);
 };
@@ -123,6 +127,37 @@ export const setBotConfig = (newConfig: any) => {
 export const setUpstoxConfig = (newConfig: any) => {
   Object.assign(upstoxConfig, newConfig);
 };
+
+export const setActiveAutoOtpSession = (session: UpstoxAutoOtpSession | null) => {
+  activeAutoOtpSession = session;
+};
+
+// Setters for module-level `let` bindings that are reassigned by the bot engine
+// and other services. Kept here so importers can mutate shared state without
+// depending on the (read-only) live binding of a namespace import.
+export const setEngineHeartbeatTicks = (v: number) => { engineHeartbeatTicks = v; };
+export const setLastEngineTickAt = (v: string) => { lastEngineTickAt = v; };
+export const setIsBotTickRunning = (v: boolean) => { isBotTickRunning = v; };
+export const setLastBotTickStartedAt = (v: number) => { lastBotTickStartedAt = v; };
+export const setLastFullEntryScanAtMs = (v: number) => { lastFullEntryScanAtMs = v; };
+export const setLastTradeExitTime = (v: number) => { lastTradeExitTime = v; };
+export const setCachedUpstoxLivePositions = (v: { timestamp: number; list: any[] }) => { cachedUpstoxLivePositions = v; };
+export const setCachedUpstoxLiveMargin = (v: typeof cachedUpstoxLiveMargin) => { cachedUpstoxLiveMargin = v; };
+export const setLatestMultiIndexAlphaMatrix = (v: any[]) => { latestMultiIndexAlphaMatrix = v; };
+export const setLastQuotesCache = (v: typeof lastQuotesCache) => { lastQuotesCache = v; };
+export const setSubscribedKeys = (v: Set<string>) => { subscribedKeys = v; };
+
+export const getEngineHeartbeatTicks = () => engineHeartbeatTicks;
+export const getLastEngineTickAt = () => lastEngineTickAt;
+export const getIsBotTickRunning = () => isBotTickRunning;
+export const getLastBotTickStartedAt = () => lastBotTickStartedAt;
+export const getLastFullEntryScanAtMs = () => lastFullEntryScanAtMs;
+export const getLastTradeExitTime = () => lastTradeExitTime;
+export const getCachedUpstoxLivePositions = () => cachedUpstoxLivePositions;
+export const getCachedUpstoxLiveMargin = () => cachedUpstoxLiveMargin;
+export const getLatestMultiIndexAlphaMatrix = () => latestMultiIndexAlphaMatrix;
+export const getLastQuotesCache = () => lastQuotesCache;
+export const getSubscribedKeys = () => subscribedKeys;
 
 export const resetPaperTradingState = () => {
   paperOrders.length = 0;

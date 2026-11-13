@@ -333,6 +333,9 @@ export const App: React.FC = () => {
         ]);
 
         if (botRes.status === 'fulfilled' && botRes.value) {
+          const savedModeIsValid = (v: string | null): v is ExecutionMode => {
+            return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
+          };
           let preferredMode: ExecutionMode | null = null;
           try {
             const saved = localStorage.getItem('aizabiz_preferred_trading_mode');
@@ -342,9 +345,6 @@ export const App: React.FC = () => {
           } catch (e) {
       // Ignored
     }
-          const savedModeIsValid = (v: string | null): v is ExecutionMode => {
-            return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
-          };
           const finalMode: ExecutionMode =
             preferredMode ||
             (botRes.value.mode === 'PAPER_TRADING' || botRes.value.mode === 'UPSTOX_LIVE'
