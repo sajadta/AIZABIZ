@@ -15,6 +15,7 @@ import { lotSizeCache } from '../../../lib/instruments';
 import { evaluateOptionDipMomentum } from '../../../lib/optionTradeRules';
 import { STRIKE_LOCKOUT_MS } from '../antiChurn';
 import { evaluateCandidateCosting } from './candidateCosting';
+import { evaluateOptionEntrySetup } from './optionEntrySetup';
 
 export interface VerifyCandidatesParams {
   token: string;
@@ -200,68 +201,23 @@ export async function verifyOptionCandidates(
           (liveOptLtp >= optClose1 * 0.994 && optClose1 >= optOpen1) ||
           (liveOptLtp > optClose2 && liveOptLtp >= optOpen0 * 0.992);
 
-        // SMART BOTTOM-DIP & BASE REVERSAL ENTRY ENGINE:
-        // Scales tick/percentage tolerance smoothly for micro (<₹15) and compact (<₹85) contracts.
-        const isLowPremOpt = liveOptLtp > 0 && liveOptLtp < 15;
-        const isCompactPremOpt = liveOptLtp >= 15 && liveOptLtp < 85;
-        const dynMaxSpikePct = isLowPremOpt ? 14.0 : isCompactPremOpt ? 7.0 : 4.0;
-        const dynMaxWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.28;
-        const dynMaxTurnWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.3;
-        const dynMaxCleanWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.38 : 0.25;
-        const dynMaxVwapMult = isLowPremOpt ? 1.1 : isCompactPremOpt ? 1.07 : 1.035;
-        const dynMaxBaseMult = isLowPremOpt ? 1.15 : isCompactPremOpt ? 1.12 : 1.045;
-        const dynMaxClosePos = isLowPremOpt ? 0.88 : isCompactPremOpt ? 0.86 : 0.82;
-
-        const optLowestBase = Math.min(optLow0, optLow1, optLow2);
-        const isBottomDipBounce =
-          isUnderlying1mConfirmingNow &&
-          liveOptLtp >= optLowestBase &&
-          liveOptLtp <= optLowestBase * dynMaxBaseMult &&
-          liveOptLtp >= optOpen0 * 0.992 &&
-          optUpperWickRatio <= dynMaxWick;
-
-        const isEarlyReversalTurn =
-          isUnderlying1mConfirmingNow &&
-          liveOptLtp >= optOpen0 * (isFlatRangeBar ? 1.0 : 1.001) &&
-          liveOptLtp <= optOpen0 * (isLowPremOpt ? 1.12 : isCompactPremOpt ? 1.07 : 1.035) &&
-          liveOptLtp >= optShortVwap * 0.975 &&
-          liveOptLtp <= optShortVwap * dynMaxVwapMult &&
-          optUpperWickRatio <= dynMaxTurnWick;
-
-        const isLowPriceDipEntry =
-          isUnderlying1mConfirmingNow &&
-          liveOptLtp >= optShortVwap * 0.975 &&
-          liveOptLtp <= optShortVwap * dynMaxVwapMult &&
-          optClosePos >= 0.2 &&
-          optClosePos <= dynMaxClosePos &&
-          optUpperWickRatio <= dynMaxWick &&
-          singleMinuteSpikePct <= dynMaxSpikePct &&
-          singleMinuteSpikePct >= -2.5;
-
-        const isCleanBreakoutEntry =
-          isUnderlying1mConfirmingNow &&
-          isOptionRisingNow &&
-          (liveOptLtp >= optClose2 * 0.985 || liveOptLtp >= optClose1 * 0.99) &&
-          liveOptLtp >= optShortVwap * 0.99 &&
-          liveOptLtp <= optShortVwap * dynMaxVwapMult &&
-          optClosePos >= 0.35 &&
-          optClosePos <= dynMaxClosePos &&
-          optUpperWickRatio <= dynMaxCleanWick &&
-          singleMinuteSpikePct <= dynMaxSpikePct &&
-          singleMinuteSpikePct >= -1.5;
-
-        const currentIstHourNow = (new Date().getUTCHours() + 5.5) % 24;
-        const currentIstMinNow = new Date().getUTCMinutes();
-        const currentIstMinutesTotal = currentIstHourNow * 60 + currentIstMinNow;
-        const isMorningOpeningWindow =
-          currentIstMinutesTotal >= 9 * 60 + 15 && currentIstMinutesTotal <= 10 * 60 + 45;
-
-        const isMorningOpenImpulse =
-          isMorningOpeningWindow &&
-          isUnderlying1mConfirmingNow &&
-          liveOptLtp >= optLowestBase &&
-          liveOptLtp <= optLowestBase * (isLowPremOpt ? 1.15 : isCompactPremOpt ? 1.12 : 1.055) &&
-          optUpperWickRatio <= (isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.32);
+        const setup = evaluateOptionEntrySetup({
+          liveOptLtp,
+          optLow0,
+          optLow1,
+          optLow2,
+          optOpen0,
+          optClose1,
+          optClose2,
+          optShortVwap,
+          optClosePos,
+          optUpperWickRatio,
+          singleMinuteSpikePct,
+          isFlatRangeBar,
+          isOptionRisingNow,
+          isUnderlyingConfirming: isUnderlying1mConfirmingNow,
+        });
+        const { optLowestBase } = setup;
 
         if (isOptionSellingMode) {
           if (
@@ -275,12 +231,7 @@ export async function verifyOptionCandidates(
         } else {
           // STRICT ANTI-CHASE ENTRY: Never bypass spike/wick limits just because 1m green tick fired!
           // Must satisfy genuine dip bounce, early base reversal, or controlled non-extended breakout.
-          const baseOk =
-            isMorningOpenImpulse ||
-            isBottomDipBounce ||
-            isEarlyReversalTurn ||
-            isLowPriceDipEntry ||
-            isCleanBreakoutEntry;
+          const baseOk = setup.baseOk;
           candMomentumOk = evaluateOptionDipMomentum({
             liveOptLtp,
             chainSnapshotLtp,
