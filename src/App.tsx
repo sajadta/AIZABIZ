@@ -38,6 +38,7 @@ import { usePositionAlerts } from './hooks/usePositionAlerts';
 import { useMarketSessionClock } from './hooks/useMarketSessionClock';
 import { useAppUiState } from './hooks/useAppUiState';
 import { useAppShellActions } from './hooks/useAppShellActions';
+import { useTradingState } from './hooks/useTradingState';
 import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
 import { AppChrome } from './components/app/AppChrome';
 import { AppWorkspace } from './components/app/AppWorkspace';
@@ -108,12 +109,30 @@ export const App: React.FC = () => {
 
   const marketSession = useMarketSessionClock({ soundEnabled, setLightingBanner });
 
-  // Quotes and Selection
-  const [quotes, setQuotes] = useState<StockQuote[]>(INITIAL_WATCHLIST_SYMBOLS);
-
-  // Chart data (100% Real Live Candles)
-  const [candles, setCandles] = useState<CandleData[]>([]);
-  const [activeSignal, setActiveSignal] = useState<TradingSignal | null>(null);
+  const {
+    quotes,
+    setQuotes,
+    candles,
+    setCandles,
+    activeSignal,
+    setActiveSignal,
+    positions,
+    setPositions,
+    orders,
+    setOrders,
+    holdings,
+    setHoldings,
+    tradeHistory,
+    setTradeHistory,
+    optionChainData,
+    setOptionChainData,
+    optionChainLoading,
+    setOptionChainLoading,
+    geminiAnalysis,
+    setGeminiAnalysis,
+    apiConfig,
+    setApiConfig,
+  } = useTradingState();
 
   // Bot state
   const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
@@ -124,48 +143,6 @@ export const App: React.FC = () => {
   });
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
-
-  // Positions, Orders, Holdings
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [orders, setOrders] = useState<Order[]>(() => {
-    safeStorage.removeItem('aizabiz_persisted_orders_v2');
-    const parsed = safeStorage.getJson<Order[]>('aizabiz_persisted_orders_v3');
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
-  });
-  const [holdings, setHoldings] = useState<Holding[]>([]);
-  const [tradeHistory, setTradeHistory] = useState<Position[]>(() => {
-    safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
-    const parsed = safeStorage.getJson<Position[]>('aizabiz_persisted_trade_history_v3');
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
-  });
-
-  usePersistedCollections(orders, tradeHistory);
-
-  // Option Chain
-  const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
-  const [optionChainLoading, setOptionChainLoading] = useState(false);
-
-  // Gemini Market Analysis
-  const [geminiAnalysis, setGeminiAnalysis] = useState<GeminiMarketAnalysis | null>(null);
-
-  // Upstox API configuration
-  const [apiConfig, setApiConfig] = useState<UpstoxApiConfig>({
-    apiKey: '',
-    apiSecret: '',
-    redirectUri: '',
-    accessToken: '',
-    isConnected: false,
-    userName: '',
-    userEmail: '',
-    userClientCode: '',
-    broker: 'Live Market Feed Active',
-    availableMargin: 0,
-    usedMargin: 0,
-    utilizedMargin: 0,
-    payin: 0,
-    payout: 0,
-    totalBalance: 0,
-  });
 
   const lastSseQuoteAtRef = useRef<number>(0);
   const livePositionsInFlightRef = useRef<Promise<void> | null>(null);
