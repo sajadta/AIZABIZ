@@ -1,24 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  StockQuote,
-  CandleData,
-  TradingSignal,
-  Order,
-  Position,
-  Holding,
-  BotConfig,
-  BotLog,
-  UpstoxApiConfig,
-  GeminiMarketAnalysis,
-  OptionChainData,
-  Language,
-  ExecutionMode,
-  PriceAlert,
-  OrderTransactionType,
-} from './types';
-import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
+import { BotConfig, BotLog, TradingSignal } from './types';
+import { getStandardIndexLotSize } from './utils/quotes';
 import { deriveCurrentQuote } from './utils/currentQuote';
-import { safeStorage } from './utils/storage';
 import { useBackendBotSync } from './hooks/useBackendBotSync';
 import { useTradingActions } from './hooks/useTradingActions';
 import { useOrderPlacement } from './hooks/useOrderPlacement';
@@ -30,7 +13,6 @@ import { useLiveQuotes } from './hooks/useLiveQuotes';
 import { useChartCandles } from './hooks/useChartCandles';
 import { useLivePositionMarks } from './hooks/useLivePositionMarks';
 import { useServerWakeup } from './hooks/useServerWakeup';
-import { usePersistedCollections } from './hooks/usePersistedCollections';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -43,18 +25,8 @@ import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChart
 import { AppChrome } from './components/app/AppChrome';
 import { AppWorkspace } from './components/app/AppWorkspace';
 import { AppOverlays } from './components/app/AppOverlays';
-import { AppDesktopNav } from './components/app/AppDesktopNav';
-import { AppTabContent } from './components/app/AppTabContent';
-import {
-  enrichCandlesWithIndicators,
-  analyzeTradingSignals,
-  calculateTradeCharges,
-  calculateAffordableLotsWithBrokerage,
-} from './utils/indicators';
-import { soundEngine } from './utils/audioAlerts';
-import { triggerAlertEvent, LightingAlertBannerState } from './utils/soundAlerts';
+import { triggerAlertEvent } from './utils/soundAlerts';
 
-import { INITIAL_WATCHLIST_SYMBOLS } from './data/initialWatchlist';
 import { DEFAULT_BOT_CONFIG } from './data/defaultBotConfig';
 
 export const App: React.FC = () => {
