@@ -1,12 +1,8 @@
 // Session trade bookkeeping and circuit-breaker metrics for the entry scan.
-import {
-  botConfig,
-  paperTradeHistory,
-  getCachedUpstoxLiveMargin,
-} from "../../../state";
-import { calculateTradeCharges } from "../../../../src/utils/indicators";
-import { pairLiveDayOrders, getCachedLiveDayOrders } from "../../../lib/upstoxHistory";
-import { getPaperInitialCapital } from "../../persistence";
+import { botConfig, paperTradeHistory, getCachedUpstoxLiveMargin } from '../../../state';
+import { calculateTradeCharges } from '../../../../src/utils/indicators';
+import { pairLiveDayOrders, getCachedLiveDayOrders } from '../../../lib/upstoxHistory';
+import { getPaperInitialCapital } from '../../persistence';
 
 export interface LiveDayClosedTrades {
   timestamp: number;
@@ -15,7 +11,7 @@ export interface LiveDayClosedTrades {
 }
 
 export function getTradeNetPnL(trade: any): number {
-  if (typeof trade.netRealizedPnL === "number" && Number.isFinite(trade.netRealizedPnL)) {
+  if (typeof trade.netRealizedPnL === 'number' && Number.isFinite(trade.netRealizedPnL)) {
     return trade.netRealizedPnL;
   }
   const gross = Number(trade.realizedPnL || 0);
@@ -38,7 +34,7 @@ export async function refreshLiveDayClosedTrades(
   token: string,
 ): Promise<LiveDayClosedTrades> {
   if (
-    botConfig.mode === "UPSTOX_LIVE" &&
+    botConfig.mode === 'UPSTOX_LIVE' &&
     token &&
     (cache.token !== token || Date.now() - cache.timestamp > 8000)
   ) {
@@ -68,14 +64,11 @@ export interface SessionCircuitMetrics {
 
 export function computeSessionCircuitMetrics(cache: LiveDayClosedTrades): SessionCircuitMetrics {
   const todayMidnightIst = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+    new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }),
   );
   todayMidnightIst.setHours(0, 0, 0, 0);
   const todayStartMs = todayMidnightIst.getTime();
-  const resetCutoff = Math.max(
-    Number((botConfig as any).circuitBreakerResetAt || 0),
-    todayStartMs,
-  );
+  const resetCutoff = Math.max(Number((botConfig as any).circuitBreakerResetAt || 0), todayStartMs);
 
   const localSessionTrades = paperTradeHistory.filter((trade) => {
     const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
@@ -84,7 +77,7 @@ export function computeSessionCircuitMetrics(cache: LiveDayClosedTrades): Sessio
   });
 
   const liveSyncedTrades =
-    botConfig.mode === "UPSTOX_LIVE"
+    botConfig.mode === 'UPSTOX_LIVE'
       ? cache.trades.filter((trade) => {
           const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
           return closeTs >= resetCutoff;
@@ -93,15 +86,19 @@ export function computeSessionCircuitMetrics(cache: LiveDayClosedTrades): Sessio
 
   // Prefer Upstox Exchange closed trades in LIVE mode, merging any local trades not yet matched
   const activeSessionTrades =
-    botConfig.mode === "UPSTOX_LIVE" && liveSyncedTrades.length > 0
+    botConfig.mode === 'UPSTOX_LIVE' && liveSyncedTrades.length > 0
       ? [
           ...liveSyncedTrades,
           ...localSessionTrades.filter((lt) => {
             const ltTs = lt.closeTime ? new Date(lt.closeTime).getTime() : 0;
-            const ltSym = String(lt.symbol || "").replace(/\s+/g, "").toUpperCase();
+            const ltSym = String(lt.symbol || '')
+              .replace(/\s+/g, '')
+              .toUpperCase();
             return !liveSyncedTrades.some((st) => {
               const stTs = st.closeTime ? new Date(st.closeTime).getTime() : 0;
-              const stSym = String(st.symbol || "").replace(/\s+/g, "").toUpperCase();
+              const stSym = String(st.symbol || '')
+                .replace(/\s+/g, '')
+                .toUpperCase();
               return stSym === ltSym && Math.abs(stTs - ltTs) <= 90000;
             });
           }),
@@ -121,18 +118,23 @@ export function computeSessionCircuitMetrics(cache: LiveDayClosedTrades): Sessio
   );
   const paperCapitalBase = getPaperInitialCapital();
   const paperSessionPnL = paperTradeHistory
-    .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+    .filter((t: any) => !t.mode || t.mode === 'PAPER_TRADING')
     .reduce((sum: number, t: any) => sum + getTradeNetPnL(t), 0);
   const liveMarginInfo = getCachedUpstoxLiveMargin();
   const liveTotalAccountEquity =
     Number(liveMarginInfo.margin || 0) + Math.max(0, Number(liveMarginInfo.utilizedMargin || 0));
   const liveOrPaperCapForCircuit =
-    botConfig.mode === "UPSTOX_LIVE"
-      ? (liveTotalAccountEquity > 0 ? liveTotalAccountEquity : paperCapitalBase)
+    botConfig.mode === 'UPSTOX_LIVE'
+      ? liveTotalAccountEquity > 0
+        ? liveTotalAccountEquity
+        : paperCapitalBase
       : Math.max(500, paperCapitalBase + paperSessionPnL);
   const isSmallCapForCircuit = liveOrPaperCapForCircuit <= 4000;
   const dynamicDailyLossLimit = isSmallCapForCircuit
-    ? Math.min(Number(botConfig.dailyMaxLossLimit || 800), Math.max(350, Math.round(liveOrPaperCapForCircuit * 0.45)))
+    ? Math.min(
+        Number(botConfig.dailyMaxLossLimit || 800),
+        Math.max(350, Math.round(liveOrPaperCapForCircuit * 0.45)),
+      )
     : Number(botConfig.dailyMaxLossLimit || 1500);
 
   // Circuit Breaker locks permanently disabled per user instruction ("Sercute lock ozhivakkuka")

@@ -43,9 +43,10 @@ export const computeAlphaScore = ({
     expectedNetProfit: expNetProfit,
     profitYield,
     alphaOpportunityScore: Number(
-      (expNetProfit * (confidence / 100) * mtfStatusBonus * rvolMultiplier + profitYield * 120).toFixed(
-        2,
-      ),
+      (
+        expNetProfit * (confidence / 100) * mtfStatusBonus * rvolMultiplier +
+        profitYield * 120
+      ).toFixed(2),
     ),
   };
 };

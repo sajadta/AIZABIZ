@@ -1,8 +1,8 @@
 // 5-year daily regime metrics (EMA50/200, swing S/R, breakout win rate) with a
 // 15-minute cache and a Yahoo Finance fallback when the Upstox token is missing.
-import { fiveYearHistoricalRegimeCache } from "../../../state";
-import { resilientFetchJson } from "../../../lib/http";
-import { YAHOO_NSE_MAP } from "../../../data/yahooMap";
+import { fiveYearHistoricalRegimeCache } from '../../../state';
+import { resilientFetchJson } from '../../../lib/http';
+import { YAHOO_NSE_MAP } from '../../../data/yahooMap';
 
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -21,15 +21,15 @@ export async function getFiveYearRegime(
     if (token) {
       const fiveYrsAgoDate = new Date(today.getTime() - 5 * 365 * 24 * 60 * 60 * 1000)
         .toISOString()
-        .split("T")[0];
+        .split('T')[0];
       const dayHistUrl = `https://api.upstox.com/v2/historical-candle/${encodeURIComponent(idx.key)}/day/${toDate}/${fiveYrsAgoDate}`;
       dayJson = await resilientFetchJson(
         dayHistUrl,
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Api-Version": "2.0",
+            Accept: 'application/json',
+            'Api-Version': '2.0',
           },
         },
         1,
@@ -45,8 +45,8 @@ export async function getFiveYearRegime(
           `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(mapped.yahooTicker)}?interval=1d&range=5y`,
           {
             headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-              Accept: "application/json",
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              Accept: 'application/json',
             },
           },
         );
@@ -58,7 +58,7 @@ export async function getFiveYearRegime(
           const y5Candles: any[] = [];
           for (let i = tsArr.length - 1; i >= 0; i--) {
             const c = qObj.close?.[i];
-            if (typeof c === "number" && c > 0) {
+            if (typeof c === 'number' && c > 0) {
               y5Candles.push([
                 new Date(tsArr[i] * 1000).toISOString(),
                 Number((qObj.open?.[i] || c).toFixed(2)),
@@ -70,13 +70,13 @@ export async function getFiveYearRegime(
             }
           }
           if (y5Candles.length >= 30) {
-            dayJson = { status: "success", data: { candles: y5Candles } };
+            dayJson = { status: 'success', data: { candles: y5Candles } };
           }
         }
       }
     }
     if (
-      dayJson?.status === "success" &&
+      dayJson?.status === 'success' &&
       Array.isArray(dayJson?.data?.candles) &&
       dayJson.data.candles.length >= 30
     ) {
@@ -123,25 +123,25 @@ export async function getFiveYearRegime(
           ? Math.min(94, Math.max(76, Math.round((breakoutWins / breakoutSamples) * 100)))
           : 86;
 
-      const fiveYearRegimeTrend: "BULLISH_SECULAR" | "BEARISH_CORRECTION" | "RANGE_CONSOLIDATION" =
+      const fiveYearRegimeTrend: 'BULLISH_SECULAR' | 'BEARISH_CORRECTION' | 'RANGE_CONSOLIDATION' =
         liveLtp >= ema50Daily && ema50Daily >= ema200Daily * 0.99
-          ? "BULLISH_SECULAR"
+          ? 'BULLISH_SECULAR'
           : liveLtp < ema50Daily * 0.995 || (liveLtp < ema50Daily && liveLtp < ema200Daily)
-            ? "BEARISH_CORRECTION"
-            : "RANGE_CONSOLIDATION";
+            ? 'BEARISH_CORRECTION'
+            : 'RANGE_CONSOLIDATION';
 
       const totalYearsAnalyzed = Math.max(1, Math.round(dailyChrono.length / 245));
       const fiveYearRegimeSummary = `${totalYearsAnalyzed}Y History (${dailyChrono.length} Days): ${
-        fiveYearRegimeTrend === "BULLISH_SECULAR"
+        fiveYearRegimeTrend === 'BULLISH_SECULAR'
           ? `Bullish > 50D EMA (₹${ema50Daily}) & 200D EMA (₹${ema200Daily})`
-          : fiveYearRegimeTrend === "BEARISH_CORRECTION"
+          : fiveYearRegimeTrend === 'BEARISH_CORRECTION'
             ? `Bearish < 50D EMA (₹${ema50Daily})`
             : `Consolidating near 50D EMA (₹${ema50Daily})`
       } | Hist. Win Prob: ${historicalPatternWinRate}%`;
       const fiveYearRegimeSummaryMl = `${totalYearsAnalyzed} വർഷത്തെ ചാർട്ട് (${dailyChrono.length} Days): ${
-        fiveYearRegimeTrend === "BULLISH_SECULAR"
+        fiveYearRegimeTrend === 'BULLISH_SECULAR'
           ? `50D EMA (₹${ema50Daily}) & 200D EMA-യ്ക്ക് മുകളിൽ ബുള്ളിഷ്`
-          : fiveYearRegimeTrend === "BEARISH_CORRECTION"
+          : fiveYearRegimeTrend === 'BEARISH_CORRECTION'
             ? `50D EMA (₹${ema50Daily})-യ്ക്ക് താഴെ ബെയറിഷ്`
             : `50D EMA സോണിൽ കൺസോളിഡേഷൻ`
       } | 5Y Win Rate: ${historicalPatternWinRate}%`;
