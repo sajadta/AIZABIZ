@@ -1,19 +1,11 @@
 // Exit-decision engine for a single option position: dynamic peak-locked stops,
 // trailing ladders, theta stagnation and maximum-runway harvest rules.
-import {
-  botConfig,
-  botLogs,
-  paperTradeHistory,
-  livePositionStateTracker,
-  getCachedUpstoxLiveMargin,
-} from '../../../../state';
+import { botConfig, botLogs, livePositionStateTracker } from '../../../../state';
 import { calculateTradeCharges } from '../../../../../src/utils/indicators';
-import { fetchLiveUpstoxCharges } from '../../../../lib/charges';
-import { computeOptionStopLossPlan } from '../stopLoss';
 import { detectUnderlyingReversal, isCallOptionSymbol } from '../underlyingReversal';
 import { evaluateOptionTrend } from '../optionTrend';
 import { computeTrailingStopLadder } from '../trailingLadder';
-import { getPaperInitialCapital } from '../../../persistence';
+import { resolveOptionPositionAccounting } from './positionAccounting';
 
 export interface OptionExitDecisionParams {
   pos: any;
@@ -118,73 +110,19 @@ export async function decideOptionExit(
     }
   }
 
-  // Static Stop and Target values based on BUY price (see positionMonitor/stopLoss)
-  const liveOrPaperCapital =
-    botConfig.mode === 'UPSTOX_LIVE'
-      ? getCachedUpstoxLiveMargin().margin > 0
-        ? getCachedUpstoxLiveMargin().margin
-        : 2000
-      : Math.max(
-          500,
-          getPaperInitialCapital() +
-            paperTradeHistory.reduce(
-              (sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0),
-              0,
-            ),
-        );
-  const isSmallCapitalSafeZone = liveOrPaperCapital <= 4000;
   const {
     qty,
-    deployedValue,
     isMicroDeployedOpt,
-    optionSlPoints,
     staticStopLossPrice,
     maxAllowedRupeeLoss,
-  } = computeOptionStopLossPlan(pos.buyPrice, pos.quantity, botConfig.stopLossPercent);
-
-  // 1. DYNAMIC TREND-RIDING & TARGET-RUNWAY MAXIMUM PROFIT ENGINE
-  const posPnL = (ltp - pos.buyPrice) * qty;
-  let roundTripTax = calculateTradeCharges(
-    pos.buyPrice,
-    qty,
-    true,
-    Math.max(ltp, pos.highestLTP || ltp),
-  ).roundTripCharges;
-  try {
-    const liveChg = await fetchLiveUpstoxCharges(
-      pos.instrumentKey || pos.symbol,
-      qty,
-      pos.buyPrice,
-      Math.max(ltp, pos.highestLTP || ltp),
-      pos.product || pos.productType || 'D',
-    );
-    if (liveChg && liveChg.totalRoundTrip > 0) {
-      roundTripTax = liveChg.totalRoundTrip;
-      (pos as any).brokerageCharges = liveChg.totalRoundTrip;
-      (pos as any).brokerageSource = liveChg.source;
-    }
-  } catch {
-    // Ignored
-  }
-  const posNetPnL = posPnL - roundTripTax;
-  const peakGrossPnL = ((pos.highestLTP || ltp) - pos.buyPrice) * qty;
-  const peakNetPnL = peakGrossPnL - roundTripTax;
-  pos.highestPnl = Math.max(pos.highestPnl || 0, posPnL, peakGrossPnL);
-  pos.highestNetPnl = Math.max(pos.highestNetPnl || 0, posNetPnL, peakNetPnL);
-  const posProdCode = pos.product || (pos.productType === 'INTRADAY' ? 'I' : 'D');
-  const posTrackerKey = pos.instrumentKey ? `${pos.instrumentKey}|${posProdCode}` : '';
-  const activeTracker =
-    (posTrackerKey && livePositionStateTracker[posTrackerKey]) ||
-    (pos.instrumentKey && livePositionStateTracker[pos.instrumentKey]);
-  if (activeTracker) {
-    activeTracker.highestLTP = pos.highestLTP;
-    activeTracker.highestPnl = pos.highestPnl;
-    activeTracker.highestNetPnl = pos.highestNetPnl;
-    if ((pos as any).brokerageCharges) {
-      activeTracker.brokerageCharges = (pos as any).brokerageCharges;
-      activeTracker.brokerageSource = (pos as any).brokerageSource;
-    }
-  }
+    roundTripTax,
+    posPnL,
+    posNetPnL,
+    posProdCode,
+    posTrackerKey,
+    activeTracker,
+    isSmallCapitalSafeZone,
+  } = await resolveOptionPositionAccounting(pos, ltp);
 
   // LIVE UNDERLYING INDEX PARAMETER RADAR (Checks live signal & indicators for the underlying index of this option!)
   const isCallOption = isCallOptionSymbol(pos.symbol);
