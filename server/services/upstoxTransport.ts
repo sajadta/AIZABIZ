@@ -1,8 +1,6 @@
 import dns from "dns";
 import net from "net";
 import https from "https";
-import { HttpsProxyAgent } from "https-proxy-agent";
-import { SocksProxyAgent } from "socks-proxy-agent";
 import { upstoxConfig } from "../state";
 
 try {
@@ -18,16 +16,12 @@ export const FIXED_PRIMARY_IP = "34.180.11.27";
 export const FIXED_SECONDARY_IP = "34.34.254.178";
 export const DEFAULT_SOCKS5_PROXY_URL = "socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080";
 
-function ipv4Lookup(
-  hostname: string,
-  options: any,
-  callback: (err: NodeJS.ErrnoException | null, address: any, family?: number) => void,
-) {
-  if (typeof options === "function") {
-    return dns.lookup(hostname, { family: 4 }, options);
-  }
-  return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
-}
+import {
+  ipv4Lookup,
+  probeTcpPort,
+  createProxyAgent,
+  probeHttpsViaProxy,
+} from "./upstox/proxyProbe";
 
 const upstoxIpv4Agent = new https.Agent({
   family: 4,
@@ -40,14 +34,7 @@ const upstoxIpv4Agent = new https.Agent({
 
 const originalNativeFetch = globalThis.fetch;
 
-export interface ProxyHealthState {
-  url: string;
-  online: boolean;
-  detectedIp: string;
-  tcpOpen: boolean;
-  lastError: string;
-  lastChecked: number;
-}
+export type { ProxyHealthState };
 
 let proxyHealthCache: ProxyHealthState = {
   url: "",
@@ -66,75 +53,14 @@ let containerIpCache: { ip: string; checkedAt: number } = {
 let sharedProxyAgent: any = null;
 let sharedProxyAgentUrl = "";
 
-export function shouldUseProxyForUrl(urlStr: string): boolean {
-  const clean = String(urlStr || "");
-  if (!clean) return false;
-  // High-frequency read-only market polling does not require Upstox Static IP and can run 100ms faster direct,
-  // preserving SOCKS5 proxy workers exclusively for orders, portfolio, funds, and auth calls.
-  if (
-    clean.includes("/market-quote/") ||
-    clean.includes("/historical-candle/") ||
-    clean.includes("/option/chain") ||
-    clean.includes("/option/contract") ||
-    clean.includes("/charges/brokerage")
-  ) {
-    return false;
-  }
-  return true;
-}
+import {
+  shouldUseProxyForUrl,
+  evaluateProxyHealthCacheState,
+  parseUpstoxFundsData,
+  type ProxyHealthState,
+} from "./upstox/proxyRouting";
 
-export function evaluateProxyHealthCacheState(
-  cache: Pick<ProxyHealthState, "url" | "online" | "lastChecked">,
-  configuredUrl: string,
-  nowMs: number,
-): { online: boolean; shouldRefresh: boolean } {
-  if (!configuredUrl) return { online: false, shouldRefresh: false };
-  if (cache.url !== configuredUrl || cache.lastChecked <= 0) {
-    return { online: false, shouldRefresh: true };
-  }
-  const ttlMs = cache.online ? 30000 : 12000;
-  const isFresh = nowMs - cache.lastChecked < ttlMs;
-  if (isFresh) {
-    return { online: cache.online, shouldRefresh: false };
-  }
-  // Stale-while-revalidate: keep routing through last-verified online proxy while background probe refreshes.
-  return { online: cache.online, shouldRefresh: true };
-}
-
-export function parseUpstoxFundsData(fundsData: any): {
-  availableMargin: number;
-  usableCash: number;
-  settledCash: number;
-  deliverySellCredit: number;
-  usedMargin: number;
-  utilizedMargin: number;
-  payin: number;
-  payout: number;
-} {
-  const eq = fundsData?.data?.equity || {};
-  const com = fundsData?.data?.commodity || {};
-  const availableMargin = Number(eq.available_margin ?? 0) || (Number(eq.available_margin ?? 0) === 0 ? Number(com.available_margin ?? 0) : 0);
-  const usedMargin = Number(eq.used_margin ?? eq.utilized_margin ?? 0);
-  // Upstox reports negative used_margin equal to CNC delivery sell proceeds already included in available_margin.
-  const deliverySellCredit = usedMargin < 0 ? Number(Math.abs(usedMargin).toFixed(2)) : 0;
-  const settledCash =
-    usedMargin < 0
-      ? Math.max(0, Number((availableMargin + usedMargin).toFixed(2)))
-      : availableMargin;
-  const utilizedMargin = Math.max(0, usedMargin);
-  const payin = Number(eq.payin_amount ?? eq.payin ?? 0);
-  const payout = Number(eq.payout_amount ?? eq.payout ?? 0);
-  return {
-    availableMargin,
-    usableCash: availableMargin,
-    settledCash,
-    deliverySellCredit,
-    usedMargin,
-    utilizedMargin,
-    payin,
-    payout,
-  };
-}
+export { shouldUseProxyForUrl, evaluateProxyHealthCacheState, parseUpstoxFundsData };
 
 export function getConfiguredProxyUrl(): string {
   const raw = upstoxConfig.outboundProxyUrl;
@@ -179,105 +105,6 @@ export async function getDetectedContainerIp(forceRefresh = false): Promise<stri
   return containerIpCache.ip || "";
 }
 
-/**
- * Fast TCP probe to check if proxy port accepts connections (3800ms max for slow GCP micro-VMs).
- */
-function probeTcpPort(host: string, port: number, timeoutMs = 3800): Promise<boolean> {
-  return new Promise((resolve) => {
-    let done = false;
-    const socket = net.createConnection({ host, port, family: 4 });
-    const hardTimer = setTimeout(() => finish(false), timeoutMs + 100);
-    const finish = (result: boolean) => {
-      if (!done) {
-        done = true;
-        clearTimeout(hardTimer);
-        try { socket.destroy(); } catch { /* ignore */ }
-        resolve(result);
-      }
-    };
-    socket.setTimeout(timeoutMs);
-    socket.on("connect", () => finish(true));
-    socket.on("timeout", () => finish(false));
-    socket.on("error", () => finish(false));
-  });
-}
-
-/**
- * Verifies actual HTTPS tunneling through the SOCKS5/HTTP proxy.
- * Converts socks5:// -> socks5h:// so target DNS resolution happens remotely on the proxy VM over IPv4.
- */
-function createProxyAgent(proxyUrl: string, keepAlive = false) {
-  const clean = proxyUrl.trim();
-  const lower = clean.toLowerCase();
-  if (lower.startsWith("socks5://") || lower.startsWith("socks://") || lower.startsWith("socks5h://") || lower.startsWith("socks4a://")) {
-    const remoteDnsUrl = clean.replace(/^socks5?:\/\//i, "socks5h://");
-    return new SocksProxyAgent(remoteDnsUrl, {
-      timeout: 16000,
-    });
-  }
-  return new HttpsProxyAgent(clean, {
-    family: 4,
-    keepAlive,
-    keepAliveMsecs: keepAlive ? 15000 : undefined,
-    maxSockets: keepAlive ? 3 : undefined,
-    maxFreeSockets: keepAlive ? 1 : undefined,
-    timeout: 16000,
-  });
-}
-
-function probeHttpsViaProxy(proxyUrl: string, timeoutMs = 8500): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let done = false;
-    const probeAgent = createProxyAgent(proxyUrl, false);
-
-    let req: ReturnType<typeof https.get> | null = null;
-    const hardTimer = setTimeout(() => {
-      try { req?.destroy(); } catch { /* ignore */ }
-      finishErr(`Proxy HTTPS tunnel timed out (${Math.round(timeoutMs / 1000)}s)`);
-    }, timeoutMs + 250);
-
-    const finishErr = (msg: string) => {
-      if (!done) {
-        done = true;
-        clearTimeout(hardTimer);
-        try { probeAgent.destroy(); } catch { /* ignore */ }
-        reject(new Error(msg));
-      }
-    };
-
-    req = https.get(
-      "https://api.ipify.org?format=json",
-      { agent: probeAgent, timeout: timeoutMs, family: 4, lookup: ipv4Lookup },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk) => { body += chunk; });
-        res.on("end", () => {
-          if (done) return;
-          done = true;
-          clearTimeout(hardTimer);
-          try { probeAgent.destroy(); } catch { /* ignore */ }
-          if ((res.statusCode || 500) >= 400) {
-            return reject(new Error(`Proxy HTTP ${res.statusCode}`));
-          }
-          try {
-            const parsed = JSON.parse(body);
-            const ip = String(parsed?.ip || "").trim();
-            if (ip && ip.length <= 45) return resolve(ip);
-          } catch { /* ignore */ }
-          const plain = body.trim();
-          if (/^\d{1,3}(\.\d{1,3}){3}$/.test(plain)) return resolve(plain);
-          reject(new Error("Invalid IP response through proxy"));
-        });
-      }
-    );
-
-    req.on("error", (err: any) => finishErr(err?.message || "HTTPS CONNECT failed"));
-    req.setTimeout(timeoutMs, () => {
-      try { req?.destroy(); } catch { /* ignore */ }
-      finishErr(`HTTPS CONNECT timed out (${Math.round(timeoutMs / 1000)}s)`);
-    });
-  });
-}
 
 let consecutiveProxyFailures = 0;
 let lastProbeAttemptTime = 0;
