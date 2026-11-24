@@ -10,16 +10,16 @@ export interface ProxyHealthState {
 }
 
 export function shouldUseProxyForUrl(urlStr: string): boolean {
-  const clean = String(urlStr || "");
+  const clean = String(urlStr || '');
   if (!clean) return false;
   // High-frequency read-only market polling does not require Upstox Static IP and can run 100ms faster direct,
   // preserving SOCKS5 proxy workers exclusively for orders, portfolio, funds, and auth calls.
   if (
-    clean.includes("/market-quote/") ||
-    clean.includes("/historical-candle/") ||
-    clean.includes("/option/chain") ||
-    clean.includes("/option/contract") ||
-    clean.includes("/charges/brokerage")
+    clean.includes('/market-quote/') ||
+    clean.includes('/historical-candle/') ||
+    clean.includes('/option/chain') ||
+    clean.includes('/option/contract') ||
+    clean.includes('/charges/brokerage')
   ) {
     return false;
   }
@@ -27,7 +27,7 @@ export function shouldUseProxyForUrl(urlStr: string): boolean {
 }
 
 export function evaluateProxyHealthCacheState(
-  cache: Pick<ProxyHealthState, "url" | "online" | "lastChecked">,
+  cache: Pick<ProxyHealthState, 'url' | 'online' | 'lastChecked'>,
   configuredUrl: string,
   nowMs: number,
 ): { online: boolean; shouldRefresh: boolean } {
@@ -56,7 +56,9 @@ export function parseUpstoxFundsData(fundsData: any): {
 } {
   const eq = fundsData?.data?.equity || {};
   const com = fundsData?.data?.commodity || {};
-  const availableMargin = Number(eq.available_margin ?? 0) || (Number(eq.available_margin ?? 0) === 0 ? Number(com.available_margin ?? 0) : 0);
+  const availableMargin =
+    Number(eq.available_margin ?? 0) ||
+    (Number(eq.available_margin ?? 0) === 0 ? Number(com.available_margin ?? 0) : 0);
   const usedMargin = Number(eq.used_margin ?? eq.utilized_margin ?? 0);
   // Upstox reports negative used_margin equal to CNC delivery sell proceeds already included in available_margin.
   const deliverySellCredit = usedMargin < 0 ? Number(Math.abs(usedMargin).toFixed(2)) : 0;
