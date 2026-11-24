@@ -22,6 +22,7 @@ import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
 import { usePositionAlerts } from './hooks/usePositionAlerts';
+import { useMarketSessionClock } from './hooks/useMarketSessionClock';
 import { Header } from './components/Header';
 import { TickerBar } from './components/TickerBar';
 import { Watchlist } from './components/Watchlist';
@@ -39,12 +40,7 @@ import {
   calculateAffordableLotsWithBrokerage,
 } from './utils/indicators';
 import { soundEngine } from './utils/audioAlerts';
-import {
-  triggerAlertEvent,
-  getIstMarketSessionStatus,
-  LightingAlertBannerState,
-  MarketSessionStatus,
-} from './utils/soundAlerts';
+import { triggerAlertEvent, LightingAlertBannerState } from './utils/soundAlerts';
 
 import { INITIAL_WATCHLIST_SYMBOLS } from './data/initialWatchlist';
 import { DEFAULT_BOT_CONFIG } from './data/defaultBotConfig';
@@ -66,11 +62,8 @@ export const App: React.FC = () => {
   });
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isWsConnected, setIsWsConnected] = useState(false);
-  const [marketSession, setMarketSession] = useState<MarketSessionStatus>(() =>
-    getIstMarketSessionStatus(),
-  );
   const [lightingBanner, setLightingBanner] = useState<LightingAlertBannerState | null>(null);
-  const prevMarketPhaseRef = useRef<string>(marketSession.phase ?? '');
+  const marketSession = useMarketSessionClock({ soundEnabled, setLightingBanner });
 
   // Quotes and Selection
   const [quotes, setQuotes] = useState<StockQuote[]>(INITIAL_WATCHLIST_SYMBOLS);
@@ -1816,37 +1809,6 @@ export const App: React.FC = () => {
     }
   }, [activeTab, geminiAnalysis, aiLoading, handleFetchGeminiAnalysis]);
 
-  // 4. Live 1-Second IST Market Session Clock & Opening/Closing Bell Trigger
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const nextSession = getIstMarketSessionStatus();
-      setMarketSession(nextSession);
-
-      if (prevMarketPhaseRef.current !== nextSession.phase) {
-        if (nextSession.phase === 'LIVE_TRADING' || nextSession.phase === 'OPENING_VOLATILITY') {
-          const banner = triggerAlertEvent(
-            'MARKET_OPEN_BELL',
-            'NSE / BSE',
-            '🔔 മാർക്കറ്റ് ട്രേഡിങ് ആരംഭിച്ചു (09:15 AM IST)!',
-            'അൽഗോരിതം 09:18 AM മുതൽ തത്സമയ ബ്രേക്ക്ഔട്ട് ട്രേഡുകൾ എടുത്തു തുടങ്ങും.',
-            !soundEnabled,
-          );
-          if (banner) setLightingBanner(banner);
-        } else if (nextSession.phase === 'CLOSED_POST_MARKET') {
-          const banner = triggerAlertEvent(
-            'MARKET_CLOSE_BELL',
-            'NSE / BSE',
-            '🏁 ഇന്നത്തെ മാർക്കറ്റ് ട്രേഡിങ് അവസാനിച്ചു (03:30 PM IST)!',
-            'ഇന്നത്തെ ട്രേഡിങ് സമയം പൂർത്തിയായി. അടുത്ത ട്രേഡിങ് സെഷൻ രാവിലെ 09:15 AM-ന് ആരംഭിക്കും.',
-            !soundEnabled,
-          );
-          if (banner) setLightingBanner(banner);
-        }
-        prevMarketPhaseRef.current = nextSession.phase;
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [soundEnabled]);
 
   // 5. Multi-Tier Audio & Visual Lighting Alert Monitor for Positions & Holdings
   usePositionAlerts({ positions, holdings, soundEnabled, setLightingBanner });
