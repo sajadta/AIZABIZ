@@ -7,6 +7,7 @@ import { buildMtfTrend } from './mtfTrend';
 import { detectCandlePattern } from './candlePatterns';
 import { evaluateVolumeRegime } from './volumeRegime';
 import { applyOptionLayer } from './optionLayer';
+import { analyzeSwingStructure } from './swingStructure';
 
 export interface ConfluenceEngineParams {
   candles: CandleData[];
@@ -226,64 +227,18 @@ export function runConfluenceEngine(params: ConfluenceEngineParams): ConfluenceE
   else if (tf5m === 'BULLISH' && tf15m !== 'BEARISH') bullishPoints += 8;
   else if (tf5m === 'BEARISH' && tf15m !== 'BULLISH') bearishPoints += 8;
 
-  // C. Historical Chart Structure (60-Candle Major Swing Highs/Lows, HH-HL / LH-LL, Double Bottom/Top & S/R Runway)
-  const historySlice = candles.slice(-Math.min(60, candles.length));
-  const priorHistory = historySlice.slice(0, Math.max(5, historySlice.length - 3));
-  const swingHighs: number[] = [];
-  const swingLows: number[] = [];
-  for (let i = 4; i < priorHistory.length - 4; i++) {
-    const c = priorHistory[i];
-    if (
-      c.high >= priorHistory[i - 1].high &&
-      c.high >= priorHistory[i - 2].high &&
-      c.high >= priorHistory[i - 3].high &&
-      c.high >= priorHistory[i + 1].high &&
-      c.high >= priorHistory[i + 2].high &&
-      c.high >= priorHistory[i + 3].high
-    ) {
-      swingHighs.push(c.high);
-    }
-    if (
-      c.low <= priorHistory[i - 1].low &&
-      c.low <= priorHistory[i - 2].low &&
-      c.low <= priorHistory[i - 3].low &&
-      c.low <= priorHistory[i + 1].low &&
-      c.low <= priorHistory[i + 2].low &&
-      c.low <= priorHistory[i + 3].low
-    ) {
-      swingLows.push(c.low);
-    }
-  }
-
-  let chartStructureEn = 'Institutional Trend Continuation';
-  let chartStructureMl = 'ഇൻസ്റ്റിറ്റ്യൂഷണൽ ട്രെൻഡ് തുടർച്ച';
-
-  if (swingLows.length >= 2) {
-    const lastLow = swingLows[swingLows.length - 1];
-    const prevLow = swingLows[swingLows.length - 2];
-    if (Math.abs(lastLow - prevLow) <= atr14 * 0.8 && currentLtp > lastLow + atr14) {
-      chartStructureEn = 'Double Bottom (W-Pattern) Support Breakout';
-      chartStructureMl = 'ഡബിൾ ബോട്ടം (W-Pattern) സപ്പോർട്ട് ബ്രേക്ക്ഔട്ട്';
-      bullishPoints += 12;
-    } else if (lastLow > prevLow && currentLtp > ema21) {
-      chartStructureEn = 'Higher-High / Higher-Low (HH-HL) Uptrend Structure';
-      chartStructureMl = 'ഹയർ-ഹൈ / ഹയർ-ലോ (HH-HL) അപ്‌ട്രെൻഡ് സ്ട്രക്ചർ';
-      bullishPoints += 10;
-    }
-  }
-  if (swingHighs.length >= 2) {
-    const lastHigh = swingHighs[swingHighs.length - 1];
-    const prevHigh = swingHighs[swingHighs.length - 2];
-    if (Math.abs(lastHigh - prevHigh) <= atr14 * 0.8 && currentLtp < lastHigh - atr14) {
-      chartStructureEn = 'Double Top (M-Pattern) Supply Breakdown';
-      chartStructureMl = 'ഡബിൾ ടോപ്പ് (M-Pattern) റെസിസ്റ്റൻസ് ബ്രേക്ക്ഡൗൺ';
-      bearishPoints += 12;
-    } else if (lastHigh < prevHigh && currentLtp < ema21) {
-      chartStructureEn = 'Lower-High / Lower-Low (LH-LL) Downtrend Structure';
-      chartStructureMl = 'ലോവർ-ഹൈ / ലോവർ-ലോ (LH-LL) ഡൗൺട്രെൻഡ് സ്ട്രക്ചർ';
-      bearishPoints += 10;
-    }
-  }
+  const {
+    swingHighs,
+    swingLows,
+    chartStructureEn: initialStructureEn,
+    chartStructureMl: initialStructureMl,
+    bullishPointsDelta: structureBullPoints,
+    bearishPointsDelta: structureBearPoints,
+  } = analyzeSwingStructure({ candles, currentLtp, atr14, ema21 });
+  let chartStructureEn = initialStructureEn;
+  let chartStructureMl = initialStructureMl;
+  bullishPoints += structureBullPoints;
+  bearishPoints += structureBearPoints;
 
   // D. Corporate Heavyweights Flow & Global/Macro Market Alignment
   const corpScore = Number(optionMetrics?.corporateHeavyweightScore ?? 0);
