@@ -9,6 +9,7 @@
     "start": "node server.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"server/tests/*.test.ts\"",
     "lint": "eslint src --ext .ts,.tsx",
     "format:check": "prettier --check src package.json tsconfig.json vite.config.ts",
     "format": "prettier --write src package.json tsconfig.json vite.config.ts"
