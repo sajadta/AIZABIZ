@@ -11,6 +11,7 @@ import {
 import { buildMtfTrend } from './signals/mtfTrend';
 import { detectCandlePattern } from './signals/candlePatterns';
 import { buildIndicatorReadings } from './signals/readings';
+import { evaluateVolumeRegime } from './signals/volumeRegime';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -154,44 +155,16 @@ export function analyzeTradingSignals(
     bearishPoints -= 10;
   }
 
-  // Calculate Relative Volume (RVOL) over last 20 candles; for Index spot candles (volume=0), use Relative Range/Velocity Expansion!
-  const volSlice = candles.slice(-Math.min(20, candles.length));
-  const avgVol20 =
-    volSlice.reduce((acc, c) => acc + Number(c.volume || 0), 0) / Math.max(1, volSlice.length);
-  const avgRange20 =
-    volSlice.reduce((acc, c) => acc + Math.max(0.05, c.high - c.low), 0) /
-    Math.max(1, volSlice.length);
-  const recent2MaxRange = Math.max(
-    last.high - last.low,
-    prev.high - prev.low,
-    Math.abs(currentLtp - prev.close),
-  );
-  const rvol =
-    avgVol20 > 0
-      ? Number((Number(last.volume || 0) / avgVol20).toFixed(2))
-      : avgRange20 > 0
-        ? Number(Math.max(0.8, Math.min(3.5, recent2MaxRange / avgRange20)).toFixed(2))
-        : 1.15;
-
-  // INSTITUTIONAL DARK-POOL & HIDDEN BLOCK TRACKING PROXY ENGINE:
-  // Detects off-exchange block accumulation / distribution anomalies via volume spikes (>= 3.5x average) and range expansion.
-  const isDarkPoolBullishBlock =
-    rvol >= 3.5 && last.close >= last.open && last.close >= (last.high + last.low) / 2;
-  const isDarkPoolBearishBlock =
-    rvol >= 3.5 && last.close <= last.open && last.close <= (last.high + last.low) / 2;
-  if (isDarkPoolBullishBlock) bullishPoints += 22;
-  if (isDarkPoolBearishBlock) bearishPoints += 22;
-
-  // NEURAL QUANT PROBABILITY SCORER:
-  // Multi-layered neural-weighted scoring heuristic combining momentum, neural weights, and volatility entropy.
-  const neuralEntropyFactor = Math.abs(rsi - 50) / 50;
-  const neuralQuantConfidenceWeight = Number(
-    (1 / (1 + Math.exp(-((rvol - 1.2) * 1.5 + neuralEntropyFactor)))).toFixed(2),
-  );
-  if (neuralQuantConfidenceWeight >= 0.65) {
-    if (last.close >= last.open) bullishPoints += 10;
-    else bearishPoints += 10;
-  }
+  const {
+    rvol,
+    isDarkPoolBullishBlock,
+    isDarkPoolBearishBlock,
+    neuralQuantConfidenceWeight,
+    bullishPoints: volumeBullishPoints,
+    bearishPoints: volumeBearishPoints,
+  } = evaluateVolumeRegime({ candles, last, prev, currentLtp, rsi });
+  bullishPoints += volumeBullishPoints;
+  bearishPoints += volumeBearishPoints;
 
   // 8.5 ADX Trend Strength & Choppy/Sideways Market Veto (Prevents buying options in dead sideways markets where Theta eats premium!)
   const adxVal = Number((readings as any).adx?.value ?? 20);
