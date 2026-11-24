@@ -61,6 +61,7 @@ import {
 } from './entryScan/sessionCircuit';
 import { getFiveYearRegime } from './entryScan/fiveYearRegime';
 import { computeInstitutionalFlow } from './entryScan/institutionalFlow';
+import { computeChainOiMetrics } from './entryScan/chainMetrics';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -546,30 +547,11 @@ export async function runEntryScan(ctx: {
                                   ? 120
                                   : 65);
 
-                    // Calculate overall Put-Call Ratio (PCR) + Highest Call OI Resistance Wall & Highest Put OI Support Wall
-                    let totalCallOi = 0;
-                    let totalPutOi = 0;
-                    let callWallStrike = 0;
-                    let maxCallWallOi = 0;
-                    let putWallStrike = 0;
-                    let maxPutWallOi = 0;
-                    for (const row of chainData.data) {
-                      const sp = Number(row.strike_price || 0);
-                      const cOi = Number(row.call_options?.market_data?.oi || 0);
-                      const pOi = Number(row.put_options?.market_data?.oi || 0);
-                      totalCallOi += cOi;
-                      totalPutOi += pOi;
-                      if (sp > liveLtp && cOi > maxCallWallOi) {
-                        maxCallWallOi = cOi;
-                        callWallStrike = sp;
-                      }
-                      if (sp < liveLtp && pOi > maxPutWallOi) {
-                        maxPutWallOi = pOi;
-                        putWallStrike = sp;
-                      }
-                    }
-                    const chainPcr =
-                      totalCallOi > 0 ? Number((totalPutOi / totalCallOi).toFixed(2)) : 1.0;
+                    // Put-Call Ratio plus the highest Call-OI resistance wall and Put-OI support wall
+                    const { chainPcr, callWallStrike, putWallStrike } = computeChainOiMetrics(
+                      chainData.data,
+                      liveLtp,
+                    );
 
                     // Sort strikes by proximity to underlying index spot, PLUS include affordable strikes that fit the user's exact Upstox account balance
                     const allValidRows = [...chainData.data].filter(
