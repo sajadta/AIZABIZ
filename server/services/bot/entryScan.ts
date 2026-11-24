@@ -11,6 +11,7 @@ import { sendTelegramNotification } from ".././notifications";
 import { savePostgresDb, getPaperInitialCapital } from ".././persistence";
 import { YAHOO_NSE_MAP } from "../../data/yahooMap";
 
+import { refreshLiveDayClosedTrades, computeSessionCircuitMetrics, getTradeNetPnL } from "./entryScan/sessionCircuit";
 import { strikeDailyEntryCount, STRIKE_LOCKOUT_MS, STRIKE_LOSS_LOCKOUT_MS, MAX_STRIKE_ENTRIES_DEFAULT, MAX_STRIKE_ENTRIES_TRENDING } from "./antiChurn";
 
 let lastCapitalShortfallLogMs = 0;
@@ -29,117 +30,18 @@ export async function runEntryScan(ctx: {
   nowIst: Date;
 }): Promise<void> {
   const { token, activePositions, liveQuotesMap, nowIst } = ctx;
-  const todayMidnightIst = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
-  );
-  todayMidnightIst.setHours(0, 0, 0, 0);
-  const todayStartMs = todayMidnightIst.getTime();
-  const resetCutoff = Math.max(
-    Number((botConfig as any).circuitBreakerResetAt || 0),
-    todayStartMs,
-  );
-  // Sync live closed trades from Upstox Exchange Order Book (every 10s) so Circuit Breaker is
-  // completely immune to server restarts or .upstox_algo_state.json deletions!
-  if (
-    botConfig.mode === "UPSTOX_LIVE" &&
-    token &&
-    (cachedLiveDayClosedTrades.token !== token || Date.now() - cachedLiveDayClosedTrades.timestamp > 8000)
-  ) {
-    try {
-      const dayOrdersData = await getCachedLiveDayOrders(token, 4000);
-      if (Array.isArray(dayOrdersData) && dayOrdersData.length > 0) {
-        const pairedLive = pairLiveDayOrders(dayOrdersData).filter(
-          (t) => t.isOption !== false,
-        );
-        cachedLiveDayClosedTrades = {
-          timestamp: Date.now(),
-          token,
-          trades: pairedLive,
-        };
-      }
-    } catch {
-      // Retain last cached day trades on transient fetch hiccup
-    }
-  }
+  cachedLiveDayClosedTrades = await refreshLiveDayClosedTrades(cachedLiveDayClosedTrades, token);
 
-  const getTradeNetPnL = (trade: any): number => {
-    if (typeof trade.netRealizedPnL === "number" && Number.isFinite(trade.netRealizedPnL)) {
-      return trade.netRealizedPnL;
-    }
-    const gross = Number(trade.realizedPnL || 0);
-    const qty = Math.max(1, Number(trade.quantity || 1));
-    const charges =
-      Number(trade.brokerageCharges || 0) > 0
-        ? Number(trade.brokerageCharges)
-        : calculateTradeCharges(
-            Number(trade.buyPrice || 0),
-            qty,
-            trade.isOption !== false,
-            Number(trade.sellPrice || trade.buyPrice || 0),
-          ).roundTripCharges;
-    return Number((gross - charges).toFixed(2));
-  };
-
-  const localSessionTrades = paperTradeHistory.filter((trade) => {
-    const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
-    const modeMatches = !trade.mode || trade.mode === botConfig.mode;
-    return closeTs >= resetCutoff && modeMatches;
-  });
-
-  const liveSyncedTrades =
-    botConfig.mode === "UPSTOX_LIVE"
-      ? cachedLiveDayClosedTrades.trades.filter((trade) => {
-          const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
-          return closeTs >= resetCutoff;
-        })
-      : [];
-
-  // Prefer Upstox Exchange closed trades in LIVE mode, merging any local trades not yet matched
-  const activeSessionTrades =
-    botConfig.mode === "UPSTOX_LIVE" && liveSyncedTrades.length > 0
-      ? [
-          ...liveSyncedTrades,
-          ...localSessionTrades.filter((lt) => {
-            const ltTs = lt.closeTime ? new Date(lt.closeTime).getTime() : 0;
-            const ltSym = String(lt.symbol || "").replace(/\s+/g, "").toUpperCase();
-            return !liveSyncedTrades.some((st) => {
-              const stTs = st.closeTime ? new Date(st.closeTime).getTime() : 0;
-              const stSym = String(st.symbol || "").replace(/\s+/g, "").toUpperCase();
-              return stSym === ltSym && Math.abs(stTs - ltTs) <= 90000;
-            });
-          }),
-        ]
-      : localSessionTrades;
-
-  // Count ALL net losses (including ₹72 Upstox brokerage) so small-gross losses aren't disguised as wins!
-  const todayOptionLossCount = activeSessionTrades.filter(
-    (trade) => getTradeNetPnL(trade) < 0,
-  ).length;
-  const maxAllowedOptionLosses = Math.min(
-    10,
-    Math.max(2, Number(botConfig.maxOptionLossCount || 3)),
-  );
-  const todayRealizedPnL = Number(
-    activeSessionTrades.reduce((acc, trade) => acc + getTradeNetPnL(trade), 0).toFixed(2),
-  );
-  const paperCapitalBase = getPaperInitialCapital();
-  const paperSessionPnL = paperTradeHistory
-    .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
-    .reduce((sum: number, t: any) => sum + getTradeNetPnL(t), 0);
-  const liveMarginInfo = getCachedUpstoxLiveMargin();
-  const liveTotalAccountEquity =
-    Number(liveMarginInfo.margin || 0) + Math.max(0, Number(liveMarginInfo.utilizedMargin || 0));
-  const liveOrPaperCapForCircuit =
-    botConfig.mode === "UPSTOX_LIVE"
-      ? (liveTotalAccountEquity > 0 ? liveTotalAccountEquity : paperCapitalBase)
-      : Math.max(500, paperCapitalBase + paperSessionPnL);
-  const isSmallCapForCircuit = liveOrPaperCapForCircuit <= 4000;
-  const dynamicDailyLossLimit = isSmallCapForCircuit
-    ? Math.min(Number(botConfig.dailyMaxLossLimit || 800), Math.max(350, Math.round(liveOrPaperCapForCircuit * 0.45)))
-    : Number(botConfig.dailyMaxLossLimit || 1500);
-
-  // Circuit Breaker locks permanently disabled per user instruction ("Sercute lock ozhivakkuka")
-  botConfig.dailyLossLocked = false;
+  const {
+    resetCutoff,
+    activeSessionTrades,
+    todayOptionLossCount,
+    maxAllowedOptionLosses,
+    todayRealizedPnL,
+    liveOrPaperCapForCircuit,
+    isSmallCapForCircuit,
+    dynamicDailyLossLimit,
+  } = computeSessionCircuitMetrics(cachedLiveDayClosedTrades);
 
 
   // Ultra-fast 30s exchange settlement buffer ONLY (no 10-minute cooldown block!)
