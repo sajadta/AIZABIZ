@@ -23,6 +23,7 @@ import { useTradingActions } from './hooks/useTradingActions';
 import { useSignalExecution } from './hooks/useSignalExecution';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
+import { useChartCandles } from './hooks/useChartCandles';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -206,62 +207,13 @@ export const App: React.FC = () => {
   });
 
   // Fetch real Upstox Candlesticks & Technical Indicators
-  const candlesInFlightRef = useRef(false);
-  const candlesAbortRef = useRef<AbortController | null>(null);
-  const fetchRealCandles = useCallback(async () => {
-    if (candlesInFlightRef.current) return;
-    candlesInFlightRef.current = true;
-    const ctrl = new AbortController();
-    candlesAbortRef.current = ctrl;
-    const timeoutId = setTimeout(() => ctrl.abort(), 5500);
-
-    const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    try {
-      const url = `/api/market/candles?symbol=${encodeURIComponent(selectedSymbol)}&interval=${chartInterval}&instrumentKey=${encodeURIComponent(selectedInstrumentKey)}`;
-      const res = await fetch(url, { headers, signal: ctrl.signal });
-      if (res.ok && !ctrl.signal.aborted) {
-        const json = await res.json();
-        if (
-          json.success &&
-          Array.isArray(json.candles) &&
-          json.candles.length > 0 &&
-          !ctrl.signal.aborted
-        ) {
-          const enriched = enrichCandlesWithIndicators(json.candles);
-          setCandles(enriched);
-          return;
-        }
-      }
-    } catch (e) {
-      if (!ctrl.signal.aborted) {
-        console.warn('Real candle fetch notice:', e);
-      }
-    } finally {
-      clearTimeout(timeoutId);
-      if (candlesAbortRef.current === ctrl) candlesAbortRef.current = null;
-      candlesInFlightRef.current = false;
-    }
-  }, [selectedSymbol, selectedInstrumentKey, chartInterval, apiConfig.accessToken]);
-
-  // Clear stale candles immediately when selectedSymbol or selectedInstrumentKey changes so old symbol's price scale never mixes with new symbol
-  useEffect(() => {
-    setCandles([]);
-  }, [selectedSymbol, selectedInstrumentKey]);
-
-  useEffect(() => {
-    fetchRealCandles();
-    const candleIntervalTimer = setInterval(fetchRealCandles, 5000);
-    return () => {
-      candlesAbortRef.current?.abort();
-      candlesInFlightRef.current = false;
-      clearInterval(candleIntervalTimer);
-    };
-  }, [fetchRealCandles]);
+  useChartCandles({
+    accessToken: apiConfig.accessToken,
+    selectedSymbol,
+    selectedInstrumentKey,
+    chartInterval,
+    setCandles,
+  });
 
   // Keep chartTradeContext dynamically synchronized with live positions & latest candles
   useEffect(() => {
