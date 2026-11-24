@@ -1,15 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  Layers,
-  RefreshCw,
-  Target,
-  ArrowRight,
-  ArrowLeft,
-  MoveHorizontal,
-} from 'lucide-react';
-import { OptionChainData, Language, StockQuote } from '../types';
-import { OptionChainRow } from './optionchain/OptionChainRow';
+import { Layers, RefreshCw } from 'lucide-react';
+import type { OptionChainData, Language, StockQuote } from '../types';
 import { IndexSelectorRibbon } from './optionchain/IndexSelectorRibbon';
+import { OptionChainHeader } from './optionchain/OptionChainHeader';
+import { OptionChainTable } from './optionchain/OptionChainTable';
 
 interface OptionChainViewProps {
   quotes?: StockQuote[];
@@ -87,27 +81,17 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
   };
 
   // Smooth Horizontal Glides (Calls / Center / Puts)
-  const glideToCalls = () => {
-    if (tableContainerRef.current) {
-      tableContainerRef.current.scrollTo({ left: 0, behavior: 'smooth' });
-      setScrollPosition('LEFT');
-    }
-  };
-
-  const glideToCenter = () => {
-    if (tableContainerRef.current) {
-      const containerWidth = tableContainerRef.current.clientWidth;
-      const targetLeft = Math.max(0, (700 - containerWidth) / 2);
-      tableContainerRef.current.scrollTo({ left: targetLeft, behavior: 'smooth' });
-      setScrollPosition('CENTER');
-    }
-  };
-
-  const glideToPuts = () => {
-    if (tableContainerRef.current) {
-      tableContainerRef.current.scrollTo({ left: 500, behavior: 'smooth' });
-      setScrollPosition('RIGHT');
-    }
+  const handleGlide = (position: 'LEFT' | 'CENTER' | 'RIGHT') => {
+    const container = tableContainerRef.current;
+    if (!container) return;
+    if (position === 'LEFT') container.scrollTo({ left: 0, behavior: 'smooth' });
+    else if (position === 'RIGHT') container.scrollTo({ left: 500, behavior: 'smooth' });
+    else
+      container.scrollTo({
+        left: Math.max(0, (700 - container.clientWidth) / 2),
+        behavior: 'smooth',
+      });
+    setScrollPosition(position);
   };
 
   // Auto-center horizontally on initial load so both Calls LTP, Strike, and Puts LTP are immediately visible
@@ -172,225 +156,34 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
         onSelectSymbol={onSelectSymbol}
       />
 
-      {/* 2. STATS & CONTROLS HEADER */}
-      <div className="p-2 sm:p-3 border-b border-slate-800/80 bg-[#080c16] shrink-0 space-y-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          {/* Symbol, Spot LTP & Lot Size */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs sm:text-sm font-black text-white tracking-tight uppercase">
-              {data.underlyingSymbol}
-            </span>
-            <span className="text-xs font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-              ₹{Number(data.underlyingLTP || 0).toFixed(2)}
-            </span>
-            {data.lotSize && data.lotSize > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono font-bold">
-                1 Lot = {data.lotSize}
-              </span>
-            )}
-          </div>
+      <OptionChainHeader
+        data={data}
+        language={language}
+        loading={loading}
+        selectedExpiry={selectedExpiry}
+        setSelectedExpiry={setSelectedExpiry}
+        onRefresh={onRefresh}
+        strikeRange={strikeRange}
+        setStrikeRange={setStrikeRange}
+        onJumpToAtm={handleJumpToAtm}
+        scrollPosition={scrollPosition}
+        onGlide={handleGlide}
+      />
 
-          {/* Expiry Selector & Refresh */}
-          <div className="flex items-center gap-1.5">
-            <select
-              value={selectedExpiry || data.selectedExpiry}
-              onChange={(e) => {
-                const nextExp = e.target.value;
-                setSelectedExpiry(nextExp);
-                onRefresh(nextExp);
-              }}
-              className="bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-1 text-[10px] sm:text-[11px] text-white font-mono font-bold focus:outline-none focus:border-cyan-500 shadow-inner"
-            >
-              {data.expiryDates.map((exp) => (
-                <option key={exp} value={exp}>
-                  {exp}
-                </option>
-              ))}
-            </select>
-
-            <button
-              onClick={() => onRefresh(selectedExpiry || data.selectedExpiry)}
-              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition shrink-0"
-              title="Refresh Live Option Chain"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-cyan-400' : ''}`} />
-            </button>
-          </div>
-        </div>
-
-        {/* PCR, Max Pain & Quick ATM Jump & Range Filters */}
-        <div className="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-slate-400 pt-0.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span>
-              PCR:{' '}
-              <strong
-                className={data.pcr > 1 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}
-              >
-                {data.pcr}
-              </strong>
-            </span>
-            <span className="text-slate-600">•</span>
-            <span>
-              Max Pain: <strong className="text-amber-400 font-bold">₹{data.maxPain}</strong>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {/* Jump to ATM button */}
-            <button
-              onClick={handleJumpToAtm}
-              className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-1 text-[9px] transition active:scale-95"
-            >
-              <Target className="w-2.5 h-2.5 text-amber-400" />
-              <span>{language === 'ml' ? '🎯 ATM സ്ട്രൈക്ക്' : '🎯 Jump to ATM'}</span>
-            </button>
-
-            {/* Range Pills */}
-            <div className="flex items-center bg-slate-950 p-0.5 rounded border border-slate-800 text-[9px]">
-              {(['5', '10', 'ALL'] as const).map((rng) => (
-                <button
-                  key={rng}
-                  onClick={() => setStrikeRange(rng)}
-                  className={`px-1.5 py-0.5 rounded font-bold transition ${
-                    strikeRange === rng
-                      ? 'bg-cyan-600 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {rng === 'ALL' ? (language === 'ml' ? 'എല്ലാം' : 'All') : `±${rng}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* 2.1 HORIZONTAL GLIDE MASTER BAR (Left-Right Scrolling Controller) */}
-        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-800/60 text-[10px]">
-          <div className="flex items-center gap-1 text-slate-400 font-bold">
-            <MoveHorizontal className="w-3 h-3 text-cyan-400" />
-            <span className="text-[9px] text-slate-400 hidden xs:inline">
-              {language === 'ml' ? 'സ്ക്രോൾ ഗ്ലൈഡ്:' : 'Glide View:'}
-            </span>
-          </div>
-
-          {/* Tactile Glide Buttons */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={glideToCalls}
-              className={`px-2.5 py-0.5 rounded-lg font-black text-[10px] flex items-center gap-1 transition active:scale-95 border ${
-                scrollPosition === 'LEFT'
-                  ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-sm'
-                  : 'bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-500/30'
-              }`}
-              title="View Calls (CE) Columns"
-            >
-              <ArrowLeft className="w-2.5 h-2.5" />
-              <span>{language === 'ml' ? 'കാൾ (CE)' : 'Calls'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={glideToCenter}
-              className={`px-2.5 py-0.5 rounded-lg font-black text-[10px] flex items-center gap-1 transition active:scale-95 border ${
-                scrollPosition === 'CENTER'
-                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
-                  : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border-amber-500/30'
-              }`}
-              title="Center on Strike Price"
-            >
-              <Target className="w-2.5 h-2.5" />
-              <span>{language === 'ml' ? 'സ്ട്രൈക്ക് (Center)' : 'Strike'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={glideToPuts}
-              className={`px-2.5 py-0.5 rounded-lg font-black text-[10px] flex items-center gap-1 transition active:scale-95 border ${
-                scrollPosition === 'RIGHT'
-                  ? 'bg-rose-500 text-white border-rose-400 shadow-sm'
-                  : 'bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border-rose-500/30'
-              }`}
-              title="View Puts (PE) Columns"
-            >
-              <span>{language === 'ml' ? 'പുട്ട് (PE)' : 'Puts'}</span>
-              <ArrowRight className="w-2.5 h-2.5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. SINGLE UNIFIED FULL-COLUMN OPTION CHAIN TABLE (ZERO-JAM DUAL-AXIS SCROLL) */}
-      <div
-        ref={tableContainerRef}
+      <OptionChainTable
+        data={data}
+        strikes={displayedStrikes}
+        underlyingLtp={underlyingLtp}
+        selectedSymbol={selectedSymbol}
+        maxCallOI={maxCallOI}
+        maxPutOI={maxPutOI}
+        getLtp={getLtp}
+        atmRef={atmRef}
+        tableContainerRef={tableContainerRef}
         onScroll={handleScroll}
-        className="flex-1 w-full max-w-full min-w-0 overflow-x-auto overflow-y-auto smooth-scroll overscroll-contain pb-36 sm:pb-8 select-none"
-        style={{
-          touchAction: 'pan-x pan-y',
-          WebkitOverflowScrolling: 'touch',
-        }}
-      >
-        <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[700px]">
-          {/* STICKY HEADER */}
-          <thead className="bg-[#090d18] text-slate-400 sticky top-0 z-20 border-b border-slate-800 shadow-md">
-            <tr>
-              <th
-                colSpan={4}
-                className="text-center py-1.5 bg-emerald-950/30 text-emerald-400 font-extrabold border-r border-slate-800 tracking-wider"
-              >
-                CALLS (CE)
-              </th>
-              <th className="text-center py-1.5 px-3 bg-[#0d1322] text-amber-300 font-black border-r border-slate-800 tracking-wider">
-                STRIKE
-              </th>
-              <th
-                colSpan={4}
-                className="text-center py-1.5 bg-rose-950/30 text-rose-400 font-extrabold tracking-wider"
-              >
-                PUTS (PE)
-              </th>
-            </tr>
-            <tr className="border-b border-slate-800 text-[10px] text-slate-400 bg-[#070a12]">
-              <th className="py-1.5 px-2 text-right whitespace-nowrap w-16">Vol</th>
-              <th className="py-1.5 px-2 text-right whitespace-nowrap w-20">OI</th>
-              <th className="py-1.5 px-2 text-right whitespace-nowrap w-14">IV</th>
-              <th className="py-1.5 px-2.5 text-right border-r border-slate-800 text-emerald-400 font-black whitespace-nowrap w-24">
-                Call LTP
-              </th>
-              <th className="py-1.5 px-3 text-center bg-[#0d1322] text-amber-300 border-r border-slate-800 font-black whitespace-nowrap w-20">
-                Price
-              </th>
-              <th className="py-1.5 px-2.5 text-left text-rose-400 font-black whitespace-nowrap w-24">
-                Put LTP
-              </th>
-              <th className="py-1.5 px-2 text-left whitespace-nowrap w-14">IV</th>
-              <th className="py-1.5 px-2 text-left whitespace-nowrap w-20">OI</th>
-              <th className="py-1.5 px-2 text-left whitespace-nowrap w-16">Vol</th>
-            </tr>
-          </thead>
-
-          {/* TABLE BODY */}
-          <tbody className="divide-y divide-slate-800/40">
-            {displayedStrikes.map((s, i) => (
-              <OptionChainRow
-                key={`${s.strikePrice}-${i}`}
-                strike={s}
-                rowIndex={i}
-                underlyingLtp={underlyingLtp}
-                underlyingSymbol={data.underlyingSymbol}
-                chainLotSize={data.lotSize}
-                selectedSymbol={selectedSymbol}
-                maxCallOI={maxCallOI}
-                maxPutOI={maxPutOI}
-                getLtp={getLtp}
-                atmRef={atmRef}
-                onSelectOptionTrade={onSelectOptionTrade}
-                onViewChart={onViewChart}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+        onSelectOptionTrade={onSelectOptionTrade}
+        onViewChart={onViewChart}
+      />
     </div>
   );
 };
