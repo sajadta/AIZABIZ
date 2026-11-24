@@ -1,6 +1,7 @@
 // Smart Dynamic Anti-Churn & Re-entry Guard state shared by the bot tick.
 export const strikeDailyEntryCount: Record<string, number> = {};
-export const STRIKE_LOCKOUT_MS = 180 * 1000; // 3-minute anti-churn buffer to prevent rapid revenge trading
-export const STRIKE_LOCKOUT_MIN_MS = 120 * 1000; // 2-minute stabilization buffer
-export const MAX_STRIKE_ENTRIES_DEFAULT = 4; // Max 4 high-quality trades per strike per day to prevent overtrading
-export const MAX_STRIKE_ENTRIES_TRENDING = 6; // Max 6 entries on strong trending days
+export const STRIKE_LOCKOUT_MS = 45 * 1000; // 45-second exchange double-fill guard
+export const STRIKE_LOCKOUT_MIN_MS = 30 * 1000; // 30-second stabilization buffer
+export const STRIKE_LOSS_LOCKOUT_MS = 15 * 60 * 1000; // 15-min cooldown on the exact same strike after a net loss
+export const MAX_STRIKE_ENTRIES_DEFAULT = 3;
+export const MAX_STRIKE_ENTRIES_TRENDING = 5;

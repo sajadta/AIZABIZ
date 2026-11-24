@@ -5,6 +5,7 @@ import { upstoxConfig, invalidTokens, botLogs, paperOrders, paperPositions, pape
 import { getPaperInitialCapital, savePostgresDb } from "../../services/persistence";
 import { calculateTradeCharges } from "../../../src/utils/indicators";
 import { getInstrumentKey } from "../../lib/instruments";
+import { validatePaperOrderInput } from "../../lib/optionTradeRules";
 import { isUpstoxAuthFailureError } from "../../utils";
 import { placeUpstoxOrderIpv4, getDetectedContainerIp } from "../../services/upstoxTransport";
 
@@ -15,17 +16,18 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
     const resolvedKey =
       instrumentKey ||
       (/\b(CE|PE)\b/i.test(symbol || "") ? `NSE_FO|${symbol}` : getInstrumentKey(symbol));
-    const isOpt = /\b(CE|PE)\b/i.test(symbol || "") || String(resolvedKey).includes("FO");
-    // Guard against dummy ₹100 fallback option orders without a real Upstox instrument_key
-    if (
-      isOpt &&
-      (Number(price) === 100 || !String(resolvedKey).match(/^(NSE_FO|BSE_FO)\|\d+/))
-    ) {
+    const validation = validatePaperOrderInput({
+      symbol: symbol || "",
+      resolvedKey,
+      price: Number(price),
+    });
+    if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        error: "Blocked dummy ₹100 option order without real Upstox option chain contract.",
+        error: validation.error,
       });
     }
+    const isOpt = validation.isOption;
     const orderQty = Number(quantity) || 1;
     const orderPrice = Number(price) || 0;
     const totalOrderCost = orderQty * orderPrice;
@@ -75,11 +77,20 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
         // Selling an existing BUY position -> realize PnL and record to history
         const sellQty = Math.min(pos.quantity, newOrder.quantity);
         const realized = (newOrder.price - pos.buyPrice) * sellQty;
+        const sqCharges = calculateTradeCharges(
+          Number(pos.buyPrice || 0),
+          Math.max(1, sellQty),
+          isOpt,
+          newOrder.price,
+          resolvedKey,
+        );
         const closedSnapshot = {
           ...pos,
           quantity: sellQty,
           sellPrice: newOrder.price,
           realizedPnL: Number(realized.toFixed(2)),
+          brokerageCharges: sqCharges.roundTripCharges,
+          netRealizedPnL: Number((realized - sqCharges.roundTripCharges).toFixed(2)),
           closeTime: new Date().toISOString(),
           mode: "PAPER_TRADING",
         };
@@ -111,7 +122,7 @@ app.post("/api/trading/order", async (req: Request, res: Response) => {
         type: initialType || "BUY",
         mode: "PAPER_TRADING",
         openedAt: new Date().toLocaleTimeString("en-IN"),
-        isOption: /\b(CE|PE)\b/i.test(symbol || "") || String(resolvedKey).includes("FO"),
+        isOption: isOpt,
       });
     }
     savePostgresDb().catch(() => { /* ignore */ });

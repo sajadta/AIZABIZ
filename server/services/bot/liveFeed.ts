@@ -1,7 +1,10 @@
 // Bot tick live-feed phase: resolves active positions, refreshes live quotes/LTP
 // and computes the IST clock + EOD square-off flag used by the rest of the tick.
-import { botConfig, upstoxConfig, botSignals, paperPositions, globalLiveQuotes, livePositionStateTracker, lastQuotesCache, getCachedUpstoxLivePositions, setCachedUpstoxLivePositions } from "../../state";
+import { botConfig, upstoxConfig, botSignals, paperPositions, globalLiveQuotes, livePositionStateTracker, pendingClosedPositions, lastQuotesCache, getCachedUpstoxLivePositions, setCachedUpstoxLivePositions } from "../../state";
 import { resilientFetchJson } from "../../lib/http";
+import { normalizeUpstoxShortTermPosition, findOpenFifoLotForRawPosition } from "../../lib/portfolioNormalize";
+import { getCachedLiveDayOrders, computeOpenFifoPositionsFromOrders } from "../../lib/upstoxHistory";
+import { fetchRealNseQuotesFallback } from "../marketData";
 
 export interface BotTickContext {
   token: string;
@@ -22,66 +25,66 @@ export async function prepareTickContext(): Promise<BotTickContext | null> {
         activePositions = getCachedUpstoxLivePositions().list;
       } else {
         getCachedUpstoxLivePositions().timestamp = Date.now();
-        const pData: any = await resilientFetchJson(
-          "https://api.upstox.com/v2/portfolio/short-term-positions",
-          {
-            headers: {
-              Authorization: `Bearer ${upstoxConfig.accessToken}`,
-              Accept: "application/json",
-              "Api-Version": "2.0",
+        const [pData, dayOrders]: [any, any[]] = await Promise.all([
+          resilientFetchJson(
+            "https://api.upstox.com/v2/portfolio/short-term-positions",
+            {
+              headers: {
+                Authorization: `Bearer ${upstoxConfig.accessToken}`,
+                Accept: "application/json",
+                "Api-Version": "2.0",
+              },
             },
-          },
-          1,
-          4000
-        );
+            1,
+            4000,
+          ),
+          getCachedLiveDayOrders(upstoxConfig.accessToken, 2500),
+        ]);
         if (pData?.status === "success" && pData?.data) {
+          const openLotsMap = computeOpenFifoPositionsFromOrders(dayOrders);
+          const nowMs = Date.now();
+          for (const pk of Object.keys(pendingClosedPositions)) {
+            if (nowMs - pendingClosedPositions[pk] > 25000) {
+              delete pendingClosedPositions[pk];
+            }
+          }
           activePositions = pData.data
             .map((p: any) => {
-              const pKey = p.instrument_token || p.trading_symbol;
-              const buyPx = Number(
-                p.day_buy_price ||
-                p.buy_price ||
-                p.average_price ||
-                (p.day_buy_value && p.day_buy_quantity ? p.day_buy_value / p.day_buy_quantity : 0) ||
-                (p.buy_value && p.buy_quantity ? p.buy_value / p.buy_quantity : 0) ||
-                0
-              );
-              const curLtp = Number(p.last_price || buyPx);
-              if (!livePositionStateTracker[pKey]) {
-                livePositionStateTracker[pKey] = {
-                  openedAtMs: Date.now(),
-                  highestLTP: Math.max(buyPx, curLtp),
+              const baseKey = p.instrument_token || p.trading_symbol;
+              const prodCode = String(p.product || "D").toUpperCase() === "I" ? "I" : "D";
+              const trackerKey = `${baseKey}|${prodCode}`;
+              if (pendingClosedPositions[trackerKey] && nowMs - pendingClosedPositions[trackerKey] < 20000) {
+                return null;
+              }
+              const lotCost = findOpenFifoLotForRawPosition(p, openLotsMap);
+              const prelim = normalizeUpstoxShortTermPosition(p, undefined, lotCost);
+              if (!prelim) return null;
+
+              const existingTracker = livePositionStateTracker[trackerKey];
+              const isFreshReEntry =
+                !existingTracker ||
+                Math.abs(Number(existingTracker.entryBuyPrice || 0) - prelim.buyPrice) > 0.02 ||
+                (prelim.openedAtMs &&
+                  existingTracker.entryOpenedAtMs &&
+                  Math.abs(prelim.openedAtMs - existingTracker.entryOpenedAtMs) > 5000);
+
+              if (isFreshReEntry) {
+                livePositionStateTracker[trackerKey] = {
+                  openedAtMs: prelim.openedAtMs || Date.now(),
+                  entryOpenedAtMs: prelim.openedAtMs || Date.now(),
+                  entryBuyPrice: prelim.buyPrice,
+                  highestLTP: Math.max(prelim.buyPrice, prelim.currentLTP),
                   highestPnl: 0,
                   highestNetPnl: 0,
+                  lockedStopLossPrice: undefined,
+                  _slBreachAtMs: 0,
                 };
               }
-              const tracker = livePositionStateTracker[pKey];
-              tracker.highestLTP = Math.max(tracker.highestLTP, buyPx, curLtp);
-              return {
-                id: p.trading_symbol || p.instrument_token,
-                symbol: p.trading_symbol || p.instrument_token,
-                instrumentKey: p.instrument_token,
-                product: p.product || "D",
-                productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
-                type: p.quantity > 0 ? "BUY" : p.quantity < 0 ? "SELL" : "CLOSED",
-                quantity: Math.abs(p.quantity || p.net_quantity || 0),
-                buyPrice: buyPx,
-                currentLTP: curLtp,
-                openedAtMs: tracker.openedAtMs,
-                highestLTP: tracker.highestLTP,
-                highestPnl: tracker.highestPnl,
-                highestNetPnl: tracker.highestNetPnl,
-                lockedStopLossPrice: tracker.lockedStopLossPrice,
-                brokerageCharges: tracker.brokerageCharges,
-                brokerageSource: tracker.brokerageSource,
-                pnl: p.pnl || p.m2m,
-                mode: "UPSTOX_LIVE",
-                isOption:
-                  /\b(CE|PE)\b/i.test(p.trading_symbol || "") ||
-                  String(p.instrument_token || "").includes("FO"),
-              };
+              const tracker = livePositionStateTracker[trackerKey];
+              tracker.highestLTP = Math.max(tracker.highestLTP, prelim.buyPrice, prelim.currentLTP);
+              return normalizeUpstoxShortTermPosition(p, tracker, lotCost);
             })
-            .filter((p: any) => p.type !== "CLOSED" && p.quantity > 0);
+            .filter((p: any): p is NonNullable<typeof p> => p !== null);
           setCachedUpstoxLivePositions({ timestamp: Date.now(), list: activePositions });
         } else {
           getCachedUpstoxLivePositions().timestamp = Date.now();
@@ -161,6 +164,7 @@ export async function prepareTickContext(): Promise<BotTickContext | null> {
         liveQuotesMap = { ...liveQuotesMap, ...qData.data };
         lastQuotesCache.timestamp = Date.now();
         lastQuotesCache.data = liveQuotesMap;
+        globalLiveQuotes["last_update"] = new Date().toISOString();
         for (const [k, v] of Object.entries(qData.data)) {
           globalLiveQuotes[k] = v;
           const tok = (v as any)?.instrument_token;
@@ -170,9 +174,18 @@ export async function prepareTickContext(): Promise<BotTickContext | null> {
           }
         }
       }
-    } catch (e) {
-    // Ignored
-  }
+    } catch {
+      // Ignored
+    }
+  } else if (!token && botConfig.mode === "PAPER_TRADING") {
+    try {
+      const fbQuotes = await fetchRealNseQuotesFallback();
+      if (fbQuotes.length > 0) {
+        globalLiveQuotes["last_update"] = new Date().toISOString();
+      }
+    } catch {
+      // Ignored
+    }
   }
 
   // Dedicated Ultra-Fast Lightweight LTP Poll (/v2/market-quote/ltp) specifically for Active Option Positions!

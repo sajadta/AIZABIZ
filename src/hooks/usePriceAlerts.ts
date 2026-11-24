@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import type { PriceAlert, StockQuote } from '../types';
 import { soundEngine } from '../utils/audioAlerts';
 
@@ -18,6 +18,7 @@ export const usePriceAlerts = ({
   useEffect(() => {
     if (quotes.length === 0) return;
     setPriceAlerts((prev) => {
+      if (prev.length === 0) return prev;
       let triggered = false;
       const updated = prev.map((alert) => {
         if (!alert.isActive) return alert;
@@ -33,33 +34,40 @@ export const usePriceAlerts = ({
         return alert;
       });
 
-      if (triggered && soundEnabled) {
-        soundEngine.play('ALERT');
+      if (!triggered) return prev;
+      if (soundEnabled) {
+        queueMicrotask(() => soundEngine.play('ALERT'));
       }
       return updated;
     });
   }, [quotes, soundEnabled, setPriceAlerts]);
 
-  const handleAddAlert = (
-    symbol: string,
-    instrumentKey: string,
-    targetPrice: number,
-    condition: 'GREATER_THAN' | 'LESS_THAN',
-  ) => {
-    const newAlert: PriceAlert = {
-      id: `alert_${Date.now()}`,
-      symbol,
-      instrumentKey,
-      targetPrice,
-      condition,
-      isActive: true,
-    };
-    setPriceAlerts((prev) => [...prev, newAlert]);
-  };
+  const handleAddAlert = useCallback(
+    (
+      symbol: string,
+      instrumentKey: string,
+      targetPrice: number,
+      condition: 'GREATER_THAN' | 'LESS_THAN',
+    ) => {
+      const newAlert: PriceAlert = {
+        id: `alert_${Date.now()}`,
+        symbol,
+        instrumentKey,
+        targetPrice,
+        condition,
+        isActive: true,
+      };
+      setPriceAlerts((prev) => [...prev, newAlert]);
+    },
+    [setPriceAlerts],
+  );
 
-  const handleRemoveAlert = (id: string) => {
-    setPriceAlerts((prev) => prev.filter((a) => a.id !== id));
-  };
+  const handleRemoveAlert = useCallback(
+    (id: string) => {
+      setPriceAlerts((prev) => prev.filter((a) => a.id !== id));
+    },
+    [setPriceAlerts],
+  );
 
   return { handleAddAlert, handleRemoveAlert, priceAlerts };
 };

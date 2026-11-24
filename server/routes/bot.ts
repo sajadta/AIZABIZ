@@ -36,6 +36,9 @@ app.post("/api/bot/config", (req, res) => {
     incoming.userExplicitlySelectedMode = true;
   }
   Object.assign(botConfig, incoming);
+  botConfig.tradeMode = "OPTIONS_ONLY"; // Strictly trade in Options Only (Equity permanently excluded)
+  botConfig.minConfidence = Math.max(78, Number(botConfig.minConfidence || 78));
+  botConfig.minOptionProfitAmount = Math.max(250, Number(botConfig.minOptionProfitAmount || 350));
   botConfig.maxCapitalPerTrade = 0; // 100% Full Dynamic Account Margin (Zero artificial caps)
   if (!botConfig.selectedIndexPriority) {
     botConfig.selectedIndexPriority = "FULL_AUTO_MULTI_INDEX";
@@ -47,7 +50,7 @@ app.post("/api/bot/config", (req, res) => {
   botLogs.unshift({
     id: Date.now().toString(),
     time: new Date().toLocaleTimeString(),
-    message: "Bot configuration updated.",
+    message: "Bot configuration updated: OPTIONS_ONLY mode active.",
     type: "INFO",
   });
   if (botLogs.length > 200) botLogs.length = 200;
@@ -104,10 +107,11 @@ app.post("/api/bot/supervisor-apply-fix", (req: Request, res: Response) => {
     req.body && Object.keys(req.body).length > 0 ? req.body : report.recommendedPatch;
   Object.assign(botConfig, {
     ...patchToApply,
+    tradeMode: "OPTIONS_ONLY",
     stopLossPercent: Number(patchToApply.stopLossPercent ?? 18.0),
     trailingStopLoss: true,
-    minConfidence: Math.max(50, Number(patchToApply.minConfidence ?? botConfig.minConfidence ?? 55)),
-    minOptionProfitAmount: Math.max(5, Number(botConfig.minOptionProfitAmount || 25)),
+    minConfidence: Math.max(78, Number(patchToApply.minConfidence ?? botConfig.minConfidence ?? 78)),
+    minOptionProfitAmount: Math.max(250, Number(botConfig.minOptionProfitAmount || 350)),
   });
   savePostgresDb().catch(() => { /* ignore */ });
   botLogs.unshift({

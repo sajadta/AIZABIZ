@@ -3,7 +3,7 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import { upstoxConfig, invalidTokens, getLastQuotesCache } from "./state";
-import { refreshCentralUpstoxQuotes } from "./services/marketData";
+import { refreshCentralUpstoxQuotes, fetchRealNseQuotesFallback } from "./services/marketData";
 
 export const wss = new WebSocketServer({ noServer: true });
 
@@ -15,7 +15,7 @@ app.get("/api/stream/quotes", (req, res) => {
   res.flushHeaders();
 
   let symbols =
-    "NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank,BSE_INDEX|SENSEX,BSE_INDEX|BANKEX,NSE_INDEX|Nifty Fin Service";
+    "NSE_INDEX|Nifty 50,NSE_INDEX|Nifty Bank,BSE_INDEX|SENSEX,BSE_INDEX|BANKEX,NSE_INDEX|Nifty Fin Service,NSE_INDEX|NIFTY MID SELECT";
   if (req.query.symbols as string) {
     symbols = req.query.symbols as string;
   }
@@ -23,10 +23,23 @@ app.get("/api/stream/quotes", (req, res) => {
   // Send an initial connected message
   res.write('data: {"type": "CONNECTED"}\n\n');
 
+  let lastFallbackPushAt = 0;
   const fetchAndPushQuotes = async () => {
     res.write(":\n\n");
     const token = upstoxConfig.accessToken;
-    if (!token) return;
+    if (!token) {
+      if (Date.now() - lastFallbackPushAt < 4000) return;
+      lastFallbackPushAt = Date.now();
+      try {
+        const fallbackQuotes = await fetchRealNseQuotesFallback();
+        if (fallbackQuotes.length > 0) {
+          res.write(`data: ${JSON.stringify({ type: "QUOTES", data: fallbackQuotes })}\n\n`);
+        }
+      } catch {
+        // Quietly ignored
+      }
+      return;
+    }
     try {
       const result =
         Date.now() - getLastQuotesCache().timestamp < 300 && getLastQuotesCache().quotes.length > 0
@@ -37,7 +50,7 @@ app.get("/api/stream/quotes", (req, res) => {
           `data: ${JSON.stringify({ type: "QUOTES", data: result.quotes })}\n\n`,
         );
       }
-    } catch (err) {
+    } catch {
       // Quietly ignored
     }
   };
@@ -54,6 +67,7 @@ const subscribedKeys = new Set<string>([
   "BSE_INDEX|SENSEX",
   "BSE_INDEX|BANKEX",
   "NSE_INDEX|Nifty Fin Service",
+  "NSE_INDEX|NIFTY MID SELECT",
 ]);
 
 async function broadcastUpstoxQuotesToWs() {
@@ -73,7 +87,9 @@ async function broadcastUpstoxQuotesToWs() {
         }
       });
     }
-  } catch (e) {}
+  } catch {
+    // Quietly ignored
+  }
 }
 
 wss.on("connection", (ws) => {

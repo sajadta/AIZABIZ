@@ -1,11 +1,13 @@
 // Positions route (paper + live Upstox positions).
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, paperOrders, paperPositions, paperTradeHistory } from "../../state";
+import { upstoxConfig, paperOrders, paperPositions, paperTradeHistory, livePositionStateTracker, getCachedUpstoxLivePositions } from "../../state";
 import { savePostgresDb } from "../../services/persistence";
 import { calculateTradeCharges } from "../../../src/utils/indicators";
 import { getInstrumentKey } from "../../lib/instruments";
 import { placeUpstoxOrderIpv4 } from "../../services/upstoxTransport";
+import { normalizeUpstoxShortTermPositionsWithOrders, isDeliverySoldHoldingPosition } from "../../lib/portfolioNormalize";
+import { getCachedLiveDayOrders } from "../../lib/upstoxHistory";
 
 export function registerPositionsRoutes(app: express.Application) {
 app.get("/api/trading/positions", async (req: Request, res: Response) => {
@@ -18,34 +20,19 @@ app.get("/api/trading/positions", async (req: Request, res: Response) => {
     upstoxConfig.accessToken;
   if (!token) return res.json([]);
   try {
-    const response = await fetch(
-      "https://api.upstox.com/v2/portfolio/short-term-positions",
-      {
+    const [response, dayOrders] = await Promise.all([
+      fetch("https://api.upstox.com/v2/portfolio/short-term-positions", {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
           "Api-Version": "2.0",
         },
-      },
-    );
+      }),
+      getCachedLiveDayOrders(token, 2500),
+    ]);
     const data = await response.json();
     if (data.status === "success" && data.data) {
-      return res.json(
-        data.data
-          .filter((p: any) => Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)) > 0)
-          .map((p: any) => ({
-            id: p.trading_symbol || p.instrument_token,
-            symbol: p.trading_symbol || p.instrument_token,
-            instrumentKey: p.instrument_token,
-            productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
-            quantity: Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)),
-            buyPrice: Number(p.buy_price ?? p.average_price ?? 0),
-            currentLTP: Number(p.last_price ?? 0),
-            pnl: Number(p.pnl ?? p.unrealised ?? 0),
-            realizedPnL: Number(p.realised ?? 0),
-            mode: "UPSTOX_LIVE",
-          })),
-      );
+      return res.json(normalizeUpstoxShortTermPositionsWithOrders(data.data, dayOrders, livePositionStateTracker));
     }
   } catch { /* ignore */ }
   return res.json([]);
@@ -78,7 +65,7 @@ app.post(
 app.post(
   "/api/trading/squareoff/:positionId",
   async (req: Request, res: Response) => {
-    const { mode, symbol, instrumentKey, quantity, productType, sellPrice } = req.body;
+    const { mode, symbol, instrumentKey, quantity, productType, sellPrice, type } = req.body;
     const posId = req.params.positionId;
 
     if (mode === "PAPER_TRADING") {
@@ -139,15 +126,30 @@ app.post(
     }
 
     try {
-      const instrKey = instrumentKey || getInstrumentKey(symbol || posId);
+      if (isDeliverySoldHoldingPosition({ symbol: symbol || posId, instrumentKey, productType, type })) {
+        return res.json({
+          success: false,
+          error: "This Delivery holding was already sold today — no open trade to square off.",
+        });
+      }
+      let instrKey = instrumentKey || getInstrumentKey(symbol || posId);
+      if (!instrKey) {
+        const cachedPos = (getCachedUpstoxLivePositions().list || []).find(
+          (p: any) => p.id === posId || p.symbol === (symbol || posId),
+        );
+        if (cachedPos?.instrumentKey) {
+          instrKey = cachedPos.instrumentKey;
+        }
+      }
       const isOptionContract =
-        /\b(CE|PE)\b/i.test(symbol || posId || "") || String(instrKey).includes("FO");
+        /\b(CE|PE)\b/i.test(symbol || posId || "") || String(instrKey || "").includes("FO");
       const upstoxProduct =
         productType === "INTRADAY" && !isOptionContract
           ? "I"
           : productType === "INTRADAY"
             ? "I"
             : "D";
+      const exitTxType = String(type || "BUY").toUpperCase() === "SELL" ? "BUY" : "SELL";
 
       const data = await placeUpstoxOrderIpv4({
         quantity: Math.abs(Number(quantity) || 1),
@@ -157,7 +159,7 @@ app.post(
         tag: "square_off_order",
         instrument_token: instrKey,
         order_type: "MARKET",
-        transaction_type: "SELL",
+        transaction_type: exitTxType,
         disclosed_quantity: 0,
         trigger_price: 0,
         is_amo: false,

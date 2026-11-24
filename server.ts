@@ -12,7 +12,6 @@ process.on('unhandledRejection', (reason, promise) => {
 import dotenv from "dotenv";
 import express from "express";
 import compression from "compression";
-import { startBotEngine } from "./server/services/botEngine";
 import { startWakeupEngine } from "./server/services/wakeup";
 import { bootstrap } from "./server/bootstrap";
 import {
@@ -40,8 +39,6 @@ const cliPort = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? Number(proce
 const PORT = cliPort || (process.env.RENDER ? (Number(process.env.PORT) || 3000) : 3000);
 
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-startBotEngine();
 
 // ================= API ROUTES =================
 registerSystemRoutes(app);

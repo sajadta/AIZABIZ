@@ -3,6 +3,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import { upstoxConfig, invalidTokens, customHoldingBuyPrices, globalLiveQuotes } from "../../state";
 import { savePostgresDb } from "../../services/persistence";
+import { computeEffectiveHoldingQuantity } from "../../lib/portfolioNormalize";
 
 export function registerHoldingsRoutes(app: express.Application) {
   // Real-time Upstox Holdings with +50% Profit Milestone Math & 8-Layer Pre-Cognitive Algorithm Forecast
@@ -31,10 +32,7 @@ export function registerHoldingsRoutes(app: express.Application) {
       if (data.status === "success" && Array.isArray(data.data)) {
         const enrichedHoldings = await Promise.all(
           data.data.map(async (h: any) => {
-            const baseQty = Number(h.quantity || 0);
-            const t1Qty = Number(h.t1_quantity || 0);
-            const colQty = Number(h.collateral_quantity || 0);
-            const totalQty = baseQty + t1Qty > 0 ? baseQty + t1Qty : colQty || baseQty;
+            const { remainingQty: totalQty, soldTodayQty } = computeEffectiveHoldingQuantity(h);
             const sym =
               h.trading_symbol ||
               h.tradingsymbol ||
@@ -225,6 +223,7 @@ export function registerHoldingsRoutes(app: express.Application) {
               instrumentKey: instKey,
               isin: h.isin || isinKey,
               quantity: totalQty,
+              soldTodayQty,
               avgPrice: Number(avgPrice.toFixed(2)),
               buyPrice: Number(avgPrice.toFixed(2)),
               currentLTP: Number(ltp.toFixed(2)),

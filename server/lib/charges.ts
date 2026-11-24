@@ -110,7 +110,7 @@ export async function fetchLiveUpstoxCharges(
     }
   }
 
-  const fallback = calculateTradeCharges(buyPx, qty, true, sellPx);
+  const fallback = calculateTradeCharges(buyPx, qty, true, sellPx, canonicalToken);
   const result: LiveUpstoxChargesBreakdown = {
     totalRoundTrip: fallback.roundTripCharges,
     buyCharges: fallback.buyCharges,

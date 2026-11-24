@@ -103,15 +103,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-         chartRef.current?.applyOptions({ 
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight
-         });
-      }
-    };
-
     const chart = createChart(chartContainerRef.current, {
       autoSize: true,
       layout: {
@@ -172,15 +163,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     // Supertrend Series
     seriesRef.current.supertrend = chart.addSeries(LineSeries, { color: '#10b981', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
 
-    const resizeObserver = new ResizeObserver(() => {
-       handleResize();
-    });
-    resizeObserver.observe(chartContainerRef.current);
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
-      resizeObserver.disconnect();
       chart.remove();
     };
   }, []);

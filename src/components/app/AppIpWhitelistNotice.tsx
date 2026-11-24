@@ -23,7 +23,7 @@ export const AppIpWhitelistNotice: React.FC<AppIpWhitelistNoticeProps> = ({
   serverSecondaryIp,
 }) => {
   const ipListStr = Array.from(
-    new Set(['8.234.113.241', '34.34.254.178', ...(serverSecondaryIp ? [serverSecondaryIp] : [])]),
+    new Set(['34.180.11.27', '34.34.254.178', ...(serverSecondaryIp ? [serverSecondaryIp] : [])]),
   ).join(', ');
   return (
   <>

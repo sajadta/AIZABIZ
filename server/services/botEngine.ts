@@ -10,24 +10,26 @@ import { prepareTickContext } from "./bot/liveFeed";
 import { monitorActivePositions } from "./bot/positionMonitor";
 import { runEntryScan } from "./bot/entryScan";
 
+let activeTickId = 0;
+
 export function startBotEngine() {
 setInterval(async () => {
   setEngineHeartbeatTicks(getEngineHeartbeatTicks() + 1);
   setLastEngineTickAt(new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }));
 
-  // Watchdog auto-release: if a previous tick held the lock for >3000ms, force release it!
-  if (getIsBotTickRunning() && Date.now() - getLastBotTickStartedAt() > 3000) {
+  // Watchdog auto-release only after 25s (a 6-index scan takes ~3-7s, so 3s previously overlapped concurrent ticks!)
+  if (getIsBotTickRunning() && Date.now() - getLastBotTickStartedAt() > 25000) {
     setIsBotTickRunning(false);
   }
 
   if (!botConfig.enabled || getIsBotTickRunning()) return;
+  const myTickId = ++activeTickId;
   setIsBotTickRunning(true);
   setLastBotTickStartedAt(Date.now());
 
   try {
     const ctx = await prepareTickContext();
     if (!ctx) {
-      setIsBotTickRunning(false);
       return;
     }
 
@@ -39,7 +41,7 @@ setInterval(async () => {
       isEodSquareOff: ctx.isEodSquareOff,
     });
 
-    // 2. If no positions, look for entry
+    // 2. Scan markets & evaluate entries (runEntryScan internally blocks new orders when dailyLossLocked is true)
     await runEntryScan({
       token: ctx.token,
       activePositions: ctx.activePositions,
@@ -49,6 +51,8 @@ setInterval(async () => {
   } catch (err) {
     console.error("Bot loop error:", err);
   } finally {
-    setIsBotTickRunning(false);
+    if (activeTickId === myTickId) {
+      setIsBotTickRunning(false);
+    }
   }}, 200);
 }

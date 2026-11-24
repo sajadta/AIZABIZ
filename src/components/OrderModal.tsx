@@ -140,6 +140,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
   } | null>(null);
 
   useEffect(() => {
+    if (!isOpen) return;
     setPrice(defaultPrice || 100);
     setTriggerPrice(Number(((defaultPrice || 0) * 0.99).toFixed(2)));
 
@@ -156,7 +157,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
     } else {
       setProductType(isOptionOrFo ? 'INTRADAY' : 'DELIVERY');
     }
-  }, [defaultPrice, initialType, defaultProductType, heldQuantity, defaultStopLoss, defaultTarget, isOptionOrFo]);
+  }, [isOpen, defaultPrice, initialType, defaultProductType, heldQuantity, defaultStopLoss, defaultTarget, isOptionOrFo]);
 
   const effectivePrice = orderType === 'MARKET' ? (defaultPrice || price || 100) : (price || defaultPrice || 100);
 

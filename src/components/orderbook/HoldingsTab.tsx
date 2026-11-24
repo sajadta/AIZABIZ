@@ -255,11 +255,18 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                             : 'Zero broker price (Using close)'}
                         </span>
                       )}
-                      {target50.isReached ? (
+                      {qty <= 0 && (
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {language === 'ml'
+                            ? `ഇന്ന് വിറ്റത് (Sold Today${(h as any).soldTodayQty ? `: ${(h as any).soldTodayQty}` : ''})`
+                            : `Sold Today${(h as any).soldTodayQty ? ` (${(h as any).soldTodayQty})` : ''}`}
+                        </span>
+                      )}
+                      {qty > 0 && target50.isReached ? (
                         <span className="text-[9px] font-black px-2 py-0.5 rounded bg-amber-500/25 text-amber-200 border border-amber-400/60 animate-pulse">
                           ⚡ +50% PROFIT TARGET HIT!
                         </span>
-                      ) : isGain && pnl > 0 ? (
+                      ) : qty > 0 && isGain && pnl > 0 ? (
                         <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                           🟢 IN PROFIT (ലാഭത്തിൽ)
                         </span>
@@ -552,6 +559,7 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                         </button>
                         <button
                           type="button"
+                          disabled={qty <= 0}
                           onClick={() =>
                             onOpenOrderModal('SELL', h.symbol, h.currentLTP || 0, {
                               quantity: h.quantity || 1,
@@ -560,7 +568,7 @@ export const HoldingsTab: React.FC<HoldingsTabProps> = ({
                               instrumentKey: (h as any).instrumentKey,
                             })
                           }
-                          className="px-2.5 py-1 min-h-[36px] rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
+                          className="px-2.5 py-1 min-h-[36px] rounded-lg bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-rose-400 border border-rose-500/30 text-[11px] font-bold transition flex items-center gap-1 active:scale-95 touch-manipulation"
                         >
                           <span>{language === 'ml' ? 'വിൽക്കുക' : 'Sell'}</span>
                         </button>

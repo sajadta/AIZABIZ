@@ -56,10 +56,13 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.clientWidth || 360,
-          height: Math.max(350, containerRef.current.clientHeight || 400)
-        });
+        const nextWidth = containerRef.current.clientWidth || 360;
+        const nextHeight = Math.max(350, containerRef.current.clientHeight || 400);
+        setDimensions((prev) =>
+          prev.width === nextWidth && prev.height === nextHeight
+            ? prev
+            : { width: nextWidth, height: nextHeight },
+        );
       }
     };
     
@@ -121,6 +124,7 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       .append('svg')
       .attr('width', width)
       .attr('height', height)
+      .style('display', 'block')
       .style('font-family', 'sans-serif');
 
     // Create hierarchy and treemap layout
@@ -236,7 +240,7 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
           <div className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-sm mr-1"></div> Bullish</div>
         </div>
       </div>
-      <div ref={containerRef} className="flex-1 w-full min-h-[400px]"></div>
+      <div ref={containerRef} className="flex-1 w-full min-h-[400px] relative overflow-hidden"></div>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { botConfig, botLogs, upstoxConfig, paperPositions, paperTradeHistory, botSignals } from '../state';
 import { calculateTradeCharges } from '../../src/utils/indicators';
 
-export let lastAiSupervisorDeepReport: any = null;
+export const lastAiSupervisorDeepReport: any = null;
 export const autoHealHistory: any[] = [];
 
 export function runAutonomousSelfHealingEngine() {
@@ -77,7 +77,7 @@ export function buildSupervisorAuditReport(cachedPositions: any[]) {
   ];
 
   let winCount = 0;
-  let totalTrades = historyList.length;
+  const totalTrades = historyList.length;
   historyList.forEach(tr => {
     if ((tr.realizedPnL || 0) > 0) winCount++;
   });

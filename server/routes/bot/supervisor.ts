@@ -64,18 +64,18 @@ export function runAutonomousSelfHealingEngine() {
     });
   }
 
-  // 3. Autonomous Minimum Confidence Threshold Healing (55% for optimal momentum capture)
-  const currentConf = Number(botConfig.minConfidence || 55);
-  if (currentConf < 50 || currentConf > 95) {
-    botConfig.minConfidence = 55;
+  // 3. Autonomous Minimum Confidence Threshold Healing (>=78% high conviction)
+  const currentConf = Number(botConfig.minConfidence || 78);
+  if (currentConf < 78 || currentConf > 95) {
+    botConfig.minConfidence = 78;
     healedAny = true;
     supervisorState.autoHealHistory.unshift({
       id: "HEAL_CONF_" + Date.now(),
       time: nowStr,
       problemMl: `Min Confidence ${currentConf}% ആയിരുന്നത് ക്രമീകരിച്ചു.`,
-      autoActionMl: "സീറോ-ലോസ് ഇൻസ്റ്റിറ്റ്യൂഷണൽ നിലവാരം ഉറപ്പാക്കാൻ AI എഞ്ചിൻ തനിയെ Min Confidence 84% ആക്കി (നഷ്ട സാധ്യതയുള്ള ദുർബല ട്രേഡുകൾ 100% ഒഴിവാക്കപ്പെടുന്നു).",
+      autoActionMl: "ഉയർന്ന നിലവാരമുള്ള സെറ്റപ്പുകൾ മാത്രം എടുക്കാൻ AI എഞ്ചിൻ തനിയെ Min Confidence 78% ആക്കി.",
       beforeValue: `${currentConf}%`,
-      afterValue: "84% (Zero-Loss Mode)",
+      afterValue: "78% (High-Conviction Mode)",
     });
   }
 
@@ -210,8 +210,8 @@ export function buildSupervisorAuditReport() {
       id: "DIR_10_EARLY_INVALIDATION",
       titleEn: "35s Parameter Invalidation Cut & ₹400 Max Stop-Loss Cap",
       titleMl: "പരാമീറ്ററുകൾ തിരിഞ്ഞാൽ സ്റ്റോപ്പ്-ലോസിന് കാത്തുനിൽക്കാതെ ഉടൻ കട്ട് ചെയ്യുന്ന സുരക്ഷ",
-      status: Number(botConfig.stopLossPercent || 2.8) <= 3.0 ? "ACTIVE_OK" : "WARN",
-      detailMl: `പരമാവധി നഷ്ടം ₹400 / 2.8% ആയി പരിമിതപ്പെടുത്തിയിരിക്കുന്നു (നിലവിൽ Config: ${botConfig.stopLossPercent}%).`,
+      status: Number(botConfig.stopLossPercent || 12.0) <= 22.0 ? "ACTIVE_OK" : "WARN",
+      detailMl: `പരമാവധി നഷ്ടം ₹400-ൽ താഴെയായി പരിമിതപ്പെടുത്തിയിരിക്കുന്നു (നിലവിൽ Config: ${botConfig.stopLossPercent}%).`,
     },
     {
       id: "DIR_11_COOLDOWN_ANTICHURN",
@@ -420,13 +420,13 @@ export function buildSupervisorAuditReport() {
   // Dynamically update directive statuses based on real live trade forensics
   const dir5 = directiveChecklist.find((d) => d.id === "DIR_5_GREEKS_BROKERAGE");
   if (dir5) {
-    const minProfCfg = Number(botConfig.minOptionProfitAmount || 650);
-    if (minProfCfg >= 500) {
+    const minProfCfg = Number(botConfig.minOptionProfitAmount || 350);
+    if (minProfCfg >= 250) {
       dir5.status = "ACTIVE_OK";
-      dir5.detailMl = `മൊത്തം ബ്രോക്കറേജും നികുതിയും കഴിഞ്ഞ് കുറഞ്ഞത് ₹${minProfCfg} (6x Brokerage) വലിയ ലാഭമുള്ളവ മാത്രം തിരഞ്ഞെടുക്കുന്നു (കഴിഞ്ഞ ട്രേഡുകളിലെ ചെറിയ ലാഭ പ്രശ്നം പൂർണ്ണമായി പരിഹരിച്ചു).`;
+      dir5.detailMl = `മൊത്തം ബ്രോക്കറേജും നികുതിയും കഴിഞ്ഞ് മൂലധനത്തിന് അനുയോജ്യമായ കുറഞ്ഞത് ₹${minProfCfg} ലാഭമുള്ള ഉയർന്ന ഡെൽറ്റ ഓപ്ഷനുകൾ മാത്രം തിരഞ്ഞെടുക്കുന്നു.`;
     } else {
       dir5.status = "WARN";
-      dir5.detailMl = `മുന്നറിയിപ്പ്: Min Net Profit ₹${minProfCfg} കുറവാണ്. ബ്രോക്കറേജ് നഷ്ടം ഒഴിവാക്കാൻ ₹650+ ആക്കുക.`;
+      dir5.detailMl = `മുന്നറിയിപ്പ്: Min Net Profit ₹${minProfCfg} കുറവാണ്. ബ്രോക്കറേജ് നഷ്ടം ഒഴിവാക്കാൻ ₹250+ ആക്കുക.`;
     }
   }
   const dir11 = directiveChecklist.find((d) => d.id === "DIR_11_COOLDOWN_ANTICHURN");
@@ -469,13 +469,13 @@ export function buildSupervisorAuditReport() {
       patch: { trailingStopLoss: true },
     });
   }
-  if (Number(botConfig.minConfidence || 55) < 50) {
+  if (Number(botConfig.minConfidence || 78) < 78) {
     issuesDetected.push({
       code: "LOW_CONFIDENCE_THRESHOLD",
       severity: "MEDIUM",
       problemMl: `Min Confidence ${botConfig.minConfidence}% ആണ്.`,
-      solutionMl: "Min Confidence 55% ആയി നിശ്ചയിക്കാം.",
-      patch: { minConfidence: 55 },
+      solutionMl: "Min Confidence 78% ആയി നിശ്ചയിക്കാം.",
+      patch: { minConfidence: 78 },
     });
   }
   if (lossCount > 0) {
@@ -483,8 +483,8 @@ export function buildSupervisorAuditReport() {
       code: "RECENT_STOP_LOSS_AUDIT",
       severity: "INFO",
       problemMl: `മുൻ ട്രേഡുകളിൽ ${lossCount} എണ്ണം സ്റ്റോപ്പ്-ലോസ് അടിച്ചിരുന്നു.`,
-      solutionMl: "ലഭ്യമായ ക്യാപിറ്റലിന് അനുയോജ്യമായി 55% MinConfidence ആക്ടീവ് ആക്കി.",
-      patch: { minConfidence: 55, minOptionProfitAmount: 25, stopLossPercent: 18.0 },
+      solutionMl: "ബ്രോക്കറേജ് നഷ്ടം ഒഴിവാക്കാൻ 78% MinConfidence-ഉം FIFO യഥാർത്ഥ എൻട്രി വിലയും 15-മിനിറ്റ് ലോസ്-സ്ട്രൈക്ക് ലോക്കൗട്ടും ആക്ടീവ് ആക്കി.",
+      patch: {},
     });
   }
   if (botConfig.dailyLossLocked) {

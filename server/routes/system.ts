@@ -5,6 +5,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import fsSync from "fs";
 import path from "path";
+import os from "os";
 import { botConfig, botLogs, paperPositions, paperTradeHistory, upstoxConfig, resetPaperTradingState } from "../state";
 import { savePostgresDb, isPostgresAvailable, setPostgresAvailable } from "../services/persistence";
 import { fetchLiveUpstoxCharges } from "../lib/charges";
@@ -108,10 +109,25 @@ app.get('/api/history', async (req, res) => {
   }
 });
 
-app.post('/api/paper-trading/reset', async (req: Request, res: Response) => {
+const handlePaperReset = async (req: Request, res: Response) => {
   resetPaperTradingState();
+  const requestedCap = Number(req.body?.initialCapital || 10000);
+  const finalCap = requestedCap > 0 ? requestedCap : 10000;
+  try {
+    const { setPaperInitialCapital } = await import("../services/persistence");
+    setPaperInitialCapital(finalCap);
+  } catch {
+    // Ignored
+  }
+  try {
+    const tmpState = path.join(os.tmpdir(), "upstox_algo_state.json");
+    const tmpLocal = path.join(os.tmpdir(), "upstox_algo_local_db.json");
+    if (fsSync.existsSync(tmpState)) fsSync.unlinkSync(tmpState);
+    if (fsSync.existsSync(tmpLocal)) fsSync.unlinkSync(tmpLocal);
+  } catch {
+    // Ignored
+  }
   if (isPostgresAvailable()) {
-
     try {
       await db.delete(tradeHistory);
     } catch {
@@ -121,13 +137,16 @@ app.post('/api/paper-trading/reset', async (req: Request, res: Response) => {
   savePostgresDb().catch(() => { /* ignore */ });
   return res.json({
     success: true,
-    message: "Paper trading account successfully reset to ₹2,000 initial balance with 0 trade history.",
-    balance: 2000,
+    message: `Paper trading account successfully reset to ₹${finalCap.toLocaleString("en-IN")} initial balance with 0 trade history.`,
+    balance: finalCap,
     positions: [],
     orders: [],
     history: []
   });
-});
+};
+
+app.post('/api/paper/reset', handlePaperReset);
+app.post('/api/paper-trading/reset', handlePaperReset);
 
 app.post('/api/bot/clear-ip-warning', (req: Request, res: Response) => {
   botLogs.splice(0, botLogs.length, ...botLogs.filter((l) => !l.message?.includes('static IP restrictions')));

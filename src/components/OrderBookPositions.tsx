@@ -20,6 +20,7 @@ interface OrderBookPositionsProps {
   language: Language;
   onSquareOffPosition: (id: string) => void;
   onSquareOffAll: () => void;
+  onSquareOffEquityOnly?: () => void;
   totalPnL: number;
   initialTab?: 'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY';
   onOpenOrderModal?: (
@@ -48,6 +49,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
   language,
   onSquareOffPosition,
   onSquareOffAll,
+  onSquareOffEquityOnly,
   totalPnL,
   initialTab = 'POSITIONS',
   onOpenOrderModal,
@@ -229,7 +231,10 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
     let todayLosses = 0;
     let todayTradesCount = 0;
 
-    // 1. Open positions (belong to today's active session)
+    // 1. Open positions: track entry-side charges already paid + live open MTM cleanly
+    // WITHOUT counting open positions as closed trades or double-counting pos.realizedPnL!
+    let openBuyBrokeragePaid = 0;
+    let openGrossMtm = 0;
     positions.forEach((p) => {
       const isOpt = Boolean(
         p.isOption ||
@@ -240,27 +245,14 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
       const curP = Number(p.currentLTP || buyP);
       const qty = Math.max(1, Number(p.quantity || 1));
       const pnl = p.pnl !== undefined ? Number(p.pnl) : (curP - buyP) * qty;
-      const chg = calculateTradeCharges(buyP, qty, isOpt, curP);
-      const brok = chg.roundTripCharges;
+      const chg = calculateTradeCharges(buyP, qty, isOpt, curP, p.instrumentKey || p.symbol);
+      const entrySideChg = p.type === 'SELL' ? chg.sellCharges : chg.buyCharges;
 
-      totalBrokerageCharges += brok;
-      todayBrokerage += brok;
-
-      if (pnl >= 0) {
-        totalGrossProfit += pnl;
-        todayGrossProfit += pnl;
-        totalWins += 1;
-        todayWins += 1;
-      } else {
-        totalGrossLoss += Math.abs(pnl);
-        todayGrossLoss += Math.abs(pnl);
-        totalLosses += 1;
-        todayLosses += 1;
-      }
-      todayTradesCount += 1;
+      openBuyBrokeragePaid += entrySideChg;
+      openGrossMtm += pnl;
     });
 
-    // 2. Closed trade history
+    // 2. Closed trade history (realized wins, losses, and exact round-trip brokerage)
     tradeHistory.forEach((t) => {
       const isOpt = Boolean(
         t.isOption ||
@@ -275,13 +267,13 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
       const chg =
         Number((t as any).brokerageCharges) > 0
           ? Number((t as any).brokerageCharges)
-          : calculateTradeCharges(buyP, qty, isOpt, sellP).roundTripCharges;
+          : calculateTradeCharges(buyP, qty, isOpt, sellP, t.instrumentKey || t.symbol).roundTripCharges;
       totalBrokerageCharges += chg;
 
-      if (pnl >= 0) {
+      if (pnl > 0) {
         totalGrossProfit += pnl;
         totalWins += 1;
-      } else {
+      } else if (pnl < 0) {
         totalGrossLoss += Math.abs(pnl);
         totalLosses += 1;
       }
@@ -299,23 +291,33 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
       if (tradeDate === todayIst) {
         todayTradesCount += 1;
         todayBrokerage += chg;
-        if (pnl >= 0) {
+        if (pnl > 0) {
           todayGrossProfit += pnl;
           todayWins += 1;
-        } else {
+        } else if (pnl < 0) {
           todayGrossLoss += Math.abs(pnl);
           todayLosses += 1;
         }
       }
     });
 
+    totalBrokerageCharges += openBuyBrokeragePaid;
+    todayBrokerage += openBuyBrokeragePaid;
+    if (openGrossMtm > 0) {
+      totalGrossProfit += openGrossMtm;
+      todayGrossProfit += openGrossMtm;
+    } else if (openGrossMtm < 0) {
+      totalGrossLoss += Math.abs(openGrossMtm);
+      todayGrossLoss += Math.abs(openGrossMtm);
+    }
+
     const netPnLAfterCharges = totalGrossProfit - totalGrossLoss - totalBrokerageCharges;
     const todayNetPnL = todayGrossProfit - todayGrossLoss - todayBrokerage;
     const todayWinRate =
-      todayTradesCount > 0 ? Math.round((todayWins / todayTradesCount) * 100) : 100;
-    const totalTradesCount = positions.length + tradeHistory.length;
+      todayTradesCount > 0 ? Math.round((todayWins / todayTradesCount) * 100) : 0;
+    const totalTradesCount = tradeHistory.length;
     const allTimeWinRate =
-      totalTradesCount > 0 ? Math.round((totalWins / totalTradesCount) * 100) : 100;
+      totalTradesCount > 0 ? Math.round((totalWins / totalTradesCount) * 100) : 0;
 
     return {
       totalGrossProfit,
@@ -359,6 +361,7 @@ export const OrderBookPositions: React.FC<OrderBookPositionsProps> = ({
         tradeHistory={tradeHistory}
         totalPnL={totalPnL}
         onSquareOffAll={onSquareOffAll}
+        onSquareOffEquityOnly={onSquareOffEquityOnly}
         t={t}
         onViewChart={onViewChart}
         language={language}

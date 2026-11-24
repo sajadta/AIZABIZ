@@ -41,9 +41,14 @@ export function registerAuthConfigRoutes(app: express.Application) {
 
     const fallbackIp = await getLiveOutboundIp();
     const currentContainerIp = fallbackIp.actualDetectedIp || fallbackIp.secondaryIp;
+    const isSocks = targetProxy.toLowerCase().startsWith("socks");
     const suggestedFix = testRes.tcpOpen
-      ? "Run in GCP SSH: sudo sed -i 's/^Listen /#Listen /; s/^Allow /#Allow /; s/^MaxClients .*/MaxClients 100/' /etc/tinyproxy/tinyproxy.conf && sudo systemctl restart tinyproxy"
-      : "Ensure GCP Firewall allows TCP port 8888 and tinyproxy service is running.";
+      ? isSocks
+        ? "Verify SOCKS5 proxy credentials (username/password) and IPv4 outbound access on 34.180.11.27:1080."
+        : "Run in GCP SSH: sudo systemctl restart tinyproxy"
+      : isSocks
+        ? "Ensure GCP Firewall allows TCP port 1080 (allow-socks5-1080) and dante/socks5 service is running."
+        : "Ensure GCP Firewall allows TCP port 8888 and HTTP proxy service is running.";
 
     return res.status(400).json({
       success: false,

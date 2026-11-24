@@ -17,6 +17,7 @@ import {
   OrderTransactionType,
 } from './types';
 import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
+import { safeStorage } from './utils/storage';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -312,13 +313,9 @@ export const App: React.FC = () => {
   // App configurations
   const [language, setLanguage] = useState<Language>('ml');
   const [mode, setMode] = useState<ExecutionMode>(() => {
-    try {
-      const savedMode = localStorage.getItem('aizabiz_preferred_trading_mode');
-      if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
-        return savedMode;
-      }
-    } catch {
-      // Ignored
+    const savedMode = safeStorage.getItem('aizabiz_preferred_trading_mode');
+    if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
+      return savedMode;
     }
     return 'PAPER_TRADING';
   });
@@ -352,8 +349,8 @@ export const App: React.FC = () => {
   const [botConfig, setBotConfig] = useState<BotConfig>({
     enabled: true, // Always active 24x7 Cloud Trading Engine
     mode: 'PAPER_TRADING',
-    tradeMode: 'AUTO_ADAPTIVE',
-    minOptionProfitAmount: 450,
+    tradeMode: 'OPTIONS_ONLY',
+    minOptionProfitAmount: 350,
     maxOptionLossCount: 2,
     maxStockLossCount: 2,
     maxStockProfitCount: 5,
@@ -391,48 +388,30 @@ export const App: React.FC = () => {
   // Positions, Orders, Holdings
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem('aizabiz_persisted_orders_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // Ignored
-    }
-    return [];
+    safeStorage.removeItem('aizabiz_persisted_orders_v2');
+    const parsed = safeStorage.getJson<Order[]>('aizabiz_persisted_orders_v3');
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
   });
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [tradeHistory, setTradeHistory] = useState<Position[]>(() => {
-    try {
-      const saved = localStorage.getItem('aizabiz_persisted_trade_history_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // Ignored
-    }
-    return [];
+    safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
+    const parsed = safeStorage.getJson<Position[]>('aizabiz_persisted_trade_history_v3');
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
   });
 
   useEffect(() => {
     if (orders.length > 0) {
-      try {
-        localStorage.setItem('aizabiz_persisted_orders_v2', JSON.stringify(orders));
-      } catch {
-        // Ignored
-      }
+      safeStorage.setJson('aizabiz_persisted_orders_v3', orders);
+    } else {
+      safeStorage.removeItem('aizabiz_persisted_orders_v3');
     }
   }, [orders]);
 
   useEffect(() => {
     if (tradeHistory.length > 0) {
-      try {
-        localStorage.setItem('aizabiz_persisted_trade_history_v2', JSON.stringify(tradeHistory));
-      } catch {
-        // Ignored
-      }
+      safeStorage.setJson('aizabiz_persisted_trade_history_v3', tradeHistory);
+    } else {
+      safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
     }
   }, [tradeHistory]);
 
@@ -485,24 +464,36 @@ export const App: React.FC = () => {
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isEquityExitConfirmOpen, setIsEquityExitConfirmOpen] = useState(false);
   const [isTerminalLocked, setIsTerminalLocked] = useState(() => {
-    return localStorage.getItem('aizabiz_master_unlocked') !== 'true';
+    return safeStorage.getItem('aizabiz_master_unlocked') !== 'true';
   });
+
+  const lastSseQuoteAtRef = useRef<number>(0);
+  const livePositionsInFlightRef = useRef<Promise<void> | null>(null);
+  const lastLivePositionsAtRef = useRef<number>(0);
 
   // 0. Server Wakeup Heartbeat
   useEffect(() => {
+    const ctrl = new AbortController();
     const triggerWakeup = () => {
-      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store' }).catch(() => {
+      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store', signal: ctrl.signal }).catch(() => {
         /* ignore */
       });
     };
     triggerWakeup();
     const wakeupInterval = setInterval(triggerWakeup, 4 * 60 * 1000); // Every 4 minutes
-    return () => clearInterval(wakeupInterval);
+    return () => {
+      ctrl.abort();
+      clearInterval(wakeupInterval);
+    };
   }, []);
 
   // Load configuration from API on mount & auto-restore saved Upstox daily token
   useEffect(() => {
+    let isMounted = true;
+    const initCtrl = new AbortController();
     const fetchInitData = async () => {
       try {
         // Check if Upstox OAuth redirected back to root URL with ?code=...
@@ -514,6 +505,7 @@ export const App: React.FC = () => {
             const tokenRes = await fetch('/api/market/token', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              signal: initCtrl.signal,
               body: JSON.stringify({
                 code: oauthCode,
                 redirectUri: cleanRedirectUri,
@@ -521,8 +513,8 @@ export const App: React.FC = () => {
             });
             const tokenData = await tokenRes.json();
             if (tokenData.accessToken) {
-              localStorage.setItem('upstox_daily_token', tokenData.accessToken);
-              localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
+              safeStorage.setItem('upstox_daily_token', tokenData.accessToken);
+              safeStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
               window.history.replaceState({}, document.title, window.location.pathname);
             }
           } catch {
@@ -530,12 +522,8 @@ export const App: React.FC = () => {
           }
         }
 
-        let savedDailyToken = '';
-        try {
-          savedDailyToken = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          // Silently ignored
-        }
+        if (!isMounted) return;
+        const savedDailyToken = safeStorage.getItem('upstox_daily_token') || '';
 
         const headers: Record<string, string> = {};
         if (savedDailyToken) {
@@ -543,11 +531,12 @@ export const App: React.FC = () => {
         }
 
         const [botRes, configRes, historyRes] = await Promise.allSettled([
-          fetch('/api/bot/config').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/market/config', { headers }).then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/history').then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/bot/config', { signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/market/config', { headers, signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/history', { signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
         ]);
 
+        if (!isMounted) return;
         let serverUserExplicitMode = false;
         let hasPreferredMode = false;
 
@@ -557,14 +546,10 @@ export const App: React.FC = () => {
             return v === 'PAPER_TRADING' || v === 'UPSTOX_LIVE';
           };
           let preferredMode: ExecutionMode | null = null;
-          try {
-            const saved = localStorage.getItem('aizabiz_preferred_trading_mode');
-            if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
-              preferredMode = saved as ExecutionMode;
-              hasPreferredMode = true;
-            }
-          } catch {
-            // Ignored
+          const saved = safeStorage.getItem('aizabiz_preferred_trading_mode');
+          if (saved === 'PAPER_TRADING' || savedModeIsValid(saved)) {
+            preferredMode = saved as ExecutionMode;
+            hasPreferredMode = true;
           }
           const finalMode: ExecutionMode =
             preferredMode ||
@@ -601,18 +586,10 @@ export const App: React.FC = () => {
             }
           }
           if (cfg.tokenExpired && isJwtExpired) {
-            try {
-              localStorage.removeItem('upstox_daily_token');
-            } catch {
-              // Silently ignored
-            }
+            safeStorage.removeItem('upstox_daily_token');
             cfg.accessToken = '';
           } else if (cfg.accessToken) {
-            try {
-              localStorage.setItem('upstox_daily_token', cfg.accessToken);
-            } catch {
-              // Silently ignored
-            }
+            safeStorage.setItem('upstox_daily_token', cfg.accessToken);
             cfg.isConnected = true;
           } else if (savedDailyToken && !isJwtExpired && !cfg.accessToken) {
             cfg.accessToken = savedDailyToken;
@@ -623,93 +600,158 @@ export const App: React.FC = () => {
             setMode('UPSTOX_LIVE');
           }
         }
-        if (
-          historyRes.status === 'fulfilled' &&
-          Array.isArray(historyRes.value) &&
-          historyRes.value.length > 0
-        ) {
-          fetchHistory();
+        if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value)) {
+          const parsedInitHistory = historyRes.value.map((t: any) => ({
+            ...t,
+            mode: t.mode || 'PAPER_TRADING',
+          }));
+          setTradeHistory(parsedInitHistory);
+          if (parsedInitHistory.length === 0) {
+            safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
+            safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
+          }
         }
       } catch (err) {
         console.warn('Initial data fetch notice:', err);
       }
     };
     fetchInitData();
+
+    let inFlightConfigSync = false;
+    let activeSyncCtrl: AbortController | null = null;
     const configSyncInterval = setInterval(async () => {
+      if (!isMounted || inFlightConfigSync) return;
+      inFlightConfigSync = true;
+      const ctrl = new AbortController();
+      activeSyncCtrl = ctrl;
+      const timeoutId = setTimeout(() => ctrl.abort(), 5000);
       try {
-        let syncToken = '';
-        try {
-          syncToken = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          // Ignored
-        }
+        const syncToken = safeStorage.getItem('upstox_daily_token') || '';
         const syncHeaders: Record<string, string> = {};
         if (syncToken) syncHeaders['Authorization'] = `Bearer ${syncToken}`;
 
-        const res = await fetch('/api/market/config', { headers: syncHeaders });
-        if (res.ok) {
+        const res = await fetch('/api/market/config', { headers: syncHeaders, signal: ctrl.signal });
+        if (res.ok && isMounted) {
           const cfg = await res.json();
           if (cfg && typeof cfg.isConnected === 'boolean') {
             if (cfg.isConnected && cfg.accessToken) {
-              try {
-                localStorage.setItem('upstox_daily_token', cfg.accessToken);
-              } catch {
-                // Ignored
-              }
+              safeStorage.setItem('upstox_daily_token', cfg.accessToken);
             }
-            setApiConfig((prev) => ({
-              ...prev,
-              isConnected: cfg.isConnected,
-              accessToken: cfg.accessToken || (cfg.tokenExpired ? '' : prev.accessToken),
-              availableMargin: Number(cfg.availableMargin ?? prev.availableMargin),
-              usedMargin: Number(cfg.usedMargin ?? prev.usedMargin),
-              utilizedMargin: Number(cfg.utilizedMargin ?? prev.utilizedMargin),
-              payin: Number(cfg.payin ?? prev.payin),
-              payout: Number(cfg.payout ?? prev.payout),
-              totalBalance: Number(cfg.totalBalance ?? prev.totalBalance),
-              holdingsCount: typeof cfg.holdingsCount === 'number' ? cfg.holdingsCount : prev.holdingsCount,
-              userName: cfg.userName || prev.userName,
-              userClientCode: cfg.userClientCode || prev.userClientCode,
-              tokenGeneratedAt: cfg.tokenGeneratedAt || prev.tokenGeneratedAt,
-              tokenExpiresAt: cfg.tokenExpiresAt || prev.tokenExpiresAt,
-              redirectUri: cfg.redirectUri || prev.redirectUri,
-              serverOutboundIp: cfg.serverOutboundIp || prev.serverOutboundIp,
-              serverSecondaryIp: cfg.serverSecondaryIp || prev.serverSecondaryIp,
-              actualDetectedIp: cfg.actualDetectedIp || prev.actualDetectedIp,
-              proxyError: cfg.proxyError ?? prev.proxyError,
-            }));
+            setApiConfig((prev) => {
+              const nextAccessToken = cfg.accessToken || (cfg.tokenExpired ? '' : prev.accessToken);
+              const nextAvailableMargin = Number(cfg.availableMargin ?? prev.availableMargin);
+              const nextSettledCash = cfg.settledCash !== undefined ? Number(cfg.settledCash) : prev.settledCash;
+              const nextDeliverySellCredit = cfg.deliverySellCredit !== undefined ? Number(cfg.deliverySellCredit) : prev.deliverySellCredit;
+              const nextUsedMargin = Number(cfg.usedMargin ?? prev.usedMargin);
+              const nextUtilizedMargin = Number(cfg.utilizedMargin ?? prev.utilizedMargin);
+              const nextPayin = Number(cfg.payin ?? prev.payin);
+              const nextPayout = Number(cfg.payout ?? prev.payout);
+              const nextTotalBalance = Number(cfg.totalBalance ?? prev.totalBalance);
+              const nextHoldingsCount = typeof cfg.holdingsCount === 'number' ? cfg.holdingsCount : prev.holdingsCount;
+              const nextUserName = cfg.userName || prev.userName;
+              const nextUserClientCode = cfg.userClientCode || prev.userClientCode;
+              const nextTokenGeneratedAt = cfg.tokenGeneratedAt || prev.tokenGeneratedAt;
+              const nextTokenExpiresAt = cfg.tokenExpiresAt || prev.tokenExpiresAt;
+              const nextRedirectUri = cfg.redirectUri || prev.redirectUri;
+              const nextServerOutboundIp = cfg.serverOutboundIp || prev.serverOutboundIp;
+              const nextServerSecondaryIp = cfg.serverSecondaryIp || prev.serverSecondaryIp;
+              const nextActualDetectedIp = cfg.actualDetectedIp || prev.actualDetectedIp;
+              const nextIsFixedProxyActive = typeof cfg.isFixedProxyActive === 'boolean' ? cfg.isFixedProxyActive : prev.isFixedProxyActive;
+              const nextProxyError = cfg.proxyError ?? prev.proxyError;
+
+              if (
+                prev.isConnected === cfg.isConnected &&
+                prev.accessToken === nextAccessToken &&
+                prev.availableMargin === nextAvailableMargin &&
+                prev.settledCash === nextSettledCash &&
+                prev.deliverySellCredit === nextDeliverySellCredit &&
+                prev.usedMargin === nextUsedMargin &&
+                prev.utilizedMargin === nextUtilizedMargin &&
+                prev.payin === nextPayin &&
+                prev.payout === nextPayout &&
+                prev.totalBalance === nextTotalBalance &&
+                prev.holdingsCount === nextHoldingsCount &&
+                prev.userName === nextUserName &&
+                prev.userClientCode === nextUserClientCode &&
+                prev.tokenGeneratedAt === nextTokenGeneratedAt &&
+                prev.tokenExpiresAt === nextTokenExpiresAt &&
+                prev.redirectUri === nextRedirectUri &&
+                prev.serverOutboundIp === nextServerOutboundIp &&
+                prev.serverSecondaryIp === nextServerSecondaryIp &&
+                prev.actualDetectedIp === nextActualDetectedIp &&
+                prev.isFixedProxyActive === nextIsFixedProxyActive &&
+                prev.proxyError === nextProxyError
+              ) {
+                return prev;
+              }
+
+              return {
+                ...prev,
+                isConnected: cfg.isConnected,
+                accessToken: nextAccessToken,
+                availableMargin: nextAvailableMargin,
+                settledCash: nextSettledCash,
+                deliverySellCredit: nextDeliverySellCredit,
+                usedMargin: nextUsedMargin,
+                utilizedMargin: nextUtilizedMargin,
+                payin: nextPayin,
+                payout: nextPayout,
+                totalBalance: nextTotalBalance,
+                holdingsCount: nextHoldingsCount,
+                userName: nextUserName,
+                userClientCode: nextUserClientCode,
+                tokenGeneratedAt: nextTokenGeneratedAt,
+                tokenExpiresAt: nextTokenExpiresAt,
+                redirectUri: nextRedirectUri,
+                serverOutboundIp: nextServerOutboundIp,
+                serverSecondaryIp: nextServerSecondaryIp,
+                actualDetectedIp: nextActualDetectedIp,
+                isFixedProxyActive: nextIsFixedProxyActive,
+                proxyError: nextProxyError,
+              };
+            });
           }
         }
       } catch {
         // Ignored
+      } finally {
+        clearTimeout(timeoutId);
+        if (activeSyncCtrl === ctrl) activeSyncCtrl = null;
+        inFlightConfigSync = false;
       }
-    }, 4000);
-    return () => clearInterval(configSyncInterval);
+    }, 6000);
+    return () => {
+      isMounted = false;
+      initCtrl.abort();
+      activeSyncCtrl?.abort();
+      clearInterval(configSyncInterval);
+    };
   }, []);
 
-  // Fetch real Upstox live quotes periodically
+  // Fetch real Upstox live quotes via SSE with resilient HTTP fallback
   useEffect(() => {
     let isMounted = true;
-    const updateQuotes = async () => {
+    let inFlightQuotes = false;
+    let activeQuotesCtrl: AbortController | null = null;
+    const updateQuotes = async (force = false) => {
+      if (!isMounted || inFlightQuotes) return;
+      if (!force && Date.now() - lastSseQuoteAtRef.current < 2800) {
+        return;
+      }
+      inFlightQuotes = true;
+      const ctrl = new AbortController();
+      activeQuotesCtrl = ctrl;
+      const timeoutId = setTimeout(() => ctrl.abort(), 5000);
       try {
-        let token = apiConfig.accessToken;
-        if (!token) {
-          try {
-            token = localStorage.getItem('upstox_daily_token') || '';
-          } catch {
-            // Silently ignored
-          }
-        }
-
+        const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
         const headers: Record<string, string> = {};
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const res = await fetch('/api/market/quotes', { headers });
-        if (res.ok) {
+        const res = await fetch('/api/market/quotes', { headers, signal: ctrl.signal });
+        if (res.ok && isMounted) {
           const data = await res.json();
-          // Support both array and { quotes: [...] } format from Upstox
           const quotesList = Array.isArray(data)
             ? data
             : Array.isArray(data?.quotes)
@@ -721,20 +763,22 @@ export const App: React.FC = () => {
             setIsWsConnected(true);
             return;
           }
-        } else {
-          if (isMounted) setIsWsConnected(false);
+        } else if (isMounted) {
+          setIsWsConnected(false);
         }
       } catch {
-        if (isMounted) setIsWsConnected(false);
+        if (isMounted && !ctrl.signal.aborted) setIsWsConnected(false);
+      } finally {
+        clearTimeout(timeoutId);
+        if (activeQuotesCtrl === ctrl) activeQuotesCtrl = null;
+        inFlightQuotes = false;
       }
-
-      if (!isMounted) return;
     };
 
-    updateQuotes();
-    const timer = setInterval(updateQuotes, 1200);
+    updateQuotes(true);
+    const timer = setInterval(() => updateQuotes(false), 3500);
 
-    // Also subscribe to SSE (/api/stream/quotes) for sub-second real-time tick streaming
+    // Subscribe to SSE (/api/stream/quotes) for real-time tick streaming
     let es: EventSource | null = null;
     try {
       es = new EventSource('/api/stream/quotes');
@@ -747,6 +791,7 @@ export const App: React.FC = () => {
             msg.data.length > 0 &&
             isMounted
           ) {
+            lastSseQuoteAtRef.current = Date.now();
             const uniqueQuotes = deduplicateQuotes([...msg.data, ...INITIAL_WATCHLIST_SYMBOLS]);
             setQuotes(uniqueQuotes);
             setIsWsConnected(true);
@@ -762,21 +807,22 @@ export const App: React.FC = () => {
     return () => {
       isMounted = false;
       clearInterval(timer);
+      activeQuotesCtrl?.abort();
       if (es) es.close();
     };
   }, [apiConfig.accessToken]);
 
   // Fetch real Upstox Candlesticks & Technical Indicators
+  const candlesInFlightRef = useRef(false);
+  const candlesAbortRef = useRef<AbortController | null>(null);
   const fetchRealCandles = useCallback(async () => {
-    let token = apiConfig.accessToken;
-    if (!token) {
-      try {
-        token = localStorage.getItem('upstox_daily_token') || '';
-      } catch {
-        // Silently ignored
-      }
-    }
+    if (candlesInFlightRef.current) return;
+    candlesInFlightRef.current = true;
+    const ctrl = new AbortController();
+    candlesAbortRef.current = ctrl;
+    const timeoutId = setTimeout(() => ctrl.abort(), 5500);
 
+    const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
     const headers: Record<string, string> = {};
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -784,17 +830,23 @@ export const App: React.FC = () => {
 
     try {
       const url = `/api/market/candles?symbol=${encodeURIComponent(selectedSymbol)}&interval=${chartInterval}&instrumentKey=${encodeURIComponent(selectedInstrumentKey)}`;
-      const res = await fetch(url, { headers });
-      if (res.ok) {
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      if (res.ok && !ctrl.signal.aborted) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.candles) && json.candles.length > 0) {
+        if (json.success && Array.isArray(json.candles) && json.candles.length > 0 && !ctrl.signal.aborted) {
           const enriched = enrichCandlesWithIndicators(json.candles);
           setCandles(enriched);
           return;
         }
       }
     } catch (e) {
-      console.warn('Real candle fetch notice:', e);
+      if (!ctrl.signal.aborted) {
+        console.warn('Real candle fetch notice:', e);
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      if (candlesAbortRef.current === ctrl) candlesAbortRef.current = null;
+      candlesInFlightRef.current = false;
     }
   }, [selectedSymbol, selectedInstrumentKey, chartInterval, apiConfig.accessToken]);
 
@@ -805,8 +857,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchRealCandles();
-    const candleIntervalTimer = setInterval(fetchRealCandles, 3500);
-    return () => clearInterval(candleIntervalTimer);
+    const candleIntervalTimer = setInterval(fetchRealCandles, 5000);
+    return () => {
+      candlesAbortRef.current?.abort();
+      candlesInFlightRef.current = false;
+      clearInterval(candleIntervalTimer);
+    };
   }, [fetchRealCandles]);
 
   // Keep chartTradeContext dynamically synchronized with live positions & latest candles
@@ -955,6 +1011,13 @@ export const App: React.FC = () => {
       if (priceDiffRatio > 0.15) {
         return prev;
       }
+      if (
+        last.close === currentQuote.ltp &&
+        currentQuote.ltp <= last.high &&
+        currentQuote.ltp >= last.low
+      ) {
+        return prev;
+      }
       const updatedLast: CandleData = {
         ...last,
         close: currentQuote.ltp,
@@ -992,7 +1055,7 @@ export const App: React.FC = () => {
           ? (botConfig.maxCapitalPerTrade ?? 0) > 0
             ? Math.min(apiConfig.availableMargin, botConfig.maxCapitalPerTrade ?? 0)
             : apiConfig.availableMargin
-          : botConfig.maxCapitalPerTrade || 2000;
+          : botConfig.maxCapitalPerTrade || 10000;
       const lotCalc = calculateAffordableLotsWithBrokerage(ltp, lotSz, availCap, true, 5);
       return {
         strikePrice: atm.strikePrice,
@@ -1122,15 +1185,7 @@ export const App: React.FC = () => {
   const fetchOptionChain = useCallback(
     async (expiryOverride?: string, symbolOverride?: string) => {
       setOptionChainLoading(true);
-      let token = apiConfig.accessToken;
-      if (!token) {
-        try {
-          token = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          // Silently ignored
-        }
-      }
-
+      const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
       const headers: Record<string, string> = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -1161,13 +1216,9 @@ export const App: React.FC = () => {
 
   // Fetch real Upstox long-term holdings
   const fetchHoldings = useCallback(async () => {
-    let token = apiConfig.accessToken;
-    if (!token) {
-      try {
-        token = localStorage.getItem('upstox_daily_token') || '';
-      } catch {
-        // Silently ignored
-      }
+    const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
+    if (!token && mode !== 'UPSTOX_LIVE') {
+      return;
     }
 
     const headers: Record<string, string> = {};
@@ -1208,7 +1259,7 @@ export const App: React.FC = () => {
     } catch (e) {
       console.warn('Holdings fetch notice:', e);
     }
-  }, [apiConfig.accessToken]);
+  }, [apiConfig.accessToken, mode]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -1216,16 +1267,12 @@ export const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setTradeHistory((prev) => {
-            const map = new Map<string, Position>();
-            prev.forEach((t) => map.set(t.id, t));
-            data.forEach((t: any) => map.set(t.id, { ...t, mode: t.mode || 'PAPER_TRADING' }));
-            return Array.from(map.values()).sort((a, b) => {
-              const timeA = new Date(a.closeTime || 0).getTime();
-              const timeB = new Date(b.closeTime || 0).getTime();
-              return timeB - timeA;
-            });
-          });
+          const parsed = data.map((t: any) => ({ ...t, mode: t.mode || 'PAPER_TRADING' }));
+          setTradeHistory(parsed);
+          if (parsed.length === 0) {
+            safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
+            safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
+          }
         }
       }
     } catch {
@@ -1233,143 +1280,162 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Fetch real Upstox live positions AND Paper Trading positions/orders from backend
+  // Fetch real Upstox live positions AND Paper Trading positions/orders from backend (coalesced to prevent duplicate bursts)
   const fetchLivePositions = useCallback(async () => {
-    let token = apiConfig.accessToken;
-    if (!token) {
+    if (livePositionsInFlightRef.current) {
+      return livePositionsInFlightRef.current;
+    }
+
+    const work = (async () => {
+      const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       try {
-        token = localStorage.getItem('upstox_daily_token') || '';
-      } catch {
-        // Silently ignored
-      }
-    }
+        if (mode === 'PAPER_TRADING') {
+          const [paperPosRes, paperOrdRes, paperHistRes] = await Promise.allSettled([
+            fetch('/api/trading/positions?mode=PAPER_TRADING'),
+            fetch('/api/trading/orders?mode=PAPER_TRADING'),
+            fetch('/api/trading/history?mode=PAPER_TRADING'),
+          ]);
 
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    try {
-      const [livePosRes, paperPosRes, paperOrdRes, paperHistRes] = await Promise.allSettled([
-        token ? fetch('/api/market/positions', { headers }) : Promise.resolve(null),
-        fetch('/api/trading/positions?mode=PAPER_TRADING'),
-        fetch('/api/trading/orders?mode=PAPER_TRADING'),
-        fetch('/api/trading/history?mode=PAPER_TRADING'),
-      ]);
-
-      let livePosList: Position[] = [];
-      if (livePosRes.status === 'fulfilled' && livePosRes.value && livePosRes.value.ok) {
-        const data = await livePosRes.value.json();
-        if (Array.isArray(data)) livePosList = data;
-      }
-
-      let paperPosList: Position[] = [];
-      if (paperPosRes.status === 'fulfilled' && paperPosRes.value && paperPosRes.value.ok) {
-        const pData = await paperPosRes.value.json();
-        if (Array.isArray(pData)) {
-          paperPosList = pData.map((p: any) => ({
-            ...p,
-            mode: 'PAPER_TRADING',
-            productType: p.productType || 'INTRADAY',
-            pnl: Number((p.pnl || 0).toFixed(2)),
-            pnlPercent:
-              p.buyPrice > 0
-                ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2))
-                : 0,
-            openedAt: p.openedAt || new Date().toLocaleTimeString(),
-          }));
-        }
-      }
-
-      if (mode === 'PAPER_TRADING') {
-        setPositions(paperPosList);
-      } else {
-        // In UPSTOX_LIVE mode, strictly show ONLY real Upstox positions (never mix dummy/paper positions!)
-        setPositions(livePosList);
-      }
-
-      if (mode === 'PAPER_TRADING') {
-        if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
-          const oData = await paperOrdRes.value.json();
-          if (Array.isArray(oData) && oData.length > 0) {
-            setOrders((prev) => {
-              const map = new Map<string, Order>();
-              prev.forEach((o) => map.set(o.id || o.orderId, o));
-              oData.forEach((o: any) => {
-                const item: Order = {
-                  id: o.id || o.orderId,
-                  orderId: o.orderId || o.id,
-                  positionId: o.positionId,
-                  symbol: o.symbol,
-                  instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
-                  transactionType: o.transactionType || o.type || 'BUY',
-                  orderType: o.orderType || 'MARKET',
-                  productType: o.productType || 'INTRADAY',
-                  quantity: o.quantity,
-                  price: o.price,
-                  executedPrice: o.executedPrice || o.price,
-                  buyPrice: o.buyPrice,
-                  sellPrice: o.sellPrice,
-                  realizedPnL: o.realizedPnL,
-                  brokerageCharges: o.brokerageCharges,
-                  netRealizedPnL: o.netRealizedPnL,
-                  status: o.status || 'COMPLETE',
-                  timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
-                  mode: 'PAPER_TRADING',
-                };
-                map.set(item.id || item.orderId, item);
-              });
-              return Array.from(map.values());
-            });
+          let paperPosList: Position[] = [];
+          if (paperPosRes.status === 'fulfilled' && paperPosRes.value && paperPosRes.value.ok) {
+            const pData = await paperPosRes.value.json();
+            if (Array.isArray(pData)) {
+              paperPosList = pData.map((p: any) => ({
+                ...p,
+                mode: 'PAPER_TRADING',
+                productType: p.productType || 'INTRADAY',
+                pnl: Number((p.pnl || 0).toFixed(2)),
+                pnlPercent:
+                  p.buyPrice > 0
+                    ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2))
+                    : 0,
+                openedAt: p.openedAt || new Date().toLocaleTimeString(),
+              }));
+            }
           }
-        }
-        if (paperHistRes.status === 'fulfilled' && paperHistRes.value && paperHistRes.value.ok) {
-          const hData = await paperHistRes.value.json();
-          if (Array.isArray(hData) && hData.length > 0) {
-            setTradeHistory((prev) => {
-              const map = new Map<string, Position>();
-              prev.forEach((t) => map.set(t.id, t));
-              hData.forEach((t: any) => {
-                map.set(t.id, { ...t, mode: 'PAPER_TRADING' });
+
+          setPositions((prev) => (prev.length === 0 && paperPosList.length === 0 ? prev : paperPosList));
+
+          if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
+            const oData = await paperOrdRes.value.json();
+            if (Array.isArray(oData)) {
+              const parsedOrders: Order[] = oData.map((o: any) => ({
+                id: o.id || o.orderId,
+                orderId: o.orderId || o.id,
+                positionId: o.positionId,
+                symbol: o.symbol,
+                instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
+                transactionType: o.transactionType || o.type || 'BUY',
+                orderType: o.orderType || 'MARKET',
+                productType: o.productType || 'INTRADAY',
+                quantity: o.quantity,
+                price: o.price,
+                executedPrice: o.executedPrice || o.price,
+                buyPrice: o.buyPrice,
+                sellPrice: o.sellPrice,
+                realizedPnL: o.realizedPnL,
+                brokerageCharges: o.brokerageCharges,
+                netRealizedPnL: o.netRealizedPnL,
+                status: o.status || 'COMPLETE',
+                timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
+                mode: 'PAPER_TRADING',
+              }));
+              setOrders((prev) => {
+                if (prev.length === 0 && parsedOrders.length === 0) return prev;
+                if (
+                  prev.length === parsedOrders.length &&
+                  prev[0]?.id === parsedOrders[0]?.id &&
+                  prev[prev.length - 1]?.id === parsedOrders[parsedOrders.length - 1]?.id
+                ) {
+                  return prev;
+                }
+                return parsedOrders;
               });
-              return Array.from(map.values()).sort((a, b) => {
-                const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
-                const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
-                return tB - tA;
-              });
-            });
+              if (parsedOrders.length === 0) {
+                safeStorage.removeItem('aizabiz_persisted_orders_v2');
+                safeStorage.removeItem('aizabiz_persisted_orders_v3');
+              }
+            }
           }
-        }
-      } else if (token) {
-        // In UPSTOX_LIVE mode, fetch real Upstox order book and trade history
-        try {
-          const [liveOrdRes, liveHistRes] = await Promise.allSettled([
+          if (paperHistRes.status === 'fulfilled' && paperHistRes.value && paperHistRes.value.ok) {
+            const hData = await paperHistRes.value.json();
+            if (Array.isArray(hData)) {
+              const parsedHistory = hData
+                .map((t: any) => ({ ...t, mode: 'PAPER_TRADING' }))
+                .sort((a: any, b: any) => {
+                  const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
+                  const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
+                  return tB - tA;
+                });
+              setTradeHistory((prev) => {
+                if (prev.length === 0 && parsedHistory.length === 0) return prev;
+                if (
+                  prev.length === parsedHistory.length &&
+                  prev[0]?.id === parsedHistory[0]?.id &&
+                  prev[0]?.closeTime === parsedHistory[0]?.closeTime
+                ) {
+                  return prev;
+                }
+                return parsedHistory;
+              });
+              if (parsedHistory.length === 0) {
+                safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
+                safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
+              }
+            }
+          }
+        } else if (mode === 'UPSTOX_LIVE' || Boolean(apiConfig.isConnected || token)) {
+          // In UPSTOX_LIVE mode, fetch real Upstox positions, order book and trade history
+          const [livePosRes, liveOrdRes, liveHistRes] = await Promise.allSettled([
+            fetch('/api/market/positions', { headers }),
             fetch('/api/market/orders', { headers }),
             fetch('/api/trading/history?mode=UPSTOX_LIVE', { headers }),
           ]);
+
+          let livePosList: Position[] = [];
+          if (livePosRes.status === 'fulfilled' && livePosRes.value && livePosRes.value.ok) {
+            const data = await livePosRes.value.json();
+            if (Array.isArray(data)) {
+              livePosList = data.filter(
+                (p: any) =>
+                  p &&
+                  Number(p.quantity || 0) > 0 &&
+                  !(
+                    p.productType === 'DELIVERY' &&
+                    p.type === 'SELL' &&
+                    !p.isOption &&
+                    !String(p.symbol || '').includes('CE') &&
+                    !String(p.symbol || '').includes('PE')
+                  ),
+              );
+            }
+          }
+          setPositions((prev) => (prev.length === 0 && livePosList.length === 0 ? prev : livePosList));
+
           if (liveOrdRes.status === 'fulfilled' && liveOrdRes.value && liveOrdRes.value.ok) {
             const liveOrdData = await liveOrdRes.value.json();
-            if (Array.isArray(liveOrdData) && liveOrdData.length > 0) {
+            if (Array.isArray(liveOrdData)) {
               setOrders((prev) => {
-                const map = new Map<string, Order>();
-                prev.forEach((o) => map.set(o.id || o.orderId, o));
-                liveOrdData.forEach((o: any) => {
-                  map.set(o.id || o.orderId, { ...o, mode: 'UPSTOX_LIVE' });
-                });
-                return Array.from(map.values());
+                const nonLive = prev.filter((o) => (o.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
+                if (liveOrdData.length === 0 && nonLive.length === prev.length) return prev;
+                const liveMapped = liveOrdData.map((o: any) => ({ ...o, mode: 'UPSTOX_LIVE' as const }));
+                return [...liveMapped, ...nonLive];
               });
             }
           }
           if (liveHistRes.status === 'fulfilled' && liveHistRes.value && liveHistRes.value.ok) {
             const liveHistData = await liveHistRes.value.json();
-            if (Array.isArray(liveHistData) && liveHistData.length > 0) {
+            if (Array.isArray(liveHistData)) {
               setTradeHistory((prev) => {
-                const map = new Map<string, Position>();
-                prev.forEach((t) => map.set(t.id, t));
-                liveHistData.forEach((t: any) => {
-                  map.set(t.id, { ...t, mode: 'UPSTOX_LIVE' });
-                });
-                return Array.from(map.values()).sort((a, b) => {
+                const nonLive = prev.filter((t) => (t.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
+                if (liveHistData.length === 0 && nonLive.length === prev.length) return prev;
+                const liveMapped = liveHistData.map((t: any) => ({ ...t, mode: 'UPSTOX_LIVE' as const }));
+                return [...liveMapped, ...nonLive].sort((a, b) => {
                   const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
                   const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
                   return tB - tA;
@@ -1377,14 +1443,18 @@ export const App: React.FC = () => {
               });
             }
           }
-        } catch {
-          // Ignored
         }
+      } catch (e) {
+        console.warn('Positions fetch notice:', e);
+      } finally {
+        lastLivePositionsAtRef.current = Date.now();
+        livePositionsInFlightRef.current = null;
       }
-    } catch (e) {
-      console.warn('Positions fetch notice:', e);
-    }
-  }, [apiConfig.accessToken, mode]);
+    })();
+
+    livePositionsInFlightRef.current = work;
+    return work;
+  }, [apiConfig.accessToken, apiConfig.isConnected, mode]);
 
   useEffect(() => {
     if (activeTab === 'OPTIONS') {
@@ -1395,13 +1465,12 @@ export const App: React.FC = () => {
     }
   }, [activeTab, selectedSymbol, fetchOptionChain, fetchHoldings, fetchLivePositions]);
 
-  // Initial and periodic sync of holdings and positions when token is present
+  // Initial and periodic sync of holdings (server holds token fallback)
   useEffect(() => {
     if (apiConfig.isConnected || apiConfig.accessToken) {
       fetchHoldings();
-      fetchLivePositions();
     }
-  }, [apiConfig.isConnected, apiConfig.accessToken, fetchHoldings, fetchLivePositions]);
+  }, [apiConfig.isConnected, apiConfig.accessToken, fetchHoldings]);
 
   // Order Placement
   const handlePlaceOrder = async (orderData: {
@@ -1432,15 +1501,7 @@ export const App: React.FC = () => {
 
     try {
       const orderHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      const activeTok =
-        apiConfig.accessToken ||
-        (() => {
-          try {
-            return localStorage.getItem('upstox_daily_token') || '';
-          } catch {
-            return '';
-          }
-        })();
+      const activeTok = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
       if (activeTok) orderHeaders['Authorization'] = `Bearer ${activeTok}`;
 
       const res = await fetch('/api/trading/order', {
@@ -1544,7 +1605,7 @@ export const App: React.FC = () => {
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const savedTok = localStorage.getItem('upstox_daily_token');
+      const savedTok = safeStorage.getItem('upstox_daily_token');
       if (savedTok && savedTok.length > 30) {
         headers['Authorization'] = `Bearer ${savedTok}`;
       }
@@ -1557,6 +1618,7 @@ export const App: React.FC = () => {
           instrumentKey: pos.instrumentKey,
           quantity: pos.quantity,
           productType: pos.productType,
+          type: pos.type,
           sellPrice,
         }),
       });
@@ -1630,6 +1692,56 @@ export const App: React.FC = () => {
     positions.forEach((p) => handleSquareOffPosition(p.id));
   };
 
+  // Square off equity-only positions (keeping options & holdings untouched)
+  const handleSquareOffEquityOnly = () => {
+    setIsEquityExitConfirmOpen(true);
+  };
+
+  const confirmSquareOffEquityOnly = async () => {
+    setIsEquityExitConfirmOpen(false);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const savedTok = safeStorage.getItem('upstox_daily_token');
+      if (savedTok && savedTok.length > 30) {
+        headers['Authorization'] = `Bearer ${savedTok}`;
+      }
+      const res = await fetch('/api/trading/squareoff-equity-only', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPositions((prev) =>
+          prev.filter((p) => p.isOption || p.symbol.includes('CE') || p.symbol.includes('PE')),
+        );
+        setBotLogs((prev) => [
+          {
+            id: Date.now().toString(),
+            timestamp: new Date().toLocaleTimeString(),
+            message:
+              language === 'ml'
+                ? `✅ ഇന്നത്തെ എല്ലാ ഇക്വിറ്റി ട്രേഡുകളും എക്സിറ്റ് ചെയ്തു. (ഹോൾഡിംഗുകൾ സുരക്ഷിതം)`
+                : `✅ Exited all equity trades. (Holdings untouched)`,
+            type: 'SUCCESS',
+          },
+          ...prev.slice(0, 199),
+        ]);
+        if (soundEnabled) {
+          soundEngine.play('SUCCESS');
+          soundEngine.speak(
+            language === 'ml'
+              ? 'ഇക്വിറ്റി ട്രേഡുകൾ എക്സിറ്റ് ചെയ്തു'
+              : 'Equity trades exited',
+            language,
+          );
+        }
+      }
+    } catch (e: any) {
+      console.error('Failed to square off equity only:', e);
+    }
+  };
+
   const handleSyncHistoryBrokerage = async () => {
     try {
       const res = await fetch('/api/bot/sync-history-brokerage', { method: 'POST' });
@@ -1643,34 +1755,36 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleResetPaperAccount = async () => {
-    if (
-      !window.confirm(
-        language === 'ml'
-          ? 'നിങ്ങളുടെ പേപ്പർ ട്രേഡിംഗ് അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണമെന്നുറപ്പാണോ?'
-          : 'Are you sure you want to reset your paper trading account?',
-      )
-    ) {
-      return;
-    }
+  const handleResetPaperAccount = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const confirmResetPaperAccount = async () => {
+    setIsResetConfirmOpen(false);
     try {
       const res = await fetch('/api/paper/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initialCapital: 2000 }),
+        body: JSON.stringify({ initialCapital: 10000 }),
       });
       if (res.ok) {
         setOrders([]);
         setPositions([]);
         setTradeHistory([]);
-        try {
-          localStorage.removeItem('aizabiz_persisted_orders_v2');
-          localStorage.removeItem('aizabiz_persisted_trade_history_v2');
-        } catch {
-          // Ignored
-        }
-        alert(language === 'ml' ? 'അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു!' : 'Account reset successfully!');
-        window.location.reload();
+        setBotLogs([]);
+        safeStorage.removeItem('aizabiz_persisted_orders_v2');
+        safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
+        safeStorage.removeItem('aizabiz_persisted_orders_v3');
+        safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
+        setLightingBanner({
+          id: `reset-${Date.now()}`,
+          title: language === 'ml' ? 'പേപ്പർ അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു' : 'Paper Account Reset',
+          subtitle:
+            language === 'ml'
+              ? 'ട്രേഡിംഗ് ഹിസ്റ്ററി ക്ലിയർ ചെയ്ത് ബാലൻസ് ₹10,000 ആയി സെറ്റ് ചെയ്തു.'
+              : 'Trade history cleared and balance reset to ₹10,000.',
+          type: 'SUCCESS',
+        } as any);
       }
     } catch (e) {
       console.error('Failed to reset account', e);
@@ -1729,7 +1843,7 @@ export const App: React.FC = () => {
     if (!liveLot || liveLot <= 1) {
       try {
         const headers: Record<string, string> = {};
-        const savedTok = localStorage.getItem('upstox_daily_token');
+        const savedTok = safeStorage.getItem('upstox_daily_token');
         if (savedTok && savedTok.length > 30) {
           headers['Authorization'] = `Bearer ${savedTok}`;
         }
@@ -1841,7 +1955,8 @@ export const App: React.FC = () => {
     // A. Update open positions MTM P&L (supports both Equity/Index and Option Strikes via optionChainData or quotes)
     setPositions((prev) => {
       if (prev.length === 0) return prev;
-      return prev.map((pos) => {
+      let changed = false;
+      const next = prev.map((pos) => {
         let currentLTP = pos.currentLTP;
         const isOpt = pos.symbol.includes('CE') || pos.symbol.includes('PE');
 
@@ -1873,55 +1988,78 @@ export const App: React.FC = () => {
         }
 
         const isBuy = pos.type === 'BUY' || !pos.type;
-        const pnl = isBuy
-          ? (currentLTP - pos.buyPrice) * pos.quantity
-          : (pos.buyPrice - currentLTP) * pos.quantity;
-        const pnlPercent = pos.buyPrice > 0 ? (pnl / (pos.buyPrice * pos.quantity)) * 100 : 0;
+        const hasValidEntry = Number(pos.buyPrice || 0) > 0;
+        const pnl = hasValidEntry
+          ? isBuy
+            ? (currentLTP - pos.buyPrice) * pos.quantity
+            : (pos.buyPrice - currentLTP) * pos.quantity
+          : Number(pos.pnl ?? 0);
+        const pnlPercent = hasValidEntry ? (pnl / (pos.buyPrice * pos.quantity)) * 100 : 0;
+        const nextPnl = Number(pnl.toFixed(2));
+        const nextPnlPercent = Number(pnlPercent.toFixed(2));
+        const nextHighestLTP = Math.max(pos.highestLTP || pos.buyPrice, currentLTP);
         const highestPnl = Math.max((pos as any).highestPnl || 0, pnl);
+        if (
+          pos.currentLTP === currentLTP &&
+          pos.pnl === nextPnl &&
+          pos.pnlPercent === nextPnlPercent &&
+          pos.highestLTP === nextHighestLTP &&
+          (pos as any).highestPnl === highestPnl
+        ) {
+          return pos;
+        }
+        changed = true;
         return {
           ...pos,
           currentLTP,
-          pnl: Number(pnl.toFixed(2)),
-          pnlPercent: Number(pnlPercent.toFixed(2)),
-          highestLTP: Math.max(pos.highestLTP || pos.buyPrice, currentLTP),
+          pnl: nextPnl,
+          pnlPercent: nextPnlPercent,
+          highestLTP: nextHighestLTP,
           highestPnl,
         };
       });
+      return changed ? next : prev;
     });
   }, [quotes, soundEnabled]);
 
   // 2. Real-Time Backend Algo Bot Sync Loop (Fetches authoritative logs, 7-Layer signals, active positions, orders & history from the 200ms server engine)
   // NOTE: All automated trade entries and exits are strictly executed by the 200ms server engine (which enforces 09:18 AM - 15:08 PM IST market hours, real Upstox Option Chain verification, and Peak-Locked Stop-Loss).
   useEffect(() => {
+    let isMounted = true;
+    let inFlightSync = false;
+    let activeCtrl: AbortController | null = null;
     const syncBackendBotState = async () => {
+      if (!isMounted || inFlightSync) return;
+      inFlightSync = true;
+      const ctrl = new AbortController();
+      activeCtrl = ctrl;
+      const timeoutId = setTimeout(() => ctrl.abort(), 5000);
       try {
-        let token = apiConfig.accessToken;
-        if (!token) {
-          try {
-            token = localStorage.getItem('upstox_daily_token') || '';
-          } catch {
-            // Ignored
-          }
-        }
+        const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
         const headers: Record<string, string> = {};
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
         const [logsRes, sigsRes] = await Promise.allSettled([
-          fetch('/api/bot/logs', { headers }).then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/bot/signals', { headers }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/bot/logs', { headers, signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/bot/signals', { headers, signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
         ]);
 
+        if (!isMounted || ctrl.signal.aborted) return;
+
         if (logsRes.status === 'fulfilled' && Array.isArray(logsRes.value)) {
-          setBotLogs(
-            logsRes.value.map((l: any) => ({
-              id: l.id || String(Date.now()),
-              timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
-              message: l.message || '',
-              type: l.type || 'INFO',
-            })),
-          );
+          const nextLogs = logsRes.value.map((l: any) => ({
+            id: l.id || String(Date.now()),
+            timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
+            message: l.message || '',
+            type: l.type || 'INFO',
+          }));
+          setBotLogs((prev) => {
+            if (prev.length === 0 && nextLogs.length === 0) return prev;
+            if (prev.length === nextLogs.length && prev[0]?.id === nextLogs[0]?.id) return prev;
+            return nextLogs;
+          });
         }
         if (
           sigsRes.status === 'fulfilled' &&
@@ -1945,13 +2083,24 @@ export const App: React.FC = () => {
         }
       } catch {
         // Ignored
+      } finally {
+        clearTimeout(timeoutId);
+        if (activeCtrl === ctrl) activeCtrl = null;
+        inFlightSync = false;
       }
-      fetchLivePositions();
+
+      if (isMounted && Date.now() - lastLivePositionsAtRef.current > 1800) {
+        fetchLivePositions();
+      }
     };
 
     syncBackendBotState();
-    const botSyncInterval = setInterval(syncBackendBotState, 1500);
-    return () => clearInterval(botSyncInterval);
+    const botSyncInterval = setInterval(syncBackendBotState, 2500);
+    return () => {
+      isMounted = false;
+      activeCtrl?.abort();
+      clearInterval(botSyncInterval);
+    };
   }, [apiConfig.accessToken, fetchLivePositions, selectedSymbol]);
 
   // 3. Auto-load AI analysis when switching to AI tab
@@ -2119,11 +2268,7 @@ export const App: React.FC = () => {
         isWsConnected={isWsConnected}
         mode={mode}
         setMode={(newMode) => {
-          try {
-            localStorage.setItem('aizabiz_preferred_trading_mode', newMode);
-          } catch {
-            // Ignored
-          }
+          safeStorage.setItem('aizabiz_preferred_trading_mode', newMode);
           setMode(newMode);
           setBotConfig((prev) => {
             const updated = { ...prev, mode: newMode };
@@ -2294,6 +2439,7 @@ export const App: React.FC = () => {
             handleViewChart={handleViewChart}
             handleSquareOffPosition={handleSquareOffPosition}
             handleSquareOffAll={handleSquareOffAll}
+            onSquareOffEquityOnly={handleSquareOffEquityOnly}
             positions={positions}
             holdings={holdings}
             totalNetMtm={totalNetMtm}
@@ -2343,7 +2489,69 @@ export const App: React.FC = () => {
         setIsOnboardingOpen={setIsOnboardingOpen}
         isTerminalLocked={isTerminalLocked}
         setIsTerminalLocked={setIsTerminalLocked}
+        paperAccountBalance={paperAccountBalance}
       />
+
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0b101d] border border-slate-800 p-5 shadow-2xl space-y-4">
+            <h3 className="text-base font-black text-white">
+              {language === 'ml' ? 'പേപ്പർ അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണോ?' : 'Reset Paper Trading Account?'}
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {language === 'ml'
+                ? 'എല്ലാ പേപ്പർ ട്രേഡിംഗ് ഹിസ്റ്ററിയും ഓർഡറുകളും ക്ലിയർ ചെയ്ത് അക്കൗണ്ട് ബാലൻസ് ₹10,000 ആയി റീസെറ്റ് ചെയ്യും.'
+                : 'This will clear all paper trading history and orders and reset your balance to ₹10,000.'}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition"
+              >
+                {language === 'ml' ? 'റദ്ദാക്കുക' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={confirmResetPaperAccount}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition"
+              >
+                {language === 'ml' ? 'റീസെറ്റ് ചെയ്യുക' : 'Reset to ₹10,000'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isEquityExitConfirmOpen && (
+        <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#0b101d] border border-slate-800 p-5 shadow-2xl space-y-4">
+            <h3 className="text-base font-black text-white">
+              {language === 'ml' ? 'ഇക്വിറ്റി ട്രേഡുകൾ എക്സിറ്റ് ചെയ്യണോ?' : 'Exit Equity Trades?'}
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {language === 'ml'
+                ? 'ഇന്നത്തെ എല്ലാ ഇക്വിറ്റി ട്രേഡുകളും എക്സിറ്റ് ചെയ്യണമെന്നുറപ്പാണോ? (ഹോൾഡിംഗുകൾ സുരക്ഷിതമായിരിക്കും)'
+                : 'Are you sure you want to exit all equity trades? (Holdings will be kept untouched)'}
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsEquityExitConfirmOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition"
+              >
+                {language === 'ml' ? 'റദ്ദാക്കുക' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={confirmSquareOffEquityOnly}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition"
+              >
+                {language === 'ml' ? 'എക്സിറ്റ് ചെയ്യുക' : 'Exit Equity'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

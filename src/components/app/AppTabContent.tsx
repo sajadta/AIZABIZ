@@ -69,6 +69,7 @@ interface AppTabContentProps {
   handleViewChart: (sym: string, key?: string, context?: any) => void;
   handleSquareOffPosition: (id: string) => Promise<void>;
   handleSquareOffAll: () => void;
+  onSquareOffEquityOnly?: () => void;
   positions: Position[];
   holdings: Holding[];
   totalNetMtm: number;
@@ -116,6 +117,7 @@ export const AppTabContent: React.FC<AppTabContentProps> = ({
   handleViewChart,
   handleSquareOffPosition,
   handleSquareOffAll,
+  onSquareOffEquityOnly,
   positions,
   holdings,
   totalNetMtm,
@@ -383,6 +385,7 @@ export const AppTabContent: React.FC<AppTabContentProps> = ({
             language={language}
             onSquareOffPosition={handleSquareOffPosition}
             onSquareOffAll={handleSquareOffAll}
+            onSquareOffEquityOnly={onSquareOffEquityOnly}
             totalPnL={totalNetMtm}
             onRefreshHoldings={fetchHoldings}
             isConnected={apiConfig.isConnected}
@@ -414,6 +417,7 @@ export const AppTabContent: React.FC<AppTabContentProps> = ({
             language={language}
             onSquareOffPosition={handleSquareOffPosition}
             onSquareOffAll={handleSquareOffAll}
+            onSquareOffEquityOnly={onSquareOffEquityOnly}
             totalPnL={totalNetMtm}
             initialTab="HOLDINGS"
             onRefreshHoldings={fetchHoldings}

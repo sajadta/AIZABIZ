@@ -43,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   cumulativeProfit,
   isWsConnected: _isWsConnected,
   onOpenAlerts,
-  virtualCapital = 2000,
+  virtualCapital = 10000,
   onResetPaperAccount,
   botEnabled = false,
   onToggleBot,
@@ -133,10 +133,10 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          <div className="h-6 w-px bg-slate-800 hidden md:block" />
+          <div className="h-6 w-px bg-slate-800 hidden 2xl:block shrink-0" />
 
-          {/* Market Status & Live IST Time Pill */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs shadow-inner">
+          {/* Market Status & Live IST Time Pill (Desktop status bar below header shows this on lg/xl) */}
+          <div className="hidden 2xl:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs shadow-inner shrink-0 whitespace-nowrap">
             <span className="relative flex h-2 w-2">
               {marketSession.isMarketOpen && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${marketSession.isMarketOpen ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
@@ -157,20 +157,20 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Center: Mode Switcher (Desktop) & PnL Quick View */}
-        <div className="hidden sm:flex items-center gap-2 sm:gap-3">
+        <div className="hidden sm:flex items-center gap-2 sm:gap-3 shrink-0">
           {/* Mode Switcher Desktop */}
-          <div className="bg-slate-900/90 p-0.5 rounded-xl border border-slate-800 flex items-center">
+          <div className="bg-slate-900/90 p-0.5 rounded-xl border border-slate-800 flex items-center shrink-0 whitespace-nowrap">
             <button
               id="btn-mode-paper"
               onClick={() => setMode('PAPER_TRADING')}
-              className={`min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation ${
+              className={`min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation whitespace-nowrap shrink-0 ${
                 mode === 'PAPER_TRADING'
                   ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{language === 'ml' ? 'പേപ്പർ (₹2,000)' : 'Paper (₹2,000)'}</span>
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+              <span>{language === 'ml' ? 'പേപ്പർ (₹10,000)' : 'Paper (₹10,000)'}</span>
             </button>
             <button
               id="btn-mode-live"
@@ -181,13 +181,13 @@ export const Header: React.FC<HeaderProps> = ({
                   setMode('UPSTOX_LIVE');
                 }
               }}
-              className={`min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation ${
+              className={`min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 touch-manipulation whitespace-nowrap shrink-0 ${
                 mode === 'UPSTOX_LIVE'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/20 animate-pulse'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/20'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Zap className="w-3.5 h-3.5" />
+              <Zap className="w-3.5 h-3.5 shrink-0" />
               <span>{language === 'ml' ? 'അപ്സ്റ്റോക്സ് ലൈവ്' : 'Upstox Live'}</span>
               {!apiConfig.isConnected && (
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
@@ -196,47 +196,56 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Sleek Unified Metrics Ribbon (Zero Box Clutter) */}
-          <div className="hidden md:flex items-center divide-x divide-slate-800/70 bg-slate-900/40 backdrop-blur-sm rounded-xl px-2 py-1 text-xs shadow-inner">
+          <div className="hidden md:flex items-center divide-x divide-slate-800/70 bg-slate-900/40 backdrop-blur-sm rounded-xl px-2 py-1 text-xs shadow-inner shrink-0 whitespace-nowrap">
             {/* Day P&L */}
-            <div className="flex items-center gap-1.5 px-3 py-1 font-mono">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 font-mono whitespace-nowrap">
               <span className="text-[10px] uppercase font-sans font-semibold text-slate-400 tracking-wider">
                 {language === 'ml' ? 'ഇന്ന്:' : 'Day:'}
               </span>
-              <span className={`font-bold ${dailyProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <span className={`font-bold whitespace-nowrap ${dailyProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {dailyProfit >= 0 ? `+₹${dailyProfit.toFixed(2)}` : `-₹${Math.abs(dailyProfit).toFixed(2)}`}
               </span>
             </div>
 
             {/* Total Cumulative P&L */}
-            <div className="flex items-center gap-1.5 px-3 py-1 font-mono" title={language === 'ml' ? 'ആകെ മൊത്തം ട്രേഡിംഗ് ലാഭം/നഷ്ടം' : 'Total All-Time Cumulative P&L'}>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 font-mono whitespace-nowrap" title={language === 'ml' ? 'ആകെ മൊത്തം ട്രേഡിംഗ് ലാഭം/നഷ്ടം' : 'Total All-Time Cumulative P&L'}>
               <span className="text-[10px] uppercase font-sans font-semibold text-slate-400 tracking-wider">
-                {t.cumulativePnL}:
+                {language === 'ml' ? 'ആകെ:' : 'Net:'}
               </span>
-              <span className={`font-bold ${(cumulativeProfit ?? dailyProfit) >= 0 ? 'text-cyan-300' : 'text-rose-400'}`}>
+              <span className={`font-bold whitespace-nowrap ${(cumulativeProfit ?? dailyProfit) >= 0 ? 'text-cyan-300' : 'text-rose-400'}`}>
                 {(cumulativeProfit ?? dailyProfit) >= 0 ? `+₹${(cumulativeProfit ?? dailyProfit).toFixed(2)}` : `-₹${Math.abs(cumulativeProfit ?? dailyProfit).toFixed(2)}`}
               </span>
             </div>
 
             {/* Account Balance (Live Margin or Paper) */}
-            <div className="flex items-center gap-1.5 px-3 py-1 font-mono" title={mode === 'UPSTOX_LIVE' ? 'Upstox Real Available Margin' : 'Paper Trading Virtual Account Balance'}>
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 font-mono whitespace-nowrap"
+              title={
+                mode === 'UPSTOX_LIVE'
+                  ? `Upstox Free Margin: ₹${Number(apiConfig.availableMargin || 0).toFixed(2)} | Used: ₹${Number(apiConfig.usedMargin || 0).toFixed(2)} | Total: ₹${Number(apiConfig.totalBalance ?? apiConfig.availableMargin ?? 0).toFixed(2)}`
+                  : 'Paper Trading Virtual Account Balance'
+              }
+            >
               <span className="text-[10px] uppercase font-sans font-semibold text-slate-400 tracking-wider flex items-center gap-1">
                 {mode === 'UPSTOX_LIVE' ? <Zap className="w-3 h-3 text-emerald-400" /> : <ShieldCheck className="w-3 h-3 text-cyan-400" />}
                 {mode === 'UPSTOX_LIVE' ? (language === 'ml' ? 'ലൈവ്:' : 'Live:') : (language === 'ml' ? 'പേപ്പർ:' : 'Paper:') }
               </span>
-              <span className="font-bold text-slate-100 font-mono">
+              <span className="font-bold text-slate-100 font-mono whitespace-nowrap">
                 ₹{mode === 'UPSTOX_LIVE' 
                   ? (apiConfig.isConnected 
-                      ? Number(apiConfig.totalBalance || apiConfig.availableMargin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                      ? Number(apiConfig.availableMargin ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
                       : '0.00')
-                  : Number(virtualCapital ?? 2000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  : Number(virtualCapital ?? 10000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               {mode === 'PAPER_TRADING' && onResetPaperAccount && (
                 <button
+                  type="button"
                   onClick={() => {
                     if (onResetPaperAccount) onResetPaperAccount();
                   }}
+                  aria-label={t.resetPaper}
                   title={t.resetPaper}
-                  className="ml-2 p-1 hover:bg-rose-500/20 text-rose-400 rounded transition"
+                  className="ml-1 p-1 hover:bg-rose-500/20 text-rose-400 rounded transition"
                 >
                   <RefreshCw className="w-3 h-3" />
                 </button>
@@ -245,9 +254,9 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* MTM for Active Positions */}
             {activePositionsCount > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1 font-mono">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 font-mono whitespace-nowrap">
                 <span className="text-[10px] uppercase font-sans font-semibold text-slate-400">MTM:</span>
-                <span className={`font-bold ${totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <span className={`font-bold whitespace-nowrap ${totalPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {totalPnL >= 0 ? `+₹${totalPnL.toFixed(2)}` : `-₹${Math.abs(totalPnL).toFixed(2)}`}
                 </span>
                 <button
@@ -261,10 +270,10 @@ export const Header: React.FC<HeaderProps> = ({
             )}
 
             {/* Algo Bot Quick Toggle */}
-            <div className="flex items-center gap-1.5 px-3 py-1">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 whitespace-nowrap">
               <button
                 onClick={onToggleBot}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all text-[10px] font-black uppercase ${
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all text-[10px] font-black uppercase whitespace-nowrap ${
                   botEnabled 
                     ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]' 
                     : 'bg-slate-800/80 border-slate-700 text-slate-400'
@@ -374,17 +383,37 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* 3. Account Money Balance */}
-        <div className="flex-1 flex flex-col items-center justify-center px-1 min-w-0" title={mode === 'UPSTOX_LIVE' ? 'Upstox Real Available Margin / Balance' : 'Paper Trading Virtual Account Balance'}>
+        <div
+          className="flex-1 flex flex-col items-center justify-center px-1 min-w-0"
+          title={
+            mode === 'UPSTOX_LIVE'
+              ? `Upstox Free Cash: ₹${Number(apiConfig.availableMargin || 0).toFixed(2)} | Used Margin: ₹${Number(apiConfig.usedMargin || 0).toFixed(2)} | Total: ₹${Number(apiConfig.totalBalance ?? apiConfig.availableMargin ?? 0).toFixed(2)}`
+              : 'Paper Trading Virtual Account Balance'
+          }
+        >
           <span className="text-[8px] uppercase font-sans font-semibold text-slate-400 tracking-wider">
             {mode === 'UPSTOX_LIVE' ? (language === 'ml' ? 'ലൈവ് ക്യാഷ്' : 'Live Cash') : (language === 'ml' ? 'പേപ്പർ' : 'Paper Bal')}
           </span>
-          <span className="font-mono text-xs font-bold text-slate-200">
-            ₹{mode === 'UPSTOX_LIVE' 
-              ? (apiConfig.isConnected 
-                  ? Number(apiConfig.totalBalance || apiConfig.availableMargin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
-                  : '0.00')
-              : Number(virtualCapital ?? 2000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+          <div className="flex items-center justify-center gap-1">
+            <span className="font-mono text-xs font-bold text-slate-200">
+              ₹{mode === 'UPSTOX_LIVE' 
+                ? (apiConfig.isConnected 
+                    ? Number(apiConfig.availableMargin ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                    : '0.00')
+                : Number(virtualCapital ?? 10000).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            {mode === 'PAPER_TRADING' && onResetPaperAccount && (
+              <button
+                type="button"
+                onClick={onResetPaperAccount}
+                aria-label={t.resetPaper}
+                title={t.resetPaper}
+                className="p-0.5 hover:bg-rose-500/20 text-rose-400 rounded transition"
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

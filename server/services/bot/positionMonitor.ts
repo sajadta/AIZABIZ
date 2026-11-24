@@ -1,13 +1,17 @@
 // Bot tick position phase: trailing stops, peak-lock, theta-decay exits and live
 // square-off order execution for every active position.
-import { botConfig, botLogs, botSignals, paperOrders, paperPositions, paperTradeHistory, livePositionStateTracker, optionIntradayCandleCache, recentClosedStrikes, getLastTradeExitTime, setLastTradeExitTime, setCachedUpstoxLivePositions, getCachedUpstoxLiveMargin } from "../../state";
+import { botConfig, botLogs, botSignals, paperOrders, paperPositions, paperTradeHistory, livePositionStateTracker, pendingClosedPositions, optionIntradayCandleCache, recentClosedStrikes, getLastTradeExitTime, setLastTradeExitTime, setCachedUpstoxLivePositions, getCachedUpstoxLiveMargin } from "../../state";
 import { calculateTradeCharges } from "../../../src/utils/indicators";
 import { resilientFetchJson } from "../../lib/http";
 import { fetchLiveUpstoxCharges } from "../../lib/charges";
 import { getUnderlyingOptionInstrumentKey, shouldHoldOvernightBTST } from "../../lib/instruments";
+import { invalidateCachedLiveDayOrders } from "../../lib/upstoxHistory";
 import { placeUpstoxOrderIpv4 } from ".././upstoxTransport";
 import { sendTelegramNotification } from ".././notifications";
-import { savePostgresDb } from ".././persistence";
+import { savePostgresDb, getPaperInitialCapital } from ".././persistence";
+import { shouldMonitorEquityPosition } from "../../lib/portfolioNormalize";
+
+const recentLiveExitOrderMs: Record<string, number> = {};
 
 export async function monitorActivePositions(ctx: {
   token: string;
@@ -178,7 +182,12 @@ export async function monitorActivePositions(ctx: {
             }, token);
 
             if (buyBackRes?.status === "success") {
+              const shortProd = pos.product || (pos.productType === "INTRADAY" ? "I" : "D");
+              const shortTrackerKey = `${pos.instrumentKey || pos.id}|${shortProd}`;
+              pendingClosedPositions[shortTrackerKey] = Date.now();
+              delete livePositionStateTracker[shortTrackerKey];
               delete livePositionStateTracker[pos.instrumentKey || pos.id];
+              invalidateCachedLiveDayOrders();
               setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
               paperOrders.unshift({
                 id: "ORD" + Date.now(),
@@ -226,7 +235,7 @@ export async function monitorActivePositions(ctx: {
               if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
                 const { getDetectedContainerIp } = await import(".././upstoxTransport");
                 const liveIpNow = await getDetectedContainerIp();
-                errDetail = `⚠️ Upstox static IP restriction: Whitelist ${liveIpNow ? `8.234.113.241, ${liveIpNow}` : "8.234.113.241"} in Upstox Developer Console. (${errDetail})`;
+                errDetail = `⚠️ Upstox static IP restriction: Whitelist ${liveIpNow ? `34.180.11.27, ${liveIpNow}` : "34.180.11.27"} in Upstox Developer Console. (${errDetail})`;
               }
               botLogs.unshift({
                 id: Date.now().toString(),
@@ -302,26 +311,21 @@ export async function monitorActivePositions(ctx: {
             const candleLatestClose = Number(c0?.[4] || 0);
             const candleLatestLow = Number(c0?.[3] || candleLatestClose);
             const c0TimeMs = new Date(c0?.[0]).getTime();
-            // Synchronize from 1m candle: If quote is missing OR stale OR the candle indicates a sharp drop,
-            // prioritize the real market candle price so Stop-Loss triggers instantly!
+            // Synchronize from 1m candle ONLY as fallback when live market quote LTP is missing or zero,
+            // so a 10–40s stale historical candle close never overwrites a live quote bounce and triggers a phantom SL!
             if (
               candleLatestClose > 0 &&
               candleLatestClose < pos.buyPrice * 50 &&
-              openedMs > 0 &&
-              Date.now() - openedMs > 5000 &&
-              c0TimeMs >= openedMs - 60000
+              (!quoteObj || Number(quoteObj.last_price) <= 0)
             ) {
-              const currentQuoteLtp = Number(quoteObj?.last_price || 0);
-              const isQuoteStaleOrHigher = currentQuoteLtp <= 0 || candleLatestClose < currentQuoteLtp * 0.96;
-              if (!quoteObj?.last_price || isQuoteStaleOrHigher || candleLatestClose < pos.currentLTP) {
-                pos.currentLTP = candleLatestClose;
-                const isShortPos = pos.type === "SELL" || pos.transactionType === "SELL";
-                pos.pnl = Number(
-                  ((isShortPos ? pos.buyPrice - pos.currentLTP : pos.currentLTP - pos.buyPrice) * pos.quantity).toFixed(2)
-                );
-              }
+              pos.currentLTP = candleLatestClose;
+              const isShortPos = pos.type === "SELL" || pos.transactionType === "SELL";
+              pos.pnl = Number(
+                ((isShortPos ? pos.buyPrice - pos.currentLTP : pos.currentLTP - pos.buyPrice) * pos.quantity).toFixed(2)
+              );
             }
-            // Also scan all 1m candles strictly AFTER trade entry to ensure pos.highestLTP captures the true intra-minute NSE/BSE peak!
+            // Capture true post-entry 1m candle highs ONLY from candles strictly starting after entry timestamp
+            // (never pull in pre-entry spike highs from the entry minute before entry fill!).
             for (const c of optCandlesActive.slice(0, 15)) {
               const cTimeMs = new Date(c[0]).getTime();
               const cHigh = Number(c[2] || 0);
@@ -329,7 +333,7 @@ export async function monitorActivePositions(ctx: {
                 cHigh > 0 &&
                 cHigh < pos.buyPrice * 50 &&
                 openedMs > 0 &&
-                cTimeMs >= openedMs - 30000
+                cTimeMs > openedMs
               ) {
                 pos.highestLTP = Math.max(pos.highestLTP || pos.buyPrice, cHigh);
               }
@@ -351,10 +355,23 @@ export async function monitorActivePositions(ctx: {
           pos.target ||
           pos.buyPrice * (1 + (botConfig.targetProfitPercent || 30) / 100),
       );
+      const estQty = Math.max(1, Number(pos.quantity || 1));
+      const estRoundTripBrok = calculateTradeCharges(
+        pos.buyPrice,
+        estQty,
+        true,
+        pos.buyPrice * 1.6,
+        pos.instrumentKey || pos.symbol,
+      ).roundTripCharges;
+      const minNetTargetRupees = pos.buyPrice * estQty <= 300 ? 55 : 110;
+      const minProfitableForecast = Number((pos.buyPrice + (estRoundTripBrok + minNetTargetRupees) / estQty).toFixed(2));
       const isShortPosition = pos.type === "SELL" || pos.optionStrategyType === "OPTION_SELLING";
       const forecastedMaxPrice = isShortPosition
         ? (rawForecast < pos.buyPrice ? rawForecast : Number((pos.buyPrice * 0.45).toFixed(2)))
-        : (rawForecast > pos.buyPrice * 1.35 ? rawForecast : Number((pos.buyPrice * (1 + Math.max(40, botConfig.targetProfitPercent || 50) / 100)).toFixed(2)));
+        : Math.max(
+            minProfitableForecast,
+            rawForecast > pos.buyPrice * 1.35 ? rawForecast : Number((pos.buyPrice * (1 + Math.max(40, botConfig.targetProfitPercent || 50) / 100)).toFixed(2)),
+          );
 
       let avgOptionAtr = Math.max(0.35, pos.buyPrice * 0.025);
       if (optCandlesActive.length >= 3) {
@@ -443,18 +460,27 @@ export async function monitorActivePositions(ctx: {
       const liveOrPaperCapital =
         botConfig.mode === "UPSTOX_LIVE"
           ? (getCachedUpstoxLiveMargin().margin > 0 ? getCachedUpstoxLiveMargin().margin : 2000)
-          : Math.max(500, 2000 + paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0));
+          : Math.max(500, getPaperInitialCapital() + paperTradeHistory.reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0));
       const isSmallCapitalSafeZone = liveOrPaperCapital <= 4000;
       const qty = Math.max(1, Number(pos.quantity || 1));
-      const effectiveSlPct = Math.max(10.0, Math.min(18.0, Number(botConfig.stopLossPercent || 14.0)));
+      const deployedValue = pos.buyPrice * qty;
+      const isNanoDeployedOpt = deployedValue > 0 && deployedValue <= 300;
+      const isMicroDeployedOpt = deployedValue > 0 && deployedValue <= 1500;
+      const effectiveSlPct = Math.max(16.0, Math.min(24.0, Number(botConfig.stopLossPercent || 18.0)));
       // Provide adequate option points breathing room (at least 6.0 points on quality options)
-      // BUT cap SL at 25% of premium for cheap options to prevent account blowouts on junk
+      // Scale cleanly for nano (<= ₹300, e.g. ₹2x65 or ₹5x20) & micro options so 1-tick spread flicker doesn't exit early
       let optionSlPoints = Math.max(6.0, Number((pos.buyPrice * (effectiveSlPct / 100)).toFixed(2)));
-      if (pos.buyPrice < 24) {
-        optionSlPoints = Math.min(optionSlPoints, Number((pos.buyPrice * 0.25).toFixed(2)));
+      if (pos.buyPrice < 8 || isNanoDeployedOpt) {
+        optionSlPoints = Math.min(pos.buyPrice * 0.35, Math.max(0.50, Number((pos.buyPrice * 0.28).toFixed(2))));
+      } else if (pos.buyPrice < 24 || isMicroDeployedOpt) {
+        optionSlPoints = Math.min(optionSlPoints, Number((pos.buyPrice * 0.24).toFixed(2)));
       }
-      // Realistic Rupee Risk Cap: Allow ₹380 - ₹500 per lot so normal 1m-3m candle wicks do not prematurely trigger SL
-      const dynamicMaxRupeeLossCap = Math.max(380, Math.min(650, Math.round(optionSlPoints * qty)));
+      // Realistic Rupee Risk Cap: Scales proportionally for nano (₹40-₹120), micro (₹120-₹320), vs standard (₹380-₹650)
+      const dynamicMaxRupeeLossCap = isNanoDeployedOpt
+        ? Math.max(40, Math.min(120, Math.round(Math.max(optionSlPoints * qty, deployedValue * 0.30))))
+        : isMicroDeployedOpt
+          ? Math.max(120, Math.min(320, Math.round(Math.max(optionSlPoints * qty, deployedValue * 0.24))))
+          : Math.max(380, Math.min(650, Math.round(optionSlPoints * qty)));
       if (optionSlPoints * qty > dynamicMaxRupeeLossCap) {
         optionSlPoints = Number((dynamicMaxRupeeLossCap / qty).toFixed(2));
       }
@@ -490,14 +516,18 @@ export async function monitorActivePositions(ctx: {
       const peakNetPnL = peakGrossPnL - roundTripTax;
       pos.highestPnl = Math.max(pos.highestPnl || 0, posPnL, peakGrossPnL);
       pos.highestNetPnl = Math.max(pos.highestNetPnl || 0, posNetPnL, peakNetPnL);
-      if (pos.instrumentKey && livePositionStateTracker[pos.instrumentKey]) {
-        const tracker = livePositionStateTracker[pos.instrumentKey];
-        tracker.highestLTP = pos.highestLTP;
-        tracker.highestPnl = pos.highestPnl;
-        tracker.highestNetPnl = pos.highestNetPnl;
+      const posProdCode = pos.product || (pos.productType === "INTRADAY" ? "I" : "D");
+      const posTrackerKey = pos.instrumentKey ? `${pos.instrumentKey}|${posProdCode}` : "";
+      const activeTracker =
+        (posTrackerKey && livePositionStateTracker[posTrackerKey]) ||
+        (pos.instrumentKey && livePositionStateTracker[pos.instrumentKey]);
+      if (activeTracker) {
+        activeTracker.highestLTP = pos.highestLTP;
+        activeTracker.highestPnl = pos.highestPnl;
+        activeTracker.highestNetPnl = pos.highestNetPnl;
         if ((pos as any).brokerageCharges) {
-          tracker.brokerageCharges = (pos as any).brokerageCharges;
-          tracker.brokerageSource = (pos as any).brokerageSource;
+          activeTracker.brokerageCharges = (pos as any).brokerageCharges;
+          activeTracker.brokerageSource = (pos as any).brokerageSource;
         }
       }
 
@@ -551,8 +581,13 @@ export async function monitorActivePositions(ctx: {
       //    ALL live market parameters (EMA9/21, SuperTrend, MACD, RSI, Corporate Heavyweights, Global Macro, Option Bid/Ask & OI)
       //    on every cycle before locking or exiting!"
 
-      const liveUnderlyingForecastPrice =
-        latestUnderlyingSig?.institutionalQuantAnalysis?.estimatedMaxOptionPrice || 0;
+      const sameContractSignal =
+        latestUnderlyingSig &&
+        ((latestUnderlyingSig.instrumentKey && pos.instrumentKey && latestUnderlyingSig.instrumentKey === pos.instrumentKey) ||
+          (Number(latestUnderlyingSig.price || 0) > 0 && Math.abs(Number(latestUnderlyingSig.price) - pos.buyPrice) <= pos.buyPrice * 0.45));
+      const liveUnderlyingForecastPrice = sameContractSignal
+        ? Number(latestUnderlyingSig?.institutionalQuantAnalysis?.estimatedMaxOptionPrice || 0)
+        : 0;
       let dynamicTargetPrice = Math.max(forecastedMaxPrice, liveUnderlyingForecastPrice);
       if (
         ltp >= dynamicTargetPrice * 0.98 &&
@@ -615,20 +650,35 @@ export async function monitorActivePositions(ctx: {
       // Mandate: "Labham nashtapedathe maximum profit pidichedukkenam"
       let candidateStopLoss = staticStopLossPrice;
 
-      if (peakGainPct >= 8.0 || posNetPnL >= 75) {
-        // Tier 0: Early Capital Shield (Once trade moves significantly in favor, lock breakeven immediately)
-        candidateStopLoss = Math.max(candidateStopLoss, breakEvenWithBrokerage);
+      const tier0NetTrigger = isMicroDeployedOpt ? 45 : 75;
+      const tier1NetTrigger = isMicroDeployedOpt ? 85 : 150;
+      const slCushion = Math.max(0.25, Number((avgOptionAtr * 0.20).toFixed(2)));
+      const maxNonTriggerSlCap = Number(Math.max(staticStopLossPrice, ltp - 0.15).toFixed(2));
+
+      // Tier 0: Only lock Breakeven (incl. Upstox brokerage) AFTER live LTP is cleanly above breakEvenWithBrokerage!
+      // Prevents setting SL >= current LTP on cheap options where brokerage is a high % of buyPrice.
+      if (
+        (peakGainPct >= 8.0 || posNetPnL >= tier0NetTrigger) &&
+        ltp >= breakEvenWithBrokerage + slCushion
+      ) {
+        candidateStopLoss = Math.max(
+          candidateStopLoss,
+          Math.min(breakEvenWithBrokerage, maxNonTriggerSlCap),
+        );
       }
 
-      if (peakGainPct >= 15.0 || posNetPnL >= 150) {
-        // Tier 1: Zero-Loss Vault (Once in solid green, lock Breakeven + Brokerage + Cushion)
-        // The trade CAN NEVER turn into a loss! Capital is 100% protected.
-        candidateStopLoss = Math.max(candidateStopLoss, minZeroLossPrice);
+      // Tier 1: Zero-Loss Vault (Only lock guaranteed net profit floor once LTP has cleared minZeroLossPrice + cushion)
+      if (
+        (peakGainPct >= 15.0 || posNetPnL >= tier1NetTrigger) &&
+        ltp >= minZeroLossPrice + slCushion
+      ) {
+        candidateStopLoss = Math.max(
+          candidateStopLoss,
+          Math.min(minZeroLossPrice, maxNonTriggerSlCap),
+        );
       }
 
-      if (peakGainPct >= 25.0 && peakGainPct < 35.0 && netPeakPoints > 0) {
-        // Tier 2: 65% Profit Lock Vault (+25% to +35% rally)
-        // Locks 65% of peak net gain, allowing maximum 10% pullback
+      if (peakGainPct >= 25.0 && peakGainPct < 35.0 && netPeakPoints > 0 && ltp >= minZeroLossPrice) {
         const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.65).toFixed(2));
         const breathingRoomPrice = Number((peakLtp * 0.90).toFixed(2));
         candidateStopLoss = Math.max(
@@ -636,9 +686,7 @@ export async function monitorActivePositions(ctx: {
           minZeroLossPrice,
           Math.max(dynamicPeakGainLock, breathingRoomPrice),
         );
-      } else if (peakGainPct >= 35.0 && peakGainPct < 55.0 && netPeakPoints > 0) {
-        // Tier 3: 80% Peak Capture Vault (+35% to +55% rally - e.g. from ₹31.35 to ₹47.30 peak)
-        // Locks 80% of net peak points! Exit triggers right near the top (e.g. ₹44.10 instead of crashing down to ₹37.84)
+      } else if (peakGainPct >= 35.0 && peakGainPct < 55.0 && netPeakPoints > 0 && ltp >= minZeroLossPrice) {
         const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.80).toFixed(2));
         const breathingRoomPrice = Number((peakLtp * 0.92).toFixed(2));
         candidateStopLoss = Math.max(
@@ -646,9 +694,7 @@ export async function monitorActivePositions(ctx: {
           minZeroLossPrice,
           Math.max(dynamicPeakGainLock, breathingRoomPrice),
         );
-      } else if (peakGainPct >= 55.0 && netPeakPoints > 0) {
-        // Tier 4: Ultra-Tight Maximum Peak Harvester (>= 55% Mega-Profit Runners)
-        // Locks 88% of peak points so multi-baggers exit directly at the summit!
+      } else if (peakGainPct >= 55.0 && netPeakPoints > 0 && ltp >= minZeroLossPrice) {
         const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.88).toFixed(2));
         const breathingRoomPrice = Number((peakLtp * 0.94).toFixed(2));
         candidateStopLoss = Math.max(
@@ -660,7 +706,7 @@ export async function monitorActivePositions(ctx: {
 
       const previousLockedStop = Number(
         pos.lockedStopLossPrice ||
-          (pos.instrumentKey && livePositionStateTracker[pos.instrumentKey]?.lockedStopLossPrice) ||
+          activeTracker?.lockedStopLossPrice ||
           staticStopLossPrice,
       );
       const dynamicStopLossPrice = Number(
@@ -669,8 +715,8 @@ export async function monitorActivePositions(ctx: {
       pos.lockedStopLossPrice = dynamicStopLossPrice;
       pos.stopLoss = dynamicStopLossPrice;
       pos.trailingStopLoss = dynamicStopLossPrice;
-      if (pos.instrumentKey && livePositionStateTracker[pos.instrumentKey]) {
-        livePositionStateTracker[pos.instrumentKey].lockedStopLossPrice = dynamicStopLossPrice;
+      if (activeTracker) {
+        activeTracker.lockedStopLossPrice = dynamicStopLossPrice;
       }
 
       const hasReachedForecastTarget = ltp >= dynamicTargetPrice * 0.99;
@@ -678,12 +724,45 @@ export async function monitorActivePositions(ctx: {
       const tradeAgeSeconds = openedMs > 0 ? (Date.now() - openedMs) / 1000 : 999;
       const isInitialWiggleProtected = tradeAgeSeconds < 120 && !isUnderlyingParametersReversing && !isOption1mBreakingDown;
 
-      // 1. HARD RUPEE STOP-LOSS & RISK CAP (Protects account from catastrophic tail risk)
-      if (!shouldSell && (ltp <= staticStopLossPrice || (posPnL <= -maxAllowedRupeeLoss && !isInitialWiggleProtected) || posPnL <= -maxAllowedRupeeLoss * 1.35)) {
+      // Multi-tick Stop-Loss Breach Confirmation (3.5s hold below SL) so 1-second flash wicks never shake out winners!
+      const slStateKey = posTrackerKey || pos.instrumentKey || pos.id;
+      const trackerObj = activeTracker || (slStateKey ? livePositionStateTracker[slStateKey] : undefined);
+      const isStaticSlBreachedNow = ltp <= staticStopLossPrice;
+      let isStaticSlConfirmed = false;
+      if (isStaticSlBreachedNow) {
+        const breachStart = Number(pos._slBreachAtMs || trackerObj?._slBreachAtMs || 0);
+        if (breachStart <= 0) {
+          pos._slBreachAtMs = Date.now();
+          if (trackerObj) trackerObj._slBreachAtMs = pos._slBreachAtMs;
+        } else if (Date.now() - breachStart >= 3500 || isUnderlyingParametersReversing || posPnL <= -maxAllowedRupeeLoss * 1.15) {
+          isStaticSlConfirmed = true;
+        }
+      } else {
+        pos._slBreachAtMs = 0;
+        if (trackerObj) trackerObj._slBreachAtMs = 0;
+      }
+
+      // 1. HARD RUPEE STOP-LOSS & RISK CAP + EARLY GENUINE REVERSAL CUT
+      // If BOTH underlying parameters reversed against us AND option 1m structure broke down while losing >10%, cut early!
+      if (
+        !shouldSell &&
+        ltp <= pos.buyPrice * 0.90 &&
+        isUnderlyingParametersReversing &&
+        isOption1mBreakingDown &&
+        tradeAgeSeconds >= 45
+      ) {
+        shouldSell = true;
+        sellReason = `[SMART EARLY REVERSAL CUT] ${underlyingReversalDetails} + 1m Option Breakdown at ₹${ltp.toFixed(2)} (${pnlPercent.toFixed(2)}%). Exited small to save capital!`;
+      } else if (
+        !shouldSell &&
+        (isStaticSlConfirmed ||
+          (posPnL <= -maxAllowedRupeeLoss && !isInitialWiggleProtected && isStaticSlBreachedNow) ||
+          posPnL <= -maxAllowedRupeeLoss * 1.25)
+      ) {
         shouldSell = true;
         const execPx = Math.max(ltp, staticStopLossPrice);
         const profitDiff = ((execPx - pos.buyPrice) / pos.buyPrice) * 100;
-        sellReason = `[STRICT RISK CAP STOP-LOSS] Max risk threshold (-₹${maxAllowedRupeeLoss}) reached at ₹${execPx.toFixed(2)} (${profitDiff.toFixed(2)}%). Auto squared-off to protect account capital!`;
+        sellReason = `[STRICT RISK CAP STOP-LOSS] Max risk threshold (-₹${maxAllowedRupeeLoss}) confirmed at ₹${execPx.toFixed(2)} (${profitDiff.toFixed(2)}%). Auto squared-off to protect account capital!`;
       }
 
       // 2. Trailing Stop Loss (Universal Ratcheted Dynamic Stop)
@@ -713,7 +792,7 @@ export async function monitorActivePositions(ctx: {
         underlyingIndexLtp >= underlyingNearestResistance * 0.999
       );
 
-      const minHarvestNetProfit = isSmallCapitalSafeZone ? 350 : 600;
+      const minHarvestNetProfit = isMicroDeployedOpt ? 150 : (isSmallCapitalSafeZone ? 350 : 600);
       if (
         !shouldSell &&
         peakGainPct >= 35.0 &&
@@ -740,11 +819,12 @@ export async function monitorActivePositions(ctx: {
       }
 
       // 4. Pre-emptive Underlying Reversal Profit Lock:
-      // ONLY activate if position has reached GENUINE profit (>= 22% and >= ₹400 net) AND dropped >= 8.5% from high!
+      // ONLY activate if position has reached GENUINE profit (>= 22% and scaled rupee net threshold) AND dropped >= 8.5% from high!
+      const reversalLockNetMin = isMicroDeployedOpt ? 120 : 400;
       if (
         !shouldSell &&
         peakGainPct >= 22.0 &&
-        posNetPnL >= 400 &&
+        posNetPnL >= reversalLockNetMin &&
         dropFromPeakPct >= 8.5 &&
         isUnderlyingParametersReversing
       ) {
@@ -754,20 +834,21 @@ export async function monitorActivePositions(ctx: {
 
       // 5. CORPORATE STRUCTURE PROTECTION:
       // Young positions are allowed to consolidate without being prematurely cut on minor noise.
-      // Positions are protected by the Hard Risk Cap Stop-Loss (₹120) and Trailing SL.
+      // Positions are protected by the Hard Risk Cap Stop-Loss and Trailing SL.
 
       // 7. Post-Entry Theta Stagnation Shield (Dynamic Expiry-Aware)
       // Strictly prevents premature exit if the trade is in healthy momentum!
       const currentIstHour = ((new Date().getUTCHours() + 5.5) % 24);
       const isExpiryAfternoon = currentIstHour >= 13.5;
       const maxStagnationHoldMs = isExpiryAfternoon ? (8 * 60 * 1000) : (18 * 60 * 1000);
+      const stagnationMinNet = isMicroDeployedOpt ? 70 : 250;
 
       if (
         !shouldSell &&
         openedMs > 0 &&
         Date.now() - openedMs >= maxStagnationHoldMs &&
         peakGainPct < 4.0 &&
-        posNetPnL >= 250
+        posNetPnL >= stagnationMinNet
       ) {
         shouldSell = true;
         sellReason = isExpiryAfternoon
@@ -776,9 +857,10 @@ export async function monitorActivePositions(ctx: {
       }
 
       // 8. Forecasted Maximum Target Runway Exit (ONLY on genuine massive profit!)
+      const targetReachMinPnL = isMicroDeployedOpt ? 160 : 550;
       const isTargetReached = isShortPosition
-        ? (ltp <= forecastedMaxPrice && posPnL >= 500)
-        : (ltp >= forecastedMaxPrice && peakGainPct >= 35.0 && posPnL >= 550);
+        ? (ltp <= forecastedMaxPrice && posPnL >= (isMicroDeployedOpt ? 160 : 500))
+        : (ltp >= forecastedMaxPrice && peakGainPct >= 35.0 && posPnL >= targetReachMinPnL);
 
       if (!shouldSell && isTargetReached && (dropFromPeakPct >= 8.5 || isUnderlyingParametersReversing)) {
         shouldSell = true;
@@ -855,10 +937,19 @@ export async function monitorActivePositions(ctx: {
       };
 
       if (shouldSell) {
-        // Honour the exchange Stop-Loss trigger price (dynamicStopLossPrice) whenever ltp drops to/below dynamicStopLossPrice in Paper Mode!
-        // This guarantees that (1) Peak-Locked SL books the exact Peak SL price, and (2) Initial SL never slips past the ₹400 max loss cap!
+        const isLiveModeExit = !(pos.mode === "PAPER_TRADING" || paperPositions.some((p) => p.id === pos.id)) && botConfig.mode === "UPSTOX_LIVE";
+        const exitMutexKey = posTrackerKey || `${pos.instrumentKey || pos.symbol}|${posProdCode}`;
+        if (
+          isLiveModeExit &&
+          exitMutexKey &&
+          (Date.now() - (recentLiveExitOrderMs[exitMutexKey] || 0) < 30000 ||
+            Date.now() - (pendingClosedPositions[exitMutexKey] || 0) < 20000)
+        ) {
+          continue;
+        }
+        // In Paper Mode, honour exchange SL trigger price; in UPSTOX_LIVE, record conservative live LTP (never inflate above live market!)
         const finalExecExitPrice =
-          ltp <= dynamicStopLossPrice && dynamicStopLossPrice > 0
+          !isLiveModeExit && ltp <= dynamicStopLossPrice && dynamicStopLossPrice > 0
             ? Number(Math.max(ltp, dynamicStopLossPrice).toFixed(2))
             : Number(ltp.toFixed(2));
         const finalGrossPnL = Number(
@@ -895,20 +986,22 @@ export async function monitorActivePositions(ctx: {
           recentClosedStrikes[pos.instrumentKey] = {
             exitTime: Date.now(),
             highestLTP: Math.max(pos.highestLTP || pos.buyPrice, finalExecExitPrice),
+            buyPrice: pos.buyPrice,
             sellPrice: finalExecExitPrice,
+            netRealizedPnL: finalNetPnL,
           };
         }
         botLogs.unshift({
           id: Date.now().toString(),
           time: new Date().toLocaleTimeString(),
           message: sellReason,
-          type: finalGrossPnL > 0 ? "SUCCESS" : "ERROR",
+          type: finalNetPnL > 0 ? "SUCCESS" : "ERROR",
         });
         if (botLogs.length > 200) botLogs.length = 200;
 
         // Send Telegram exit notification
         sendTelegramNotification(
-          `${finalGrossPnL >= 0 ? '🎉 <b>PROFIT LOCKED & POSITION EXITED</b>' : '⚠️ <b>STOP-LOSS EXIT TRIGGERED</b>'}\n\n` +
+          `${finalNetPnL >= 0 ? '🎉 <b>PROFIT LOCKED & POSITION EXITED</b>' : '⚠️ <b>STOP-LOSS EXIT TRIGGERED</b>'}\n\n` +
           `📊 <b>Symbol:</b> <code>${pos.symbol}</code>\n` +
           `💵 <b>Gross PnL:</b> ${finalGrossPnL >= 0 ? '+' : ''}₹${finalGrossPnL.toFixed(2)} | <b>Net PnL:</b> ${finalNetPnL >= 0 ? '+' : ''}₹${finalNetPnL.toFixed(2)} (${finalPnlPercent.toFixed(2)}%)\n` +
           `🛡️ <b>Exit Reason:</b> ${sellReason}\n` +
@@ -974,14 +1067,15 @@ export async function monitorActivePositions(ctx: {
           paperPositions.splice(0, paperPositions.length, ...paperPositions.filter((p) => p.id !== pos.id));
           savePostgresDb().catch(() => { /* ignore */ });
         } else if (botConfig.mode === "UPSTOX_LIVE") {
-          // Place sell order via Upstox API
+          // Place sell order via Upstox API with 12-second double-sell mutex
           try {
+            if (exitMutexKey) recentLiveExitOrderMs[exitMutexKey] = Date.now();
             const sellRes = await placeUpstoxOrderIpv4({
               quantity: pos.quantity,
-              product: pos.product || (pos.productType === "INTRADAY" ? "I" : "D"),
+              product: posProdCode,
               validity: "DAY",
               price: 0,
-              tag: "bot_target_profit",
+              tag: finalNetPnL >= 0 ? "bot_target_profit" : "bot_stop_loss",
               instrument_token: pos.instrumentKey,
               order_type: "MARKET",
               transaction_type: pos.type === "SELL" ? "BUY" : "SELL",
@@ -991,8 +1085,20 @@ export async function monitorActivePositions(ctx: {
             }, token);
             
             if (sellRes?.status === "success") {
+              pendingClosedPositions[exitMutexKey] = Date.now();
+              delete livePositionStateTracker[exitMutexKey];
               delete livePositionStateTracker[pos.instrumentKey || pos.id];
-              setCachedUpstoxLivePositions({ timestamp: 0, list: [] });
+              invalidateCachedLiveDayOrders();
+              setCachedUpstoxLivePositions({
+                timestamp: Date.now(),
+                list: activePositions.filter(
+                  (p) =>
+                    !(
+                      p.instrumentKey === pos.instrumentKey &&
+                      (p.product || (p.productType === "INTRADAY" ? "I" : "D")) === posProdCode
+                    ),
+                ),
+              });
               paperOrders.unshift({
                 id: "ORD" + Date.now(),
                 orderId: sellRes.data?.order_id || "LIVE_" + Date.now().toString().slice(-6),
@@ -1040,7 +1146,7 @@ export async function monitorActivePositions(ctx: {
               if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
                 const { getDetectedContainerIp } = await import(".././upstoxTransport");
                 const liveIpNow = await getDetectedContainerIp();
-                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (8.234.113.241${liveIpNow ? `, ${liveIpNow}` : ""}) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
+                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (34.180.11.27${liveIpNow ? `, ${liveIpNow}` : ""}) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
               }
               const exitErrText = `[UPSTOX LIVE EXIT REJECTED] Exit order for ${pos.symbol} rejected: ${errDetail}`;
               botLogs.unshift({
@@ -1065,7 +1171,7 @@ export async function monitorActivePositions(ctx: {
     }
 
     // Dedicated Equity Stocks (Cash & Intraday) Position & Trailing Profit Lock Engine
-    if (!pos.isOption && !pos.symbol.includes("CE") && !pos.symbol.includes("PE")) {
+    if (shouldMonitorEquityPosition(pos, botConfig.tradeMode)) {
       const ltp = Number(pos.currentLTP || pos.buyPrice);
       pos.highestLTP = Math.max(pos.highestLTP || pos.buyPrice, ltp);
       const isShortPos = pos.type === "SELL" || pos.transactionType === "SELL";
@@ -1116,7 +1222,7 @@ export async function monitorActivePositions(ctx: {
       const shouldExit = (isEodSquareOff && !pos.isBtstHoldRecommended) || ltp >= targetPx || ltp <= dynamicSlPx;
       if (shouldExit) {
         const exitPx = ltp;
-        const finalGross = Number(((exitPx - pos.buyPrice) * pos.quantity).toFixed(2));
+        const finalGross = Number((isShortPos ? (pos.buyPrice - exitPx) * pos.quantity : (exitPx - pos.buyPrice) * pos.quantity).toFixed(2));
         const finalNet = Number((finalGross - charges.roundTripCharges).toFixed(2));
         setLastTradeExitTime(Date.now());
 

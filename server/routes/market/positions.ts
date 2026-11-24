@@ -1,7 +1,9 @@
 // Real-time Upstox positions and orders routes.
 import express from "express";
 import type { Request, Response } from "express";
-import { upstoxConfig, invalidTokens, getCachedUpstoxLivePositions } from "../../state";
+import { upstoxConfig, invalidTokens, livePositionStateTracker, getCachedUpstoxLivePositions } from "../../state";
+import { normalizeUpstoxShortTermPositionsWithOrders } from "../../lib/portfolioNormalize";
+import { getCachedLiveDayOrders } from "../../lib/upstoxHistory";
 
 export function registerPositionRoutes(app: express.Application) {
   // Real-time Upstox Positions
@@ -16,51 +18,19 @@ export function registerPositionRoutes(app: express.Application) {
     }
 
     try {
-      const response = await fetch(
-        "https://api.upstox.com/v2/portfolio/short-term-positions",
-        {
+      const [response, dayOrders] = await Promise.all([
+        fetch("https://api.upstox.com/v2/portfolio/short-term-positions", {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: "application/json",
             "Api-Version": "2.0",
           },
-        },
-      );
+        }),
+        getCachedLiveDayOrders(token, 2500),
+      ]);
       const data = await response.json();
       if (data.status === "success" && data.data) {
-        return res.json(
-          data.data
-            .filter((p: any) => Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)) > 0)
-            .map((p: any) => ({
-              id: p.trading_symbol || p.instrument_token,
-              symbol: p.trading_symbol || p.instrument_token,
-              instrumentKey: p.instrument_token,
-              productType: p.product === "I" ? "INTRADAY" : "DELIVERY",
-              quantity: Math.abs(Number(p.quantity ?? p.net_quantity ?? 0)),
-              type: Number(p.quantity ?? p.net_quantity ?? 0) < 0 ? "SELL" : "BUY",
-              buyPrice: Number(
-                p.day_buy_price ||
-                p.buy_price ||
-                p.average_price ||
-                (p.day_buy_value && p.day_buy_quantity ? p.day_buy_value / p.day_buy_quantity : 0) ||
-                0
-              ),
-              currentLTP: Number(p.last_price || 0),
-              pnl: Number(p.pnl || p.unrealised || p.realised || 0),
-              pnlPercent: Number(
-                p.day_buy_price || p.buy_price || p.average_price
-                  ? (((p.last_price || 0) - (p.day_buy_price || p.buy_price || p.average_price)) /
-                      (p.day_buy_price || p.buy_price || p.average_price)) *
-                      100
-                  : 0
-              ),
-              mode: "UPSTOX_LIVE",
-              isOption:
-                /\b(CE|PE)\b/i.test(p.trading_symbol || "") ||
-                String(p.instrument_token || "").includes("FO"),
-              openedAt: new Date().toLocaleTimeString("en-IN"),
-            })),
-        );
+        return res.json(normalizeUpstoxShortTermPositionsWithOrders(data.data, dayOrders, livePositionStateTracker));
       }
       return res.json([]);
     } catch (e) {

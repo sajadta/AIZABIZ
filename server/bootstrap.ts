@@ -10,23 +10,35 @@ import { upstoxConfig, botConfig } from "./state";
 import { loadPostgresDb } from "./services/persistence";
 import { syncTokenFromRenderWebhookBridge } from "./services/tokenSync";
 import { warmUpUpstoxTransport } from "./services/upstoxTransport";
+import { fetchRealNseQuotesFallback } from "./services/marketData";
+import { startBotEngine } from "./services/botEngine";
 import { wss } from "./realtime";
 
 const _require = typeof require !== "undefined" ? require : createRequire(import.meta.url);
 
 export async function bootstrap(app: express.Application, port: number) {
   await loadPostgresDb().catch(() => { /* ignore */ });
-  warmUpUpstoxTransport();
-  if (!upstoxConfig.accessToken) {
-    syncTokenFromRenderWebhookBridge().catch(() => {});
-  }
   const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+
+  let viteMw: any = null;
+  let viteReadyPromise: Promise<void> = Promise.resolve();
+
   if (!isProd) {
-    const vite = await createViteServer({
+    viteReadyPromise = createViteServer({
       server: { middlewareMode: true, hmr: false, watch: null },
       appType: "spa",
+    }).then((vite) => {
+      viteMw = vite.middlewares;
     });
-    app.use(vite.middlewares);
+    app.use(async (req: Request, res: Response, next) => {
+      if (!viteMw) {
+        await viteReadyPromise;
+      }
+      if (viteMw) {
+        return viteMw(req, res, next);
+      }
+      next();
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath, { maxAge: "30d", dotfiles: "allow" }));
@@ -37,7 +49,15 @@ export async function bootstrap(app: express.Application, port: number) {
 
   const server = app.listen(port, "0.0.0.0", () => {
     console.log(`Upstox Live Algo Server running on http://0.0.0.0:${port}`);
+    warmUpUpstoxTransport();
+    fetchRealNseQuotesFallback().catch(() => {});
+    if (!upstoxConfig.accessToken) {
+      syncTokenFromRenderWebhookBridge().catch(() => {});
+    }
+    startBotEngine();
   });
+
+  await viteReadyPromise;
 
   try {
     const { Server: SocketIOServer } = _require("socket.io");

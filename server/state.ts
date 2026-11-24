@@ -5,12 +5,12 @@ dotenv.config();
 export const PERSISTENT_TOKEN_BACKUP_PATH = path.join(process.cwd(), ".upstox_token_backup.json");
 
 
-export let botConfig = {
+export const botConfig = {
   enabled: true,
   mode: "PAPER_TRADING",
   userExplicitlySelectedMode: false,
   selectedStrategy: "PROFIT_MAX_100_PERCENT_MATRIX",
-  minConfidence: 75,
+  minConfidence: 85,
   maxCapitalPerTrade: 0,
   riskPerTradePercent: 1.5,
   stopLossPercent: 12.0,
@@ -20,13 +20,13 @@ export let botConfig = {
   tradeQuantity: 50,
   multiTimeframeEnabled: true,
   optionStrikeSelector: true,
-  tradeMode: "AUTO_ADAPTIVE",
+  tradeMode: "OPTIONS_ONLY",
   optionStrategyMode: "HYBRID_AUTO_REGIME",
   enableMultiLegExecution: true,
   limitOrderSlippageGuard: true,
-  maxOptionLossCount: 2,
+  maxOptionLossCount: 3,
   maxOptionProfitCount: 15,
-  minOptionProfitAmount: 450,
+  minOptionProfitAmount: 350,
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
   telegramAlertsEnabled: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
@@ -49,7 +49,7 @@ export let botConfig = {
   multiTimeframeConfluence: true,
 };
 
-export let upstoxConfig = {
+export const upstoxConfig = {
   apiKey: process.env.UPSTOX_API_KEY || "3ab5711d-8891-480b-b0c1-29662852de49",
   apiSecret: process.env.UPSTOX_API_SECRET || "jl5s7qy9r0",
   redirectUri: process.env.UPSTOX_REDIRECT_URI || "",
@@ -62,16 +62,16 @@ export let upstoxConfig = {
   totpSecret: process.env.UPSTOX_TOTP_SECRET || process.env.TOTP_SECRET_KEY || "OQMKK5L53ZDRSNKVRNBTYOIB5ZVLEXW3",
   tokenGeneratedAt: "",
   tokenExpiresAt: "",
-  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "http://8.234.113.241:8888",
+  outboundProxyUrl: process.env.UPSTOX_PROXY_URL || "socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080",
 };
 
-export let botLogs: any[] = [];
-export let botSignals: any[] = [];
-export let paperOrders: any[] = [];
-export let paperPositions: any[] = [];
-export let paperTradeHistory: any[] = [];
+export const botLogs: any[] = [];
+export const botSignals: any[] = [];
+export const paperOrders: any[] = [];
+export const paperPositions: any[] = [];
+export const paperTradeHistory: any[] = [];
 export let latestMultiIndexAlphaMatrix: any[] = [];
-export let globalLiveQuotes: Record<string, any> = {};
+export const globalLiveQuotes: Record<string, any> = {};
 export interface UpstoxAutoOtpSession {
   requestId: string;
   userId: string;
@@ -87,9 +87,9 @@ export interface UpstoxAutoOtpSession {
 }
 
 export let activeAutoOtpSession: UpstoxAutoOtpSession | null = null;
-export let customHoldingBuyPrices: Record<string, number> = {};
+export const customHoldingBuyPrices: Record<string, number> = {};
 
-export const FIXED_PRIMARY_IP = "8.234.113.241";
+export const FIXED_PRIMARY_IP = "34.180.11.27";
 export const FIXED_SECONDARY_IP = "34.34.254.178";
 const PUBLIC_WEBHOOK_RELAY_TOPIC = "upstox_live_sajad_5vcabx_3ab5711d";
 export const PUBLIC_WEBHOOK_RELAY_URL = `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}`;
@@ -100,6 +100,7 @@ export let isBotTickRunning = false;
 export let lastBotTickStartedAt = 0;
 export let cachedUpstoxLivePositions: { timestamp: number; list: any[] } = { timestamp: 0, list: [] };
 export const livePositionStateTracker: Record<string, any> = {};
+export const pendingClosedPositions: Record<string, number> = {};
 export let lastFullEntryScanAtMs = 0;
 export const optionIntradayCandleCache: Record<string, { timestamp: number; raw: any[] }> = {};
 export let lastTradeExitTime = 0;
@@ -114,7 +115,7 @@ export let cachedUpstoxLiveMargin: { timestamp: number; margin: number; utilized
 export const YAHOO_NSE_MAP: { instrumentKey: string; symbol: string; yahooTicker: string }[] = [];
 export const invalidTokens = new Set<string>();
 export let subscribedKeys: Set<string> = new Set();
-export let paperBalance = 2000; // Initial mock balance
+export const paperBalance = 10000; // Initial paper balance
 
 export let lastWebhookDiagnostic = "";
 export const setLastWebhookDiagnostic = (v: string) => { lastWebhookDiagnostic = v; };

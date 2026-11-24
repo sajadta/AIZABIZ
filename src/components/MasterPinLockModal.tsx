@@ -74,7 +74,7 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[99999] bg-[#05070e]/98 backdrop-blur-2xl flex flex-col items-center justify-center p-4 select-none">
+    <div className="fixed inset-0 z-[99999] bg-[#05070e]/[0.97] backdrop-blur-sm flex flex-col items-center justify-center p-4 select-none">
       <div
         className={`w-full max-w-sm bg-[#0a0e1a] border border-slate-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-black flex flex-col items-center text-center space-y-6 transition-transform duration-200 ${
           shake ? 'animate-bounce text-rose-400' : ''

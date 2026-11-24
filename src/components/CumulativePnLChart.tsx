@@ -25,6 +25,15 @@ interface ChartPoint {
   tradesCount: number;
 }
 
+const PNL_CHART_MARGIN = { top: 10, right: 16, left: -10, bottom: 5 };
+const PNL_AXIS_LINE = { stroke: '#334155' };
+const PNL_REF_LABEL = {
+  value: '₹0 Break-Even',
+  position: 'insideBottomLeft' as const,
+  fill: '#64748b',
+  fontSize: 10,
+};
+
 export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHistory = [], language }) => {
   const chartData = useMemo<ChartPoint[]>(() => {
     if (!tradeHistory || tradeHistory.length === 0) return [];
@@ -148,6 +157,24 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
 
   const isProfit = totalPnL >= 0;
   const strokeColor = isProfit ? '#10b981' : '#f43f5e';
+  const dotConfig = useMemo(
+    () => ({
+      r: 4,
+      fill: '#090d16',
+      strokeWidth: 2,
+      stroke: strokeColor,
+    }),
+    [strokeColor],
+  );
+  const activeDotConfig = useMemo(
+    () => ({
+      r: 6,
+      fill: strokeColor,
+      stroke: '#0f172a',
+      strokeWidth: 2,
+    }),
+    [strokeColor],
+  );
 
   return (
     <section className="bg-slate-900/90 rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-xl space-y-4">
@@ -200,8 +227,8 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
       {chartData.length > 0 ? (
         <div className="w-full">
           <div className="h-64 sm:h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 16, left: -10, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={256} minWidth={0}>
+              <LineChart data={chartData} margin={PNL_CHART_MARGIN}>
                 <defs>
                   <linearGradient id="pnlGlow" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={strokeColor} stopOpacity={0.25} />
@@ -214,26 +241,21 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                   stroke="#64748b"
                   fontSize={11}
                   tickLine={false}
-                  axisLine={{ stroke: '#334155' }}
+                  axisLine={PNL_AXIS_LINE}
                   tickMargin={8}
                 />
                 <YAxis
                   stroke="#64748b"
                   fontSize={11}
                   tickLine={false}
-                  axisLine={{ stroke: '#334155' }}
+                  axisLine={PNL_AXIS_LINE}
                   tickFormatter={(val) => `₹${val}`}
                 />
                 <ReferenceLine
                   y={0}
                   stroke="#475569"
                   strokeDasharray="4 4"
-                  label={{
-                    value: '₹0 Break-Even',
-                    position: 'insideBottomLeft',
-                    fill: '#64748b',
-                    fontSize: 10,
-                  }}
+                  label={PNL_REF_LABEL}
                 />
                 <Tooltip
                   content={({ active, payload }) => {
@@ -280,18 +302,8 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                   stroke={strokeColor}
                   strokeWidth={3}
                   isAnimationActive={false}
-                  dot={{
-                    r: 4,
-                    fill: '#090d16',
-                    strokeWidth: 2,
-                    stroke: strokeColor,
-                  }}
-                  activeDot={{
-                    r: 6,
-                    fill: strokeColor,
-                    stroke: '#0f172a',
-                    strokeWidth: 2,
-                  }}
+                  dot={dotConfig}
+                  activeDot={activeDotConfig}
                 />
               </LineChart>
             </ResponsiveContainer>

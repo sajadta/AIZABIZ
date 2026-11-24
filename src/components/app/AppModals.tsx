@@ -38,6 +38,7 @@ interface AppModalsProps {
   setIsOnboardingOpen: (v: boolean) => void;
   isTerminalLocked: boolean;
   setIsTerminalLocked: (v: boolean) => void;
+  paperAccountBalance?: number;
 }
 
 export const AppModals: React.FC<AppModalsProps> = ({
@@ -65,6 +66,7 @@ export const AppModals: React.FC<AppModalsProps> = ({
   setIsOnboardingOpen,
   isTerminalLocked,
   setIsTerminalLocked,
+  paperAccountBalance = 10000,
 }) => (
   <>
     <OrderModal
@@ -78,7 +80,7 @@ export const AppModals: React.FC<AppModalsProps> = ({
       defaultLotSize={(orderModalData as any).lotSize}
       heldQuantity={orderModalData.heldQuantity}
       defaultProductType={orderModalData.productType}
-      availableMargin={apiConfig.availableMargin}
+      availableMargin={mode === 'PAPER_TRADING' ? paperAccountBalance : apiConfig.availableMargin}
       maxCapitalPerTrade={botConfig.maxCapitalPerTrade}
       mode={mode}
       onPlaceOrder={handlePlaceOrder}

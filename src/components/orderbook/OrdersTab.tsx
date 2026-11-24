@@ -105,6 +105,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                     Math.max(1, Number(pos.quantity || 1)),
                     isOpt,
                     Number(pos.sellPrice || pos.currentLTP || pos.buyPrice || 0),
+                    pos.instrumentKey || pos.symbol,
                   ).roundTripCharges;
             const net = gross - estCharges;
             const entryDt = formatTradeDateTime(pos.openedAtMs || pos.openedAt, language);
@@ -258,19 +259,23 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
           const qty = Math.max(1, Number(ord.quantity || 1));
           const isOpt =
             /\b(CE|PE)\b/i.test(ord.symbol || '') || String(ord.instrumentKey || '').includes('FO');
-          const matchingOpenPos = positions.find(
-            (p) =>
-              ((ord as any).positionId && p.id === (ord as any).positionId) ||
-              p.symbol === ord.symbol,
-          );
-          const matchingClosedTrade =
-            tradeHistory.find((t) => {
-              if ((ord as any).positionId && t.id === (ord as any).positionId) return true;
-              if (t.symbol !== ord.symbol) return false;
-              if (isBuy && Math.abs(Number(t.buyPrice || 0) - execPx) < 0.05) return true;
-              if (!isBuy && Math.abs(Number(t.sellPrice || 0) - execPx) < 0.05) return true;
-              return false;
-            }) || tradeHistory.find((t) => t.symbol === ord.symbol);
+          const matchingClosedTrade = tradeHistory.find((t) => {
+            if ((ord as any).positionId && t.id === (ord as any).positionId) return true;
+            if (t.symbol !== ord.symbol) return false;
+            if (isBuy && Math.abs(Number(t.buyPrice || 0) - execPx) < 0.05) return true;
+            if (!isBuy && Math.abs(Number(t.sellPrice || 0) - execPx) < 0.05) return true;
+            return false;
+          });
+          const matchingOpenPos = matchingClosedTrade
+            ? undefined
+            : positions.find((p) => {
+                if ((ord as any).positionId && p.id === (ord as any).positionId) return true;
+                if (p.symbol !== ord.symbol) return false;
+                return isBuy && Math.abs(Number(p.buyPrice || 0) - execPx) < 0.05;
+              }) ||
+              (!matchingClosedTrade && isBuy
+                ? positions.find((p) => p.symbol === ord.symbol)
+                : undefined);
           const entryPx = Number(
             (ord as any).buyPrice ||
               matchingOpenPos?.buyPrice ||
@@ -285,8 +290,19 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   matchingClosedTrade?.currentLTP ||
                   execPx,
               );
-          const ordCharges = calculateTradeCharges(entryPx, qty, isOpt, currentOrExitPx);
-          const roundTripTax = Number((ord as any).brokerageCharges || ordCharges.roundTripCharges);
+          const ordCharges = calculateTradeCharges(
+            entryPx,
+            qty,
+            isOpt,
+            currentOrExitPx,
+            ord.instrumentKey || ord.symbol,
+          );
+          const legCharge = isBuy ? ordCharges.buyCharges : ordCharges.sellCharges;
+          const roundTripTax = Number(
+            (ord as any).brokerageCharges ||
+              (matchingClosedTrade as any)?.brokerageCharges ||
+              ordCharges.roundTripCharges,
+          );
           const grossPnl = matchingOpenPos
             ? Number(matchingOpenPos.pnl ?? (currentOrExitPx - entryPx) * qty)
             : (ord as any).realizedPnL !== undefined
@@ -412,7 +428,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                   <span>
                     {language === 'ml' ? 'ചാർജ്ജുകൾ:' : 'Chg:'}{' '}
                     <strong className="text-amber-300">
-                      ₹{(matchingClosedTrade ? roundTripTax : roundTripTax / 2).toFixed(2)}
+                      ₹{(!isBuy && matchingClosedTrade ? roundTripTax : legCharge).toFixed(2)}
                     </strong>
                   </span>
                 </div>
@@ -422,7 +438,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                       {language === 'ml' ? 'ഹോൾഡ് ചെയ്യുന്നു' : 'Holding Active'}
                     </span>
-                  ) : matchingClosedTrade ? (
+                  ) : matchingClosedTrade && !isBuy ? (
                     <span className="text-[11px]">
                       Net:{' '}
                       <strong

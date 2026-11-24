@@ -34,13 +34,17 @@ export async function publishTokenToCloudRelay(tokenToSave: string) {
         saved_at: new Date().toISOString(),
       }),
     });
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 export type VerifiedTokenStatus = {
   token: string;
   verifiedAt: number;
   availableMargin: number;
+  settledCash?: number;
+  deliverySellCredit?: number;
   usedMargin: number;
   utilizedMargin: number;
   payin: number;
@@ -55,6 +59,8 @@ export let lastVerifiedTokenStatus: VerifiedTokenStatus = {
   token: "",
   verifiedAt: 0,
   availableMargin: 0,
+  settledCash: 0,
+  deliverySellCredit: 0,
   usedMargin: 0,
   utilizedMargin: 0,
   payin: 0,
@@ -81,6 +87,9 @@ export const resetVerifiedTokenCache = () => {
   };
 };
 
+let inFlightBridgeSync: Promise<boolean> | null = null;
+let lastBridgeSyncAttemptMs = 0;
+
 export async function activateDiscoveredToken(tokenCandidate: string, sourceLabel: string) {
   const cleanToken = (tokenCandidate || "").trim();
   if (
@@ -91,8 +100,11 @@ export async function activateDiscoveredToken(tokenCandidate: string, sourceLabe
   ) {
     return false;
   }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
   try {
     const pRes = await fetch("https://api.upstox.com/v2/user/profile", {
+      signal: ctrl.signal,
       headers: {
         Authorization: `Bearer ${cleanToken}`,
         Accept: "application/json",
@@ -118,11 +130,16 @@ export async function activateDiscoveredToken(tokenCandidate: string, sourceLabe
     } else if (isUpstoxAuthFailureError(pRes.status, pData) && isJwtTokenActuallyExpired(cleanToken)) {
       invalidTokens.add(cleanToken);
     }
-  } catch {}
+  } catch {
+    /* ignore */
+  }
+  finally {
+    clearTimeout(timer);
+  }
   return false;
 }
 
-export async function syncTokenFromRenderWebhookBridge() {
+export async function syncTokenFromRenderWebhookBridge(force = false) {
   if (
     upstoxConfig.accessToken &&
     !invalidTokens.has(upstoxConfig.accessToken) &&
@@ -131,88 +148,111 @@ export async function syncTokenFromRenderWebhookBridge() {
     return true;
   }
 
-  // 0. Check local persistent disk backup first
-  const diskTok = loadTokenBackupFromDisk();
-  if (diskTok) {
-    const ok = await activateDiscoveredToken(diskTok, "Local Persistent Disk Backup");
-    if (ok) return true;
+  if (inFlightBridgeSync) {
+    return inFlightBridgeSync;
   }
+  if (!force && Date.now() - lastBridgeSyncAttemptMs < 15000) {
+    return false;
+  }
+  lastBridgeSyncAttemptMs = Date.now();
 
-  // 1. Check Public 24x7 Webhook Relay
-  try {
-    const relayCtrl = new AbortController();
-    const relayTimeout = setTimeout(() => relayCtrl.abort(), 3000);
-    const relayRes = await fetch(
-      `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}/json?poll=1&since=18h`,
-      {
-        signal: relayCtrl.signal,
-        headers: { Accept: "application/x-ndjson, application/json, text/plain" },
-      },
-    );
-    clearTimeout(relayTimeout);
-    if (relayRes.ok) {
-      const text = await relayRes.text();
-      const lines = text.trim().split("\n").reverse();
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const jwtMatch = line.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-        if (jwtMatch && jwtMatch[0]) {
-          const ok = await activateDiscoveredToken(jwtMatch[0], "Cloud Token Backup Relay");
-          if (ok) return true;
+  inFlightBridgeSync = (async () => {
+    try {
+      // 0. Check local persistent disk backup first
+      const diskTok = loadTokenBackupFromDisk();
+      if (diskTok) {
+        const ok = await activateDiscoveredToken(diskTok, "Local Persistent Disk Backup");
+        if (ok) return true;
+      }
+
+      // 1. Check Public 24x7 Webhook Relay
+      try {
+        const relayCtrl = new AbortController();
+        const relayTimeout = setTimeout(() => relayCtrl.abort(), 2200);
+        const relayRes = await fetch(
+          `https://ntfy.sh/${PUBLIC_WEBHOOK_RELAY_TOPIC}/json?poll=1&since=18h`,
+          {
+            signal: relayCtrl.signal,
+            headers: { Accept: "application/x-ndjson, application/json, text/plain" },
+          },
+        );
+        clearTimeout(relayTimeout);
+        if (relayRes.ok) {
+          const text = await relayRes.text();
+          const lines = text.trim().split("\n").reverse();
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const jwtMatch = line.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+            if (jwtMatch && jwtMatch[0]) {
+              const ok = await activateDiscoveredToken(jwtMatch[0], "Cloud Token Backup Relay");
+              if (ok) return true;
+            }
+            try {
+              const wrapper = JSON.parse(line);
+              const innerStr = typeof wrapper.message === "string" ? wrapper.message : JSON.stringify(wrapper);
+              const innerJwt = innerStr.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+              if (innerJwt && innerJwt[0]) {
+                const ok = await activateDiscoveredToken(innerJwt[0], "Cloud Token Backup Relay");
+                if (ok) return true;
+              }
+            } catch {
+              // Ignored
+            }
+          }
         }
+      } catch {
+        /* ignore */
+      }
+
+      // 2. Also check Render Server if configured and not localhost
+      const candidates = ["https://aizabiz.onrender.com", process.env.UPSTOX_REDIRECT_URI || ""]
+        .map((u) => {
+          try {
+            return u ? new URL(u).origin : "";
+          } catch {
+            return "";
+          }
+        })
+        .filter((origin) => origin && !origin.includes("localhost") && !origin.includes("127.0.0.1"));
+
+      for (const renderOrigin of Array.from(new Set(candidates))) {
         try {
-          const wrapper = JSON.parse(line);
-          const innerStr = typeof wrapper.message === "string" ? wrapper.message : JSON.stringify(wrapper);
-          const innerJwt = innerStr.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-          if (innerJwt && innerJwt[0]) {
-            const ok = await activateDiscoveredToken(innerJwt[0], "Cloud Token Backup Relay");
-            if (ok) return true;
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2000);
+          const res = await fetch(`${renderOrigin}/api/market/config`, {
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          });
+          clearTimeout(timeout);
+          if (res.ok) {
+            const data = await res.json();
+            const remoteToken = (data.accessToken || data.access_token || "").trim();
+            if (remoteToken) {
+              const ok = await activateDiscoveredToken(remoteToken, `Remote Server (${renderOrigin})`);
+              if (ok) return true;
+            }
           }
         } catch {
           // Ignored
         }
       }
+      return false;
+    } finally {
+      inFlightBridgeSync = null;
     }
-  } catch {}
+  })();
 
-  // 2. Also check Render Server if configured and not localhost
-  const candidates = ["https://aizabiz.onrender.com", process.env.UPSTOX_REDIRECT_URI || ""]
-    .map((u) => {
-      try {
-        return u ? new URL(u).origin : "";
-      } catch {
-        return "";
-      }
-    })
-    .filter((origin) => origin && !origin.includes("localhost") && !origin.includes("127.0.0.1"));
-
-  for (const renderOrigin of Array.from(new Set(candidates))) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2500);
-      const res = await fetch(`${renderOrigin}/api/market/config`, {
-        signal: controller.signal,
-        headers: { Accept: "application/json" },
-      });
-      clearTimeout(timeout);
-      if (res.ok) {
-        const data = await res.json();
-        const remoteToken = (data.accessToken || data.access_token || "").trim();
-        if (remoteToken) {
-          const ok = await activateDiscoveredToken(remoteToken, `Remote Server (${renderOrigin})`);
-          if (ok) return true;
-        }
-      }
-    } catch {
-      // Ignored
-    }
-  }
-  return false;
+  return inFlightBridgeSync;
 }
 
 export async function getLiveOutboundIp(): Promise<{ ip: string; secondaryIp: string; isFixedProxy: boolean; actualDetectedIp: string; mismatch: boolean }> {
   const summary = getProxyStatusSummary();
-  const containerIp = await getDetectedContainerIp();
+  const containerIp = summary.isProxyActive
+    ? await Promise.race([
+        getDetectedContainerIp(),
+        new Promise<string>((resolve) => setTimeout(() => resolve(""), 250)),
+      ])
+    : await getDetectedContainerIp();
   const actualDetectedIp = summary.isProxyActive
     ? summary.activeIp
     : (containerIp || "Unknown");

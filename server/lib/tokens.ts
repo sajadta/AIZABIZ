@@ -40,7 +40,9 @@ export function saveTokenBackupToDisk(tokenStr: string, meta?: Record<string, an
       ),
       "utf-8",
     );
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 export function loadTokenBackupFromDisk(): string {
@@ -53,6 +55,8 @@ export function loadTokenBackupFromDisk(): string {
         return tok;
       }
     }
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   return "";
 }

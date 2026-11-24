@@ -15,9 +15,11 @@ export const PositionItem: React.FC<{
   const qty = Math.max(1, Number(pos.quantity || 1));
   // Immediate, reliable local charges calculation (zero network delay or failure risk)
   const defaultCharges = React.useMemo(() => {
-    const breakdown = calculateTradeCharges(buyPx, qty, isOpt, curPx);
+    const breakdown = calculateTradeCharges(buyPx, qty, isOpt, curPx, pos.instrumentKey || pos.symbol);
     return {
       total: breakdown.roundTripCharges,
+      entryPaid: breakdown.buyCharges,
+      exitEst: breakdown.sellCharges,
       details: {
         brokerage: breakdown.buyBrokerage + breakdown.sellBrokerage,
         stt: breakdown.stt,
@@ -27,7 +29,7 @@ export const PositionItem: React.FC<{
         sebiCharge: breakdown.sebiCharge,
       },
     };
-  }, [buyPx, qty, isOpt, curPx]);
+  }, [buyPx, qty, isOpt, curPx, pos.instrumentKey, pos.symbol]);
   const [apiCharges, setApiCharges] = React.useState<{
     total: number;
     details: any;
@@ -41,8 +43,10 @@ export const PositionItem: React.FC<{
     const fetchCharges = async () => {
       try {
         if (!pos.buyPrice || !pos.quantity) return;
+        const isBseInst = /SENSEX|BANKEX|BSE/i.test(pos.symbol || '');
         const instToken =
-          pos.instrumentKey || (pos.isOption ? 'NSE_FO|' + pos.symbol : 'NSE_EQ|' + pos.symbol);
+          pos.instrumentKey ||
+          (pos.isOption ? (isBseInst ? 'BSE_FO|' : 'NSE_FO|') + pos.symbol : 'NSE_EQ|' + pos.symbol);
         const prod = pos.productType || 'D';
         const currentPx = pos.currentLTP || pos.buyPrice;
         // Fetch Live Round-Trip Brokerage & Taxes directly from Upstox API via server cache
@@ -80,7 +84,7 @@ export const PositionItem: React.FC<{
     return () => {
       isMounted = false;
     };
-  }, [pos.symbol, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
+  }, [pos.symbol, pos.instrumentKey, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
   const gross = pos.pnl || 0;
   const net = estCharges !== null ? gross - estCharges : gross;
   const target50Px = Number((buyPx * 1.5).toFixed(2));
@@ -206,7 +210,7 @@ export const PositionItem: React.FC<{
               <div
                 className={`w-1 h-1 rounded-full ${net >= 0 ? 'bg-emerald-400' : 'bg-rose-400'}`}
               />{' '}
-              Net Profit
+              {language === 'ml' ? 'എക്സിറ്റ് അറ്റ ലാഭം' : 'Net After Exit'}
             </span>
             <span
               className={`text-base font-black font-mono ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'} drop-shadow-[0_0_12px_rgba(52,211,153,0.3)] flex items-center gap-1`}
@@ -246,7 +250,7 @@ export const PositionItem: React.FC<{
         </div>
       </div>
       {/* Dynamic status labels at bottom */}
-      <div className="px-5 py-2.5 bg-black/40 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-bold">
+      <div className="px-5 py-2.5 bg-black/40 border-t border-slate-800/40 flex items-center justify-between text-[10px] font-bold flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-slate-500">
             <Clock className="w-3 h-3" />
@@ -258,23 +262,33 @@ export const PositionItem: React.FC<{
             {net >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
             {net >= 0
               ? language === 'ml'
-                ? 'ലാഭത്തിൽ'
-                : 'In Profit'
-              : language === 'ml'
-                ? 'നഷ്ടത്തിൽ'
-                : 'In Loss'}
+                ? 'അറ്റ ലാഭത്തിൽ'
+                : 'Net In Profit'
+              : gross >= 0
+                ? language === 'ml'
+                  ? 'ഗ്രോസ് ലാഭം (ചാർജ് കഴിഞ്ഞാൽ നഷ്ടം)'
+                  : 'Gross+ / Fee Drag'
+                : language === 'ml'
+                  ? 'നഷ്ടത്തിൽ'
+                  : 'In Loss'}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 flex items-center gap-1">
+          <span
+            className="text-[10px] font-bold text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 flex items-center gap-1"
+            title={`Entry Fee Paid: ₹${defaultCharges.entryPaid.toFixed(2)} | Est. Exit Fee: ₹${Math.max(0, estCharges - defaultCharges.entryPaid).toFixed(2)}`}
+          >
             {apiCharges?.isLiveUpstox && (
               <span
                 className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
                 title="Upstox Live API"
               />
             )}
-            {language === 'ml' ? 'ബ്രോക്കറേജ് & നികുതി' : 'Brokerage & Taxes'}: ₹
+            {language === 'ml' ? 'എക്സിറ്റ് RT ചാർജ്' : 'Est. RT Fee'}: ₹
             {estCharges.toFixed(2)}
+            <span className="text-slate-400 font-normal">
+              ({language === 'ml' ? 'വാങ്ങിയ ഫീ' : 'Paid'}: ₹{defaultCharges.entryPaid.toFixed(2)})
+            </span>
           </span>
           {showTaxBreakdown ? (
             <button
@@ -301,14 +315,17 @@ export const PositionItem: React.FC<{
       </div>
       {showTaxBreakdown && chargeDetails && (
         <div className="p-4 bg-black/80 border-t border-cyan-900/30 text-[10px] font-mono grid grid-cols-2 sm:grid-cols-3 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="col-span-full pb-1 border-b border-slate-800/60 flex items-center justify-between text-[9px]">
+          <div className="col-span-full pb-1 border-b border-slate-800/60 flex items-center justify-between text-[9px] flex-wrap gap-2">
             <span className="text-emerald-400 font-bold flex items-center gap-1">
               ⚡{' '}
               {language === 'ml'
-                ? 'Upstox ലൈവ് ഒഫീഷ്യൽ ബ്രോക്കറേജ് (Exact Match)'
-                : 'Upstox Live Official Brokerage API'}
+                ? 'Upstox ലൈവ് ഒഫീഷ്യൽ ബ്രോക്കറേജ് (വാങ്ങൽ + വിൽക്കൽ RT)'
+                : 'Upstox Live Official Brokerage (Round-Trip)'}
             </span>
-            <span className="text-slate-400">Total: ₹{estCharges.toFixed(2)}</span>
+            <span className="text-slate-400">
+              Entry Paid: ₹{defaultCharges.entryPaid.toFixed(2)} • Est. RT Total: ₹
+              {estCharges.toFixed(2)}
+            </span>
           </div>
           {Object.entries(chargeDetails).map(([key, val]: [string, any]) => (
             <div key={key} className="flex flex-col">

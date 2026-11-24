@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { UpstoxApiConfig, Language } from '../../types';
 import { translations } from '../../translations';
+import { safeStorage } from '../../utils/storage';
 
 const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
 const DEFAULT_API_SECRET = 'jl5s7qy9r0';
@@ -33,6 +34,10 @@ export function useUpstoxApiModal({
   onRefreshPortfolio,
 }: UseUpstoxApiModalParams) {
   const t = translations[language];
+  const onSaveConfigRef = useRef(onSaveConfig);
+  onSaveConfigRef.current = onSaveConfig;
+  const onRefreshPortfolioRef = useRef(onRefreshPortfolio);
+  onRefreshPortfolioRef.current = onRefreshPortfolio;
 
   // Clean 2-Tab Layout: Tab 1 (Daily Token) | Tab 2 (Only OTP Input & Auto Connect)
   const [activeTab, setActiveTab] = useState<'DAILY_TOKEN' | 'API_KEYS'>(() => {
@@ -75,12 +80,12 @@ export function useUpstoxApiModal({
   const [validating, setValidating] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [v3Loading, setV3Loading] = useState(false);
-  const [proxyUrlInput, setProxyUrlInput] = useState<string>('http://8.234.113.241:8888');
-  const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(false);
+  const [proxyUrlInput, setProxyUrlInput] = useState<string>('socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080');
+  const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(Boolean(config.isFixedProxyActive));
   const [isTestingProxy, setIsTestingProxy] = useState<boolean>(false);
   const [showProxyConfig, setShowProxyConfig] = useState<boolean>(false);
   const [containerIp, setContainerIp] = useState<string>(
-    config.serverSecondaryIp && config.serverSecondaryIp !== '8.234.113.241'
+    config.serverSecondaryIp && config.serverSecondaryIp !== '34.180.11.27'
       ? config.serverSecondaryIp
       : 'Detecting...',
   );
@@ -88,6 +93,17 @@ export function useUpstoxApiModal({
   const [liveHoldingsCount, setLiveHoldingsCount] = useState<number | null>(
     typeof config.holdingsCount === 'number' ? config.holdingsCount : null,
   );
+
+  useEffect(() => {
+    if (!isTestingProxy && typeof config.isFixedProxyActive === 'boolean') {
+      setIsFixedProxyActive(config.isFixedProxyActive);
+      if (config.isFixedProxyActive) {
+        setProxyError('');
+      } else if (typeof config.proxyError === 'string') {
+        setProxyError(config.proxyError);
+      }
+    }
+  }, [config.isFixedProxyActive, config.proxyError, isTestingProxy]);
   const [statusMsg, setStatusMsg] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -106,6 +122,7 @@ export function useUpstoxApiModal({
       const data = await res.json();
       if (data.success) {
         setIsFixedProxyActive(Boolean(data.isFixedProxy));
+        setProxyError('');
         if (remove) setProxyUrlInput('');
         setStatusMsg({
           type: 'success',
@@ -113,6 +130,7 @@ export function useUpstoxApiModal({
         });
       } else {
         setIsFixedProxyActive(false);
+        setProxyError(data.error || 'Failed to connect to proxy');
         setStatusMsg({
           type: 'error',
           text:
@@ -122,6 +140,7 @@ export function useUpstoxApiModal({
       }
     } catch (e: any) {
       setIsFixedProxyActive(false);
+      setProxyError(e?.message || 'Network error');
       setStatusMsg({
         type: 'error',
         text: 'Proxy test network error: ' + (e?.message || 'Failed'),
@@ -159,83 +178,116 @@ export function useUpstoxApiModal({
       const reqHeaders: Record<string, string> = {};
       if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
 
-      fetch('/api/market/config', { headers: reqHeaders })
-        .then((r) => r.json())
-        .then((data) => {
-          if (
-            data.mobile &&
-            String(data.mobile).length === 10 &&
-            String(data.mobile) !== '0000000000'
-          ) {
-            setSavedMobile(String(data.mobile));
-            try {
-              localStorage.setItem('upstox_saved_mobile', String(data.mobile));
-            } catch {
-              /* ignored */
-            }
-          }
-          fetch('/api/market/proxy-status')
-            .then((pr) => pr.json())
-            .then((pData) => {
-              if (pData.success) {
-                setIsFixedProxyActive(Boolean(pData.isProxyActive));
-                if (typeof pData.configuredProxy === 'string') setProxyUrlInput(pData.configuredProxy);
-                if (pData.containerIp && pData.containerIp !== 'Detecting...') {
-                  setContainerIp(pData.containerIp);
-                }
-                setProxyError(pData.lastError || '');
-              }
-            })
-            .catch(() => {});
+      let cancelled = false;
+      Promise.allSettled([
+        fetch('/api/market/config', { headers: reqHeaders }).then((r) => r.json()),
+        fetch('/api/market/proxy-status').then((pr) => pr.json()),
+      ]).then(([cfgRes, proxyRes]) => {
+        if (cancelled) return;
+        const data = cfgRes.status === 'fulfilled' ? cfgRes.value : null;
+        const pData = proxyRes.status === 'fulfilled' ? proxyRes.value : null;
 
-          if (data.apiSecret && data.apiSecret !== '••••••••') {
-            setApiSecret(String(data.apiSecret));
+        if (pData && pData.success) {
+          setIsFixedProxyActive(Boolean(pData.isProxyActive));
+          if (typeof pData.configuredProxy === 'string') setProxyUrlInput(pData.configuredProxy);
+          if (pData.containerIp && pData.containerIp !== 'Detecting...') {
+            setContainerIp(pData.containerIp);
           }
-          if (data.serverSecondaryIp && data.serverSecondaryIp !== '8.234.113.241') {
-            setContainerIp(data.serverSecondaryIp);
+          setProxyError(pData.lastError || '');
+        } else if (data && typeof data.isFixedProxyActive === 'boolean') {
+          setIsFixedProxyActive(Boolean(data.isFixedProxyActive));
+          setProxyError(data.proxyError || '');
+        }
+
+        if (!data) return;
+
+        if (
+          data.mobile &&
+          String(data.mobile).length === 10 &&
+          String(data.mobile) !== '0000000000'
+        ) {
+          setSavedMobile(String(data.mobile));
+          try {
+            localStorage.setItem('upstox_saved_mobile', String(data.mobile));
+          } catch {
+            /* ignored */
           }
-          if (data.proxyError !== undefined) {
-            setProxyError(data.proxyError || '');
-          }
-          if (typeof data.holdingsCount === 'number') {
-            setLiveHoldingsCount(data.holdingsCount);
-          }
-          if (data.isConnected && data.accessToken) {
-            setAccessToken(data.accessToken);
-            onSaveConfig({
-              accessToken: data.accessToken,
-              isConnected: true,
-              userName: data.userName || '',
-              userClientCode: data.userClientCode || '',
-              availableMargin: data.availableMargin || 0,
-              usedMargin: data.usedMargin || 0,
-              utilizedMargin: data.utilizedMargin || data.usedMargin || 0,
-              payin: data.payin || 0,
-              payout: data.payout || 0,
-              totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + (data.usedMargin || 0)),
-              holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
-              tokenGeneratedAt: data.tokenGeneratedAt || undefined,
-              tokenExpiresAt: data.tokenExpiresAt || undefined,
-              serverOutboundIp: data.serverOutboundIp || undefined,
-              serverSecondaryIp: data.serverSecondaryIp || undefined,
-              actualDetectedIp: data.actualDetectedIp || undefined,
-              proxyError: data.proxyError || '',
-              todayTokenValid: true,
-            });
-          } else if (data.tokenExpired && !localTok) {
-            onSaveConfig({
-              isConnected: false,
-              availableMargin: 0,
-              usedMargin: 0,
-              utilizedMargin: 0,
-              payin: 0,
-              payout: 0,
-              totalBalance: 0,
-              todayTokenValid: false,
-            });
-          }
-        })
-        .catch(() => {});
+        }
+        if (data.apiSecret && data.apiSecret !== '••••••••') {
+          setApiSecret(String(data.apiSecret));
+        }
+        if (data.serverSecondaryIp && data.serverSecondaryIp !== '34.180.11.27') {
+          setContainerIp(data.serverSecondaryIp);
+        }
+        if (typeof data.holdingsCount === 'number') {
+          setLiveHoldingsCount(data.holdingsCount);
+        }
+        const resolvedFixedProxy =
+          pData && pData.success
+            ? Boolean(pData.isProxyActive)
+            : Boolean(data.isFixedProxyActive);
+
+        if (data.isConnected && data.accessToken) {
+          setAccessToken(data.accessToken);
+          onSaveConfigRef.current({
+            accessToken: data.accessToken,
+            isConnected: true,
+            userName: data.userName || '',
+            userClientCode: data.userClientCode || '',
+            availableMargin: data.availableMargin || 0,
+            settledCash: data.settledCash,
+            deliverySellCredit: data.deliverySellCredit,
+            usedMargin: data.usedMargin || 0,
+            utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
+            payin: data.payin || 0,
+            payout: data.payout || 0,
+            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
+            holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
+            tokenGeneratedAt: data.tokenGeneratedAt || undefined,
+            tokenExpiresAt: data.tokenExpiresAt || undefined,
+            serverOutboundIp: data.serverOutboundIp || undefined,
+            serverSecondaryIp: data.serverSecondaryIp || undefined,
+            actualDetectedIp: data.actualDetectedIp || undefined,
+            isFixedProxyActive: resolvedFixedProxy,
+            proxyError: (pData?.lastError ?? data.proxyError) || '',
+            todayTokenValid: true,
+          });
+        } else if (data.tokenExpired && !localTok) {
+          onSaveConfigRef.current({
+            isConnected: false,
+            availableMargin: 0,
+            settledCash: 0,
+            deliverySellCredit: 0,
+            usedMargin: 0,
+            utilizedMargin: 0,
+            payin: 0,
+            payout: 0,
+            totalBalance: 0,
+            isFixedProxyActive: resolvedFixedProxy,
+            todayTokenValid: false,
+          });
+        }
+      });
+
+      const proxyPollInterval = setInterval(() => {
+        fetch('/api/market/proxy-status')
+          .then((pr) => pr.json())
+          .then((pData) => {
+            if (!cancelled && pData && pData.success) {
+              setIsFixedProxyActive(Boolean(pData.isProxyActive));
+              if (pData.containerIp && pData.containerIp !== 'Detecting...') {
+                setContainerIp(pData.containerIp);
+              }
+              setProxyError(pData.lastError || '');
+            }
+          })
+          .catch(() => {});
+      }, 8000);
+
+      return () => {
+        cancelled = true;
+        clearInterval(proxyPollInterval);
+      };
     }
   }, [isOpen, config.apiKey, config.apiSecret, config.accessToken, config.redirectUri]);
 
@@ -265,23 +317,25 @@ export function useUpstoxApiModal({
           } catch {
             /* ignored */
           }
-          await onSaveConfig({
+          await onSaveConfigRef.current({
             accessToken: data.accessToken,
             isConnected: true,
             userName: data.userName || '',
             userClientCode: data.userClientCode || '',
             availableMargin: data.availableMargin || 0,
+            settledCash: data.settledCash,
+            deliverySellCredit: data.deliverySellCredit,
             usedMargin: data.usedMargin || 0,
-            utilizedMargin: data.utilizedMargin || data.usedMargin || 0,
+            utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
             payin: data.payin || 0,
             payout: data.payout || 0,
-            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + (data.usedMargin || 0)),
+            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
             holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
             tokenGeneratedAt: data.tokenGeneratedAt || undefined,
             actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
             todayTokenValid: true,
           });
-          if (onRefreshPortfolio) onRefreshPortfolio();
+          if (onRefreshPortfolioRef.current) onRefreshPortfolioRef.current();
           setStatusMsg({
             type: 'success',
             text:
@@ -295,7 +349,7 @@ export function useUpstoxApiModal({
       }
     }, 2000);
     return () => clearInterval(pollTimer);
-  }, [isOpen, config.isConnected, onSaveConfig, onRefreshPortfolio, language]);
+  }, [isOpen, config.isConnected, language]);
 
   // Listen for automatic OAuth callback postMessage
   useEffect(() => {
@@ -309,14 +363,14 @@ export function useUpstoxApiModal({
         } catch {
           /* ignored */
         }
-        await onSaveConfig({
+        await onSaveConfigRef.current({
           accessToken: token,
           isConnected: true,
           userName: event.data.userName || '',
           userClientCode: event.data.userClientCode || '',
           todayTokenValid: true,
         });
-        if (onRefreshPortfolio) onRefreshPortfolio();
+        if (onRefreshPortfolioRef.current) onRefreshPortfolioRef.current();
         setStatusMsg({
           type: 'success',
           text:
@@ -328,7 +382,7 @@ export function useUpstoxApiModal({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onSaveConfig, onRefreshPortfolio, language]);
+  }, [language]);
 
   // Live Diagnostic Check Button Handler
   const handleCheckLiveConnection = async () => {
@@ -346,8 +400,19 @@ export function useUpstoxApiModal({
       const reqHeaders: Record<string, string> = {};
       if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
 
-      const res = await fetch('/api/market/config', { headers: reqHeaders });
-      const data = await res.json();
+      const [cfgRes, proxyRes] = await Promise.all([
+        fetch('/api/market/config', { headers: reqHeaders }),
+        fetch('/api/market/proxy-status').catch(() => null),
+      ]);
+      const data = await cfgRes.json();
+      const pData = proxyRes ? await proxyRes.json().catch(() => null) : null;
+      const resolvedFixedProxy =
+        pData && pData.success ? Boolean(pData.isProxyActive) : Boolean(data.isFixedProxyActive);
+      setIsFixedProxyActive(resolvedFixedProxy);
+      setProxyError((pData?.success ? pData.lastError : data.proxyError) || '');
+      if (pData?.containerIp && pData.containerIp !== 'Detecting...') {
+        setContainerIp(pData.containerIp);
+      }
       if (data.isConnected) {
         setLiveHoldingsCount(typeof data.holdingsCount === 'number' ? data.holdingsCount : null);
         if (data.accessToken) {
@@ -358,25 +423,26 @@ export function useUpstoxApiModal({
             /* ignored */
           }
         }
-        if (data.serverSecondaryIp && data.serverSecondaryIp !== '8.234.113.241') {
+        if (data.serverSecondaryIp && data.serverSecondaryIp !== '34.180.11.27') {
           setContainerIp(data.serverSecondaryIp);
         }
-        setIsFixedProxyActive(Boolean(data.isFixedProxyActive));
-        setProxyError(data.proxyError || '');
         await onSaveConfig({
           isConnected: true,
           accessToken: data.accessToken,
           userName: data.userName || '',
           userClientCode: data.userClientCode || '',
           availableMargin: data.availableMargin || 0,
+          settledCash: data.settledCash,
+          deliverySellCredit: data.deliverySellCredit,
           usedMargin: data.usedMargin || 0,
-          utilizedMargin: data.utilizedMargin || data.usedMargin || 0,
+          utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
           payin: data.payin || 0,
           payout: data.payout || 0,
-          totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + (data.usedMargin || 0)),
+          totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
           holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
           tokenGeneratedAt: data.tokenGeneratedAt || undefined,
           actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
+          isFixedProxyActive: resolvedFixedProxy,
           todayTokenValid: true,
         });
         if (onRefreshPortfolio) onRefreshPortfolio();
@@ -774,8 +840,8 @@ export function useUpstoxApiModal({
     try {
       await fetch('/api/market/clear-token', { method: 'POST' });
       setAccessToken('');
-      localStorage.removeItem('upstox_daily_token');
-      localStorage.removeItem('upstox_token_date');
+      safeStorage.removeItem('upstox_daily_token');
+      safeStorage.removeItem('upstox_token_date');
       await onSaveConfig({ accessToken: '', isConnected: false });
       setStatusMsg({
         type: 'info',

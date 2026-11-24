@@ -14,8 +14,10 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
   activePositions = [],
   language,
 }) => {
-  const combinedTrades = useMemo(() => [...activePositions, ...tradeHistory], [activePositions, tradeHistory]);
-  const [isExpanded, setIsExpanded] = useState<boolean>(combinedTrades.length > 0);
+  const closedTradesOnly = useMemo(() => tradeHistory, [tradeHistory]);
+  const [isExpanded, setIsExpanded] = useState<boolean>(
+    closedTradesOnly.length > 0 || activePositions.length > 0,
+  );
   const [timeView, setTimeView] = useState<'COMPARE' | 'TODAY' | 'ALL_TIME'>('COMPARE');
 
   // Compute metrics helper
@@ -84,7 +86,7 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
       const tradeCharges =
         Number((trade as any).brokerageCharges) > 0
           ? Number((trade as any).brokerageCharges)
-          : calculateTradeCharges(buyP, qty, isOpt, sellP).roundTripCharges;
+          : calculateTradeCharges(buyP, qty, isOpt, sellP, trade.instrumentKey || trade.symbol).roundTripCharges;
       totalBrokerageCharges += tradeCharges;
 
       if (pnl > 0) {
@@ -175,11 +177,11 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
   };
 
   const todayTrades = useMemo(() => {
-    return combinedTrades.filter((t) => getTradeSessionDate(t) === todayIst);
-  }, [combinedTrades, todayIst]);
+    return closedTradesOnly.filter((t) => getTradeSessionDate(t) === todayIst);
+  }, [closedTradesOnly, todayIst]);
 
   const todayMetrics = useMemo(() => computeMetrics(todayTrades), [todayTrades]);
-  const allTimeMetrics = useMemo(() => computeMetrics(combinedTrades), [combinedTrades]);
+  const allTimeMetrics = useMemo(() => computeMetrics(closedTradesOnly), [closedTradesOnly]);
 
   const activeMetrics = timeView === 'TODAY' ? todayMetrics : allTimeMetrics;
 

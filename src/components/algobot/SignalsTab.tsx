@@ -79,7 +79,7 @@ export const SignalsTab: React.FC<SignalsTabProps> = ({
               <ShieldCheck className="w-4 h-4" />
             </div>
             <span className="font-bold text-slate-200 tracking-tight text-[11px] uppercase">
-              {language === 'ml' ? '🏛️ കോрപ്പറേറ്റ് ക്വാണ്ട് ഷീൽഡ്' : '🏛️ Corporate Quant Shield'}
+              {language === 'ml' ? '🏛️ കോർപ്പറേറ്റ് ക്വാണ്ട് ഷീൽഡ്' : '🏛️ Corporate Quant Shield'}
             </span>
           </div>
           <span className="px-2 py-0.5 rounded-full text-[8px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">

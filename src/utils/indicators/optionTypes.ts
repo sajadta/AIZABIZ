@@ -14,6 +14,8 @@ export interface RealOptionMetrics {
   volume?: number;
   pcr?: number;
   bidAskRatio?: number;
+  bidQty?: number;
+  askQty?: number;
   callWallStrike?: number;
   putWallStrike?: number;
   corporateHeavyweightScore?: number; // -100 to +100

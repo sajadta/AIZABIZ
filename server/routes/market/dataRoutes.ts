@@ -13,10 +13,20 @@ export function registerMarketDataRoutes(app: express.Application) {
     const token =
       req.headers.authorization?.replace("Bearer ", "") ||
       upstoxConfig.accessToken;
-    const { instrumentToken, quantity, product, transactionType, price, buyPrice, sellPrice, roundTrip } =
-      req.query;
+    const {
+      instrumentToken,
+      instrument_token,
+      quantity,
+      product,
+      transactionType,
+      transaction_type,
+      price,
+      buyPrice,
+      sellPrice,
+      roundTrip,
+    } = req.query;
 
-    const instToken = String(instrumentToken || "NSE_FO|NIFTY");
+    const instToken = String(instrumentToken || instrument_token || "NSE_FO|NIFTY");
     const qty = Math.max(1, Number(quantity) || 1);
     const prc = Math.max(0, Number(price) || 0);
     const bPx = Number(buyPrice || price || 0);
@@ -63,7 +73,7 @@ export function registerMarketDataRoutes(app: express.Application) {
       });
     }
 
-    const txType = String(transactionType || "BUY").toUpperCase().trim() === "SELL" ? "SELL" : "BUY";
+    const txType = String(transactionType || transaction_type || "BUY").toUpperCase().trim() === "SELL" ? "SELL" : "BUY";
 
     if (token && token.trim() !== "") {
       try {
@@ -90,10 +100,15 @@ export function registerMarketDataRoutes(app: express.Application) {
       }
     }
 
+    const instTokenUp = instToken.toUpperCase();
     const isOption =
-      instToken.includes("CE") ||
-      instToken.includes("PE") ||
-      instToken.includes("OPT");
+      instTokenUp.includes("CE") ||
+      instTokenUp.includes("PE") ||
+      instTokenUp.includes("OPT") ||
+      instTokenUp.includes("NSE_FO|") ||
+      instTokenUp.includes("BSE_FO|") ||
+      instTokenUp.startsWith("NFO") ||
+      instTokenUp.startsWith("BFO");
     const tradeValue = qty * prc;
 
     let brokerage = 0;
@@ -201,7 +216,7 @@ export function registerMarketDataRoutes(app: express.Application) {
   // 5. Historical & Intraday Candles
   app.get("/api/market/candles", async (req: Request, res: Response) => {
     const symbol = req.query.symbol as string as string;
-    const interval = (req.query.interval as string) || "1 ";
+    const interval = (req.query.interval as string) || "1m";
     const token =
       req.headers.authorization?.replace("Bearer ", "") ||
       upstoxConfig.accessToken;

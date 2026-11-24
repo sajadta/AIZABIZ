@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BotConfig,
   BotLog,
@@ -66,9 +66,16 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
 
   useEffect(() => {
     let isMounted = true;
+    let inFlight = false;
+    let activeController: AbortController | null = null;
     const fetchMultiIndex = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      const ctrl = new AbortController();
+      activeController = ctrl;
+      const timer = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const res = await fetch('/api/bot/multi-index-alpha');
+        const res = await fetch('/api/bot/multi-index-alpha', { signal: ctrl.signal });
         if (res.ok) {
           const data = await res.json();
           if (isMounted && Array.isArray(data) && data.length > 0) {
@@ -77,12 +84,17 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
         }
       } catch {
         /* ignored */
+      } finally {
+        clearTimeout(timer);
+        if (activeController === ctrl) activeController = null;
+        inFlight = false;
       }
     };
     fetchMultiIndex();
-    const interval = setInterval(fetchMultiIndex, 2500);
+    const interval = setInterval(fetchMultiIndex, 4000);
     return () => {
       isMounted = false;
+      activeController?.abort();
       clearInterval(interval);
     };
   }, []);
@@ -202,35 +214,53 @@ export const AlgoBotPanel: React.FC<AlgoBotPanelProps> = ({
   const [deepAiScanning, setDeepAiScanning] = useState(false);
   const [supervisorQuestion, setSupervisorQuestion] = useState('');
 
-  const fetchSupervisorAudit = async () => {
+  const supervisorInFlightRef = useRef(false);
+
+  const fetchSupervisorAudit = async (signal?: AbortSignal) => {
+    if (supervisorInFlightRef.current) return;
+    supervisorInFlightRef.current = true;
     try {
-      const res = await fetch('/api/bot/supervisor-audit');
+      const res = await fetch('/api/bot/supervisor-audit', { signal });
       if (res.ok) {
         const data = await res.json();
         setSupervisorAudit(data);
       }
     } catch {
       // ignore transient error
+    } finally {
+      supervisorInFlightRef.current = false;
     }
   };
 
   useEffect(() => {
-    fetchSupervisorAudit();
-    const timer = setInterval(fetchSupervisorAudit, activeTab === 'AI_SUPERVISOR' ? 500 : 1500);
-    return () => clearInterval(timer);
+    const ctrl = new AbortController();
+    fetchSupervisorAudit(ctrl.signal);
+    const timer = setInterval(() => {
+      fetchSupervisorAudit(ctrl.signal);
+    }, activeTab === 'AI_SUPERVISOR' ? 3000 : 5000);
+    return () => {
+      ctrl.abort();
+      clearInterval(timer);
+    };
   }, [activeTab]);
 
-  // Automatically trigger initial Deep AI Diagnosis when user opens AI_SUPERVISOR tab if not yet generated
+  const hasAutoTriggeredDeepScanRef = useRef(false);
+
   useEffect(() => {
+    if (activeTab !== 'AI_SUPERVISOR') {
+      hasAutoTriggeredDeepScanRef.current = false;
+      return;
+    }
     if (
-      activeTab === 'AI_SUPERVISOR' &&
       supervisorAudit &&
       !supervisorAudit.lastAiSupervisorDeepReport &&
-      !deepAiScanning
+      !deepAiScanning &&
+      !hasAutoTriggeredDeepScanRef.current
     ) {
+      hasAutoTriggeredDeepScanRef.current = true;
       handleRunDeepAiSupervisorScan();
     }
-  }, [activeTab, supervisorAudit]);
+  }, [activeTab, supervisorAudit, deepAiScanning]);
 
   const handleRunDeepAiSupervisorScan = async () => {
     setDeepAiScanning(true);

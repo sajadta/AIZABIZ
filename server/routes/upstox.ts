@@ -9,7 +9,7 @@ import {
   saveTokenBackupToDisk
 } from '../utils';
 import { savePostgresDb } from '../services/persistence';
-import { getProxyStatusSummary, getDetectedContainerIp, parseUpstoxFundsData } from '../services/upstoxTransport';
+import { getProxyStatusSummary, getDetectedContainerIp, parseUpstoxFundsData, ensureProxyHealthVerified } from '../services/upstoxTransport';
 
 const router = express.Router();
 
@@ -52,7 +52,10 @@ router.use((req, _res, next) => {
 });
 
 router.get("/proxy-status", async (_req, res) => {
-  const detectedContainerIp = await getDetectedContainerIp();
+  const [detectedContainerIp] = await Promise.all([
+    getDetectedContainerIp(),
+    ensureProxyHealthVerified(4500),
+  ]);
   const summary = getProxyStatusSummary();
   res.json({
     success: true,
@@ -95,11 +98,13 @@ router.get("/profile", async (req, res) => {
         userEmail: profileData.data.email,
         userClientCode: profileData.data.user_id,
         availableMargin: funds.availableMargin,
+        settledCash: funds.settledCash,
+        deliverySellCredit: funds.deliverySellCredit,
         usedMargin: funds.usedMargin,
         utilizedMargin: funds.utilizedMargin,
         payin: funds.payin,
         payout: funds.payout,
-        totalBalance: funds.availableMargin + funds.utilizedMargin,
+        totalBalance: Number((funds.availableMargin + funds.utilizedMargin).toFixed(2)),
         holdingsCount,
       });
     } else {

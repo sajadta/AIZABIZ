@@ -10,12 +10,13 @@ import {
   customHoldingBuyPrices, activeAutoOtpSession, setActiveAutoOtpSession,
 } from "../state";
 import { isJwtTokenActuallyExpired, loadTokenBackupFromDisk } from "../lib/tokens";
+import { enforceOptionsOnlyConfig } from "../lib/optionTradeRules";
 
 const LOCAL_DB_PATH = path.join(os.tmpdir(), "upstox_algo_local_db.json");
-const WORKSPACE_DB_PATH = path.join(process.cwd(), ".upstox_algo_state.json");
+const WORKSPACE_DB_PATH = path.join(os.tmpdir(), "upstox_algo_state.json");
 
 export let postgresAvailable = isPostgresConfigured;
-export let paperInitialCapital = 2000;
+export let paperInitialCapital = 10000;
 
 export const setPostgresAvailable = (v: boolean) => { postgresAvailable = v; };
 export const isPostgresAvailable = () => postgresAvailable;
@@ -27,6 +28,7 @@ const DEFAULT_PRESERVED_TRADES: any[] = [];
 const DEFAULT_PRESERVED_ORDERS: any[] = [];
 
 export async function savePostgresDb() {
+  enforceOptionsOnlyConfig(botConfig);
   const dbData = {
     botConfig,
     upstoxConfig,
@@ -43,7 +45,9 @@ export async function savePostgresDb() {
 
   try {
     fsSync.writeFileSync(WORKSPACE_DB_PATH, serialized, "utf-8");
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   try {
     fsSync.writeFileSync(LOCAL_DB_PATH, serialized, "utf-8");
   } catch (err) {
@@ -87,9 +91,18 @@ export async function loadPostgresDb() {
     if (!upstoxConfig.pin) {
       upstoxConfig.pin = process.env.UPSTOX_PIN || process.env.UPSTOX_PIN || "";
     }
+    if (
+      !upstoxConfig.outboundProxyUrl ||
+      (upstoxConfig.outboundProxyUrl !== "DIRECT" && upstoxConfig.outboundProxyUrl.includes("8.234.113.241"))
+    ) {
+      upstoxConfig.outboundProxyUrl =
+        process.env.UPSTOX_PROXY_URL && !process.env.UPSTOX_PROXY_URL.includes("8.234.113.241")
+          ? process.env.UPSTOX_PROXY_URL
+          : "socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080";
+    }
     botConfig.maxOptionLossCount = Math.min(
       10,
-      Math.max(1, Number(botConfig.maxOptionLossCount || 3)),
+      Math.max(3, Number(botConfig.maxOptionLossCount || 3)),
     );
     // Maintain clean position state
     if (Array.isArray(paperPositions)) {
@@ -200,12 +213,21 @@ export async function loadPostgresDb() {
       }
     }
     botConfig.stopLossPercent = Number(botConfig.stopLossPercent || 18.0);
-    botConfig.minConfidence = Number(botConfig.minConfidence || 55);
-    botConfig.minOptionProfitAmount = Number(botConfig.minOptionProfitAmount || 25);
+    botConfig.minConfidence = Math.max(78, Number(botConfig.minConfidence || 78));
+    botConfig.minOptionProfitAmount = Math.max(250, Number(botConfig.minOptionProfitAmount || 350));
+    enforceOptionsOnlyConfig(botConfig);
     if (botConfig.dailyLossLocked) {
-      botConfig.dailyLossLocked = false;
-      botConfig.enabled = true;
-      (botConfig as any).circuitBreakerResetAt = Date.now();
+      const lockedAtMs = Number((botConfig as any).circuitBreakerLockedAt || 0);
+      const todayIstDate = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      const lockedIstDate =
+        lockedAtMs > 0
+          ? new Date(lockedAtMs).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+          : todayIstDate;
+      if (lockedAtMs > 0 && lockedIstDate < todayIstDate) {
+        botConfig.dailyLossLocked = false;
+        botConfig.enabled = true;
+        (botConfig as any).circuitBreakerResetAt = Date.now();
+      }
     }
   };
 

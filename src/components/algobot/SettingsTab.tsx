@@ -400,81 +400,32 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </div>
             </div>
 
-            {/* Trade Mode / Capital Compounding Engine Selector */}
+            {/* Trade Mode Status Notice (100% Locked to Options Only) */}
             <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
               <span className="text-[10px] font-bold text-slate-300 block">
                 {language === 'ml'
-                  ? '🎯 ട്രേഡിങ്ങ് മോഡ് & മൂലധന വർദ്ധനവ് (Capital Compounding Mode):'
-                  : '🎯 Trading Mode & Capital Compounding Strategy:'}
+                  ? '🎯 ട്രേഡിങ്ങ് സെഗ്മെന്റ് മോഡ് (Trading Segment):'
+                  : '🎯 Trading Segment Mode:'}
               </span>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => onUpdateBotConfig({ tradeMode: 'AUTO_ADAPTIVE' })}
-                  className={`p-2 rounded-lg border font-bold text-left transition ${
-                    (botConfig.tradeMode || 'AUTO_ADAPTIVE') === 'AUTO_ADAPTIVE'
-                      ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-300 shadow-sm'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="block font-black text-emerald-400">⚡ AUTO-ADAPTIVE</span>
-                  <span className="text-[9px] opacity-80 block font-normal">
-                    {language === 'ml'
-                      ? '₹2500-ൽ താഴെ ഓഹരികളിൽ കോമ്പൗണ്ടിംഗ്; മുകളിൽ ഓപ്ഷനുകൾ'
-                      : 'Equities if <₹2.5k, Options if >=₹2.5k'}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onUpdateBotConfig({ tradeMode: 'BOTH' })}
-                  className={`p-2 rounded-lg border font-bold text-left transition ${
-                    botConfig.tradeMode === 'BOTH'
-                      ? 'bg-indigo-950/60 border-indigo-500/60 text-indigo-300 shadow-sm'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="block font-black text-indigo-400">📊 BOTH (ഹൈബ്രിഡ്)</span>
-                  <span className="text-[9px] opacity-80 block font-normal">
-                    {language === 'ml'
-                      ? 'ഓപ്ഷനുകളും ഓഹരികളും ഒരേസമയം സ്കാൻ ചെയ്യുന്നു'
-                      : 'Options & Equities simultaneously'}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onUpdateBotConfig({ tradeMode: 'STOCKS_ONLY' })}
-                  className={`p-2 rounded-lg border font-bold text-left transition ${
-                    botConfig.tradeMode === 'STOCKS_ONLY'
-                      ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300 shadow-sm'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="block font-black text-cyan-400">📈 STOCKS ONLY</span>
-                  <span className="text-[9px] opacity-80 block font-normal">
-                    {language === 'ml'
-                      ? 'ഓഹരികളിൽ മാത്രം സുരക്ഷിത ഇൻട്രാഡേ ട്രേഡിങ്ങ്'
-                      : 'High-momentum cash equities only'}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onUpdateBotConfig({ tradeMode: 'OPTIONS_ONLY' })}
-                  className={`p-2 rounded-lg border font-bold text-left transition ${
-                    botConfig.tradeMode === 'OPTIONS_ONLY'
-                      ? 'bg-purple-950/60 border-purple-500/60 text-purple-300 shadow-sm'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="block font-black text-purple-400">🎯 OPTIONS ONLY</span>
-                  <span className="text-[9px] opacity-80 block font-normal">
-                    {language === 'ml'
-                      ? 'ഇൻഡക്സ് ഓപ്ഷനുകൾ മാത്രം (Min ₹2500+)'
-                      : 'Index options only (Min ₹2.5k+)'}
-                  </span>
-                </button>
+              <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/40 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
+                  <div>
+                    <span className="text-xs font-black text-purple-200 block">
+                      {language === 'ml'
+                        ? '100% ഓപ്ഷൻ ട്രേഡിങ്ങ് മാത്രം (OPTIONS ONLY)'
+                        : '100% Options Trading Only'}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                      {language === 'ml'
+                        ? 'ഇക്വിറ്റി ഓഹരികൾ അൽഗോരിതത്തിൽ നിന്നും ഒഴിവാക്കി. Nifty 50, BankNifty, Sensex, FinNifty സൂചികകളിലെ ഉയർന്ന ഗുണനിലവാരമുള്ള ATM/ITM ഓപ്ഷനുകൾ മാത്രം ട്രേഡ് ചെയ്യുന്നു.'
+                        : 'Equity stocks are permanently excluded. Algo strictly trades high-conviction ATM/ITM index options only.'}
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  {language === 'ml' ? 'ഇക്വിറ്റി ഒഴിവാക്കി' : 'EQUITY OFF'}
+                </span>
               </div>
             </div>
           </div>

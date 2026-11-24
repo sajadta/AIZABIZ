@@ -7,6 +7,7 @@ import { resilientFetchJson } from "../lib/http";
 import { YAHOO_NSE_MAP } from "../data/yahooMap";
 
 let isFetchingCentralQuotes = false;
+let inFlightYahooFallback: Promise<any[]> | null = null;
 let lastYahooFallbackQuotes: { timestamp: number; quotes: any[] } = {
   timestamp: 0,
   quotes: [],
@@ -164,16 +165,19 @@ export async function refreshCentralUpstoxQuotes(tokenOverride?: string, customS
   if (!customSymbols) isFetchingCentralQuotes = true;
 
   try {
+    const upstoxCtrl = new AbortController();
+    const upstoxTimer = setTimeout(() => upstoxCtrl.abort(), 4500);
     const response = await fetch(
       `https://api.upstox.com/v2/market-quote/quotes?instrument_key=${encodeURIComponent(symbols)}`,
       {
+        signal: upstoxCtrl.signal,
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
           "Api-Version": "2.0",
         },
       },
-    );
+    ).finally(() => clearTimeout(upstoxTimer));
     if (response.ok) {
       const data = await response.json();
       if (data?.status === "success" && data?.data) {
@@ -219,86 +223,114 @@ export async function fetchRealNseQuotesFallback(): Promise<any[]> {
   if (lastYahooFallbackQuotes.quotes.length > 0 && Date.now() - lastYahooFallbackQuotes.timestamp < 8000) {
     return lastYahooFallbackQuotes.quotes;
   }
-  try {
-    const results = await Promise.allSettled(
-      YAHOO_NSE_MAP.map(async (item) => {
-        const res = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(item.yahooTicker)}?interval=5m&range=1d`,
-          {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-              Accept: "application/json",
-            },
-          },
-        );
-        if (!res.ok) return null;
-        const json = await res.json();
-        const meta = json?.chart?.result?.[0]?.meta;
-        const quote = json?.chart?.result?.[0]?.indicators?.quote?.[0];
-        if (!meta || !meta.regularMarketPrice) return null;
-        const ltp = Number(meta.regularMarketPrice.toFixed(2));
-        const prevClose = Number((meta.chartPreviousClose || meta.previousClose || ltp).toFixed(2));
-        const change = Number((ltp - prevClose).toFixed(2));
-        const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
-        const highs = (quote?.high || []).filter((x: any) => typeof x === "number" && x > 0);
-        const lows = (quote?.low || []).filter((x: any) => typeof x === "number" && x > 0);
-        const opens = (quote?.open || []).filter((x: any) => typeof x === "number" && x > 0);
-        const vols = (quote?.volume || []).filter((x: any) => typeof x === "number" && x >= 0);
-        const totalVol = vols.reduce((a: number, b: number) => a + b, 0);
-
-        globalLiveQuotes[item.instrumentKey] = {
-          last_price: ltp,
-          net_change: change,
-          changePercent,
-          instrument_token: item.instrumentKey,
-        };
-
-        return {
-          symbol: item.symbol,
-          name: item.name,
-          exchange: item.exchange,
-          segment: item.segment,
-          instrumentKey: item.instrumentKey,
-          ltp,
-          change,
-          changePercent,
-          volume: Number(meta.regularMarketVolume || totalVol || 0),
-          open: Number((meta.regularMarketOpen || opens[0] || ltp).toFixed(2)),
-          high: Number((meta.regularMarketDayHigh || (highs.length ? Math.max(...highs) : ltp)).toFixed(2)),
-          low: Number((meta.regularMarketDayLow || (lows.length ? Math.min(...lows) : ltp)).toFixed(2)),
-          close: prevClose,
-        };
-      }),
-    );
-
-    const validQuotes = results
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled" && r.value !== null)
-      .map((r) => r.value);
-
-    // Deduplicate by instrumentKey so clients never receive duplicate keys
-    const uniqueQuotesMap = new Map<string, any>();
-    for (const q of validQuotes) {
-      if (q && q.instrumentKey && !uniqueQuotesMap.has(q.instrumentKey)) {
-        uniqueQuotesMap.set(q.instrumentKey, q);
-      }
+  if (inFlightYahooFallback) {
+    if (lastYahooFallbackQuotes.quotes.length > 0 && Date.now() - lastYahooFallbackQuotes.timestamp < 60000) {
+      return lastYahooFallbackQuotes.quotes;
     }
-    const deduplicatedQuotes = Array.from(uniqueQuotesMap.values());
-
-    if (deduplicatedQuotes.length > 0) {
-      lastYahooFallbackQuotes = {
-        timestamp: Date.now(),
-        quotes: deduplicatedQuotes,
-      };
-      if (getLastQuotesCache().quotes.length === 0) {
-        setLastQuotesCache({
-          timestamp: Date.now(),
-          data: {},
-          quotes: deduplicatedQuotes,
-        });
-      }
-    }
-    return deduplicatedQuotes;
-  } catch {
-    return lastYahooFallbackQuotes.quotes;
+    return inFlightYahooFallback;
   }
+
+  inFlightYahooFallback = (async () => {
+    try {
+      const validQuotes: any[] = [];
+      const fetchWithTimeout = Promise.allSettled(
+        YAHOO_NSE_MAP.map(async (item) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 2800);
+          try {
+            const res = await fetch(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(item.yahooTicker)}?interval=5m&range=1d`,
+              {
+                signal: ctrl.signal,
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                  Accept: "application/json",
+                },
+              },
+            );
+            if (!res.ok) return null;
+            const json = await res.json();
+            const meta = json?.chart?.result?.[0]?.meta;
+            const quote = json?.chart?.result?.[0]?.indicators?.quote?.[0];
+            if (!meta || !meta.regularMarketPrice) return null;
+            const ltp = Number(meta.regularMarketPrice.toFixed(2));
+            const prevClose = Number((meta.chartPreviousClose || meta.previousClose || ltp).toFixed(2));
+            const change = Number((ltp - prevClose).toFixed(2));
+            const changePercent = prevClose > 0 ? Number(((change / prevClose) * 100).toFixed(2)) : 0;
+            const highs = (quote?.high || []).filter((x: any) => typeof x === "number" && x > 0);
+            const lows = (quote?.low || []).filter((x: any) => typeof x === "number" && x > 0);
+            const opens = (quote?.open || []).filter((x: any) => typeof x === "number" && x > 0);
+            const vols = (quote?.volume || []).filter((x: any) => typeof x === "number" && x >= 0);
+            const totalVol = vols.reduce((a: number, b: number) => a + b, 0);
+
+            globalLiveQuotes[item.instrumentKey] = {
+              last_price: ltp,
+              net_change: change,
+              changePercent,
+              instrument_token: item.instrumentKey,
+            };
+            globalLiveQuotes["last_update"] = new Date().toISOString();
+
+            const normalized = {
+              symbol: item.symbol,
+              name: item.name,
+              exchange: item.exchange,
+              segment: item.segment,
+              instrumentKey: item.instrumentKey,
+              ltp,
+              change,
+              changePercent,
+              volume: Number(meta.regularMarketVolume || totalVol || 0),
+              open: Number((meta.regularMarketOpen || opens[0] || ltp).toFixed(2)),
+              high: Number((meta.regularMarketDayHigh || (highs.length ? Math.max(...highs) : ltp)).toFixed(2)),
+              low: Number((meta.regularMarketDayLow || (lows.length ? Math.min(...lows) : ltp)).toFixed(2)),
+              close: prevClose,
+            };
+            validQuotes.push(normalized);
+            return normalized;
+          } catch {
+            return null;
+          } finally {
+            clearTimeout(timer);
+          }
+        }),
+      );
+
+      await Promise.race([
+        fetchWithTimeout,
+        new Promise<void>((resolve) => setTimeout(resolve, 3200)),
+      ]);
+
+      // Deduplicate by instrumentKey so clients never receive duplicate keys
+      const uniqueQuotesMap = new Map<string, any>();
+      for (const q of validQuotes) {
+        if (q && q.instrumentKey && !uniqueQuotesMap.has(q.instrumentKey)) {
+          uniqueQuotesMap.set(q.instrumentKey, q);
+        }
+      }
+      const deduplicatedQuotes = Array.from(uniqueQuotesMap.values());
+
+      if (deduplicatedQuotes.length > 0) {
+        lastYahooFallbackQuotes = {
+          timestamp: Date.now(),
+          quotes: deduplicatedQuotes,
+        };
+        if (getLastQuotesCache().quotes.length === 0) {
+          setLastQuotesCache({
+            timestamp: Date.now(),
+            data: {},
+            quotes: deduplicatedQuotes,
+          });
+        }
+        return deduplicatedQuotes;
+      }
+      return lastYahooFallbackQuotes.quotes;
+    } catch {
+      return lastYahooFallbackQuotes.quotes;
+    } finally {
+      inFlightYahooFallback = null;
+    }
+  })();
+
+  return inFlightYahooFallback;
 }

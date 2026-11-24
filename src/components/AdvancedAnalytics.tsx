@@ -12,6 +12,10 @@ interface TradeHistory {
     closeTime: string;
 }
 
+const ANALYTICS_CHART_MARGIN = { top: 10, right: 10, left: -20, bottom: 0 };
+const ANALYTICS_TOOLTIP_STYLE = { backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' };
+const ANALYTICS_TOOLTIP_ITEM_STYLE = { color: '#e2e8f0' };
+
 export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
     // Generate cumulative PnL data
     let cumulative = 0;
@@ -78,8 +82,8 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
 
             {chartData.length > 0 ? (
                 <div className="h-64 w-full mt-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <ResponsiveContainer width="100%" height={256} minWidth={0}>
+                        <AreaChart data={chartData} margin={ANALYTICS_CHART_MARGIN}>
                             <defs>
                                 <linearGradient id="colorPnL" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor={cumulative >= 0 ? "#4ade80" : "#f87171"} stopOpacity={0.3}/>
@@ -90,8 +94,8 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
                             <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickMargin={10} />
                             <YAxis stroke="#94a3b8" fontSize={10} tickFormatter={(val) => `₹${val}`} />
                             <Tooltip 
-                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }}
-                                itemStyle={{ color: '#e2e8f0' }}
+                                contentStyle={ANALYTICS_TOOLTIP_STYLE}
+                                itemStyle={ANALYTICS_TOOLTIP_ITEM_STYLE}
                             />
                             <Area 
                                 type="monotone" 

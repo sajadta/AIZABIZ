@@ -17,14 +17,22 @@ export const useAccountMetrics = ({
 }: UseAccountMetricsParams) => {
   const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-  const totalNetMtm = positions.reduce((acc, p) => {
-    const gross = p.pnl || 0;
-    const brok =
-      p.brokerageCharges ||
-      calculateTradeCharges(p.buyPrice, p.quantity, p.isOption !== false, p.currentLTP)
-        .roundTripCharges;
-    return acc + (gross - brok);
+  const totalGrossMtm = positions.reduce((acc, p) => acc + Number(p.pnl || 0), 0);
+
+  const openEntryCharges = positions.reduce((acc, p) => {
+    const chg = calculateTradeCharges(
+      p.buyPrice,
+      p.quantity,
+      p.isOption !== false,
+      p.currentLTP,
+      p.instrumentKey || p.symbol,
+    );
+    const isShort = p.type === 'SELL';
+    const entryLegChg = isShort ? chg.sellCharges : chg.buyCharges;
+    return acc + entryLegChg;
   }, 0);
+
+  const totalNetMtm = Number((totalGrossMtm - openEntryCharges).toFixed(2));
 
   const getTradeSessionDate = (t: Position) => {
     if (t.openedAtMs && !isNaN(Number(t.openedAtMs))) {
@@ -62,6 +70,7 @@ export const useAccountMetrics = ({
           t.quantity || 1,
           t.isOption !== false,
           t.sellPrice || t.currentLTP || t.buyPrice || 0,
+          t.instrumentKey || t.symbol,
         ).roundTripCharges,
     );
     return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : gross - brok);
@@ -76,6 +85,7 @@ export const useAccountMetrics = ({
           t.quantity || 1,
           t.isOption !== false,
           t.sellPrice || t.currentLTP || t.buyPrice || 0,
+          t.instrumentKey || t.symbol,
         ).roundTripCharges,
     );
     return acc + (t.netRealizedPnL !== undefined ? Number(t.netRealizedPnL) : gross - brok);
@@ -88,10 +98,12 @@ export const useAccountMetrics = ({
     (acc, p) => acc + Number(p.buyPrice || 0) * Math.max(1, Number(p.quantity || 1)),
     0,
   );
-  const paperAccountBalance = 2000 + totalRealizedNet - openPositionsInvested;
+  const paperAccountBalance = 10000 + totalRealizedNet - openPositionsInvested;
 
   return {
     todayIst,
+    totalGrossMtm,
+    openEntryCharges,
     totalNetMtm,
     getTradeSessionDate,
     modeTradeHistory,

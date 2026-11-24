@@ -10,6 +10,8 @@ export interface UpstoxApiConfig {
   userClientCode?: string;
   broker: string;
   availableMargin: number;
+  settledCash?: number;
+  deliverySellCredit?: number;
   usedMargin: number;
   utilizedMargin?: number;
   payin?: number;
@@ -23,6 +25,7 @@ export interface UpstoxApiConfig {
   serverSecondaryIp?: string;
   actualDetectedIp?: string;
   holdingsCount?: number;
+  isFixedProxyActive?: boolean;
   proxyError?: string;
 }
 
