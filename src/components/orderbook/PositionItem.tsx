@@ -15,7 +15,13 @@ export const PositionItem: React.FC<{
   const qty = Math.max(1, Number(pos.quantity || 1));
   // Immediate, reliable local charges calculation (zero network delay or failure risk)
   const defaultCharges = React.useMemo(() => {
-    const breakdown = calculateTradeCharges(buyPx, qty, isOpt, curPx, pos.instrumentKey || pos.symbol);
+    const breakdown = calculateTradeCharges(
+      buyPx,
+      qty,
+      isOpt,
+      curPx,
+      pos.instrumentKey || pos.symbol,
+    );
     return {
       total: breakdown.roundTripCharges,
       entryPaid: breakdown.buyCharges,
@@ -46,7 +52,9 @@ export const PositionItem: React.FC<{
         const isBseInst = /SENSEX|BANKEX|BSE/i.test(pos.symbol || '');
         const instToken =
           pos.instrumentKey ||
-          (pos.isOption ? (isBseInst ? 'BSE_FO|' : 'NSE_FO|') + pos.symbol : 'NSE_EQ|' + pos.symbol);
+          (pos.isOption
+            ? (isBseInst ? 'BSE_FO|' : 'NSE_FO|') + pos.symbol
+            : 'NSE_EQ|' + pos.symbol);
         const prod = pos.productType || 'D';
         const currentPx = pos.currentLTP || pos.buyPrice;
         // Fetch Live Round-Trip Brokerage & Taxes directly from Upstox API via server cache
@@ -284,8 +292,7 @@ export const PositionItem: React.FC<{
                 title="Upstox Live API"
               />
             )}
-            {language === 'ml' ? 'എക്സിറ്റ് RT ചാർജ്' : 'Est. RT Fee'}: ₹
-            {estCharges.toFixed(2)}
+            {language === 'ml' ? 'എക്സിറ്റ് RT ചാർജ്' : 'Est. RT Fee'}: ₹{estCharges.toFixed(2)}
             <span className="text-slate-400 font-normal">
               ({language === 'ml' ? 'വാങ്ങിയ ഫീ' : 'Paid'}: ₹{defaultCharges.entryPaid.toFixed(2)})
             </span>
