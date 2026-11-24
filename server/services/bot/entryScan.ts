@@ -1,26 +1,79 @@
 // Bot entry-scan phase: circuit-breaker gating, market-hours checks, signal
 // generation and live/paper order placement for new trades.
-import { botConfig, botLogs, botSignals, paperOrders, paperPositions, paperTradeHistory, globalLiveQuotes, optionIntradayCandleCache, recentClosedStrikes, intradayCandleCache, fiveYearHistoricalRegimeCache, optionContractCache, optionChainCache, FIXED_PRIMARY_IP, getLastFullEntryScanAtMs, setLastFullEntryScanAtMs, getLastTradeExitTime, getCachedUpstoxLiveMargin, setCachedUpstoxLiveMargin, setCachedUpstoxLivePositions, setLatestMultiIndexAlphaMatrix } from "../../state";
-import { analyzeTradingSignals, enrichCandlesWithIndicators, calculateTradeCharges, calculateAffordableLotsWithBrokerage } from "../../../src/utils/indicators";
-import { resilientFetchJson } from "../../lib/http";
-import { getDynamicLotSize, lotSizeCache, MICRO_CAPITAL_EQUITY_UNIVERSE } from "../../lib/instruments";
-import { getCapitalTierOptionConstraints, evaluateOptionDipMomentum } from "../../lib/optionTradeRules";
-import { pairLiveDayOrders, getTodayIstDateString, getCachedLiveDayOrders, invalidateCachedLiveDayOrders } from "../../lib/upstoxHistory";
-import { placeUpstoxOrderIpv4, parseUpstoxFundsData, getDetectedContainerIp } from ".././upstoxTransport";
-import { sendTelegramNotification } from ".././notifications";
-import { savePostgresDb, getPaperInitialCapital } from ".././persistence";
-import { YAHOO_NSE_MAP } from "../../data/yahooMap";
+import {
+  botConfig,
+  botLogs,
+  botSignals,
+  paperOrders,
+  paperPositions,
+  paperTradeHistory,
+  globalLiveQuotes,
+  optionIntradayCandleCache,
+  recentClosedStrikes,
+  intradayCandleCache,
+  fiveYearHistoricalRegimeCache,
+  optionContractCache,
+  optionChainCache,
+  FIXED_PRIMARY_IP,
+  getLastFullEntryScanAtMs,
+  setLastFullEntryScanAtMs,
+  getLastTradeExitTime,
+  getCachedUpstoxLiveMargin,
+  setCachedUpstoxLiveMargin,
+  setCachedUpstoxLivePositions,
+  setLatestMultiIndexAlphaMatrix,
+} from '../../state';
+import {
+  analyzeTradingSignals,
+  enrichCandlesWithIndicators,
+  calculateTradeCharges,
+  calculateAffordableLotsWithBrokerage,
+} from '../../../src/utils/indicators';
+import { resilientFetchJson } from '../../lib/http';
+import {
+  getDynamicLotSize,
+  lotSizeCache,
+  MICRO_CAPITAL_EQUITY_UNIVERSE,
+} from '../../lib/instruments';
+import {
+  getCapitalTierOptionConstraints,
+  evaluateOptionDipMomentum,
+} from '../../lib/optionTradeRules';
+import {
+  pairLiveDayOrders,
+  getTodayIstDateString,
+  getCachedLiveDayOrders,
+  invalidateCachedLiveDayOrders,
+} from '../../lib/upstoxHistory';
+import {
+  placeUpstoxOrderIpv4,
+  parseUpstoxFundsData,
+  getDetectedContainerIp,
+} from '.././upstoxTransport';
+import { sendTelegramNotification } from '.././notifications';
+import { savePostgresDb, getPaperInitialCapital } from '.././persistence';
 
-import { refreshLiveDayClosedTrades, computeSessionCircuitMetrics, getTradeNetPnL } from "./entryScan/sessionCircuit";
-import { getFiveYearRegime } from "./entryScan/fiveYearRegime";
-import { strikeDailyEntryCount, STRIKE_LOCKOUT_MS, STRIKE_LOSS_LOCKOUT_MS, MAX_STRIKE_ENTRIES_DEFAULT, MAX_STRIKE_ENTRIES_TRENDING } from "./antiChurn";
+import { loadIntradayCandles } from './entryScan/intradayCandles';
+import {
+  refreshLiveDayClosedTrades,
+  computeSessionCircuitMetrics,
+  getTradeNetPnL,
+} from './entryScan/sessionCircuit';
+import { getFiveYearRegime } from './entryScan/fiveYearRegime';
+import {
+  strikeDailyEntryCount,
+  STRIKE_LOCKOUT_MS,
+  STRIKE_LOSS_LOCKOUT_MS,
+  MAX_STRIKE_ENTRIES_DEFAULT,
+  MAX_STRIKE_ENTRIES_TRENDING,
+} from './antiChurn';
 
 let lastCapitalShortfallLogMs = 0;
 let lastLiveOrderPlacedAtMs = 0;
 const recentLiveStrikeOrderMs: Record<string, number> = {};
 let cachedLiveDayClosedTrades: { timestamp: number; token: string; trades: any[] } = {
   timestamp: 0,
-  token: "",
+  token: '',
   trades: [],
 };
 
@@ -44,12 +97,14 @@ export async function runEntryScan(ctx: {
     dynamicDailyLossLimit,
   } = computeSessionCircuitMetrics(cachedLiveDayClosedTrades);
 
-
   // Ultra-fast 30s exchange settlement buffer ONLY (no 10-minute cooldown block!)
   // Quality gates (chop filter, VWAP/MTF alignment, anti-chase) prevent bad entries directly while letting profitable setups run immediately.
   const nowCooldownCheckMs = Date.now();
   const latestLiveExitTrade = activeSessionTrades
-    .map((t: any) => ({ ts: t.closeTime ? new Date(t.closeTime).getTime() : 0, net: getTradeNetPnL(t) }))
+    .map((t: any) => ({
+      ts: t.closeTime ? new Date(t.closeTime).getTime() : 0,
+      net: getTradeNetPnL(t),
+    }))
     .sort((a: any, b: any) => b.ts - a.ts)[0];
   const latestClosedMeta = Object.values(recentClosedStrikes).sort(
     (a: any, b: any) => (b?.exitTime || 0) - (a?.exitTime || 0),
@@ -60,7 +115,8 @@ export async function runEntryScan(ctx: {
     latestClosedMeta?.exitTime || 0,
   );
   const requiredCooldownMs = 30000;
-  const isInPostExitCooldown = effectiveLastExitMs > 0 && nowCooldownCheckMs - effectiveLastExitMs < requiredCooldownMs;
+  const isInPostExitCooldown =
+    effectiveLastExitMs > 0 && nowCooldownCheckMs - effectiveLastExitMs < requiredCooldownMs;
 
   // Check Market Open Time Window (09:15 AM to 15:15 PM IST for NEW NSE/BSE Options entries on Trading Days Monday-Friday)
   const currentHour = nowIst.getHours();
@@ -75,39 +131,40 @@ export async function runEntryScan(ctx: {
   const scanIntervalMs = token ? 600 : 5000;
   const elapsedSinceLastScan = Date.now() - getLastFullEntryScanAtMs();
   const shouldRunEntryScanThisTick =
-    elapsedSinceLastScan >= scanIntervalMs || (botSignals.length === 0 && elapsedSinceLastScan >= 2500);
-  if ((token || botConfig.mode === "PAPER_TRADING") && shouldRunEntryScanThisTick) {
+    elapsedSinceLastScan >= scanIntervalMs ||
+    (botSignals.length === 0 && elapsedSinceLastScan >= 2500);
+  if ((token || botConfig.mode === 'PAPER_TRADING') && shouldRunEntryScanThisTick) {
     setLastFullEntryScanAtMs(Date.now());
     // Fetch live Upstox available margin (cached 5s to avoid 429 on 200ms loop)
     let liveAvailableMargin = getCachedUpstoxLiveMargin().margin;
     if (token && Date.now() - getCachedUpstoxLiveMargin().timestamp > 5000) {
       try {
         const fundsData: any = await resilientFetchJson(
-          "https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC",
+          'https://api.upstox.com/v2/user/get-funds-and-margin?segment=SEC',
           {
             headers: {
               Authorization: `Bearer ${token}`,
-              Accept: "application/json",
-              "Api-Version": "2.0",
+              Accept: 'application/json',
+              'Api-Version': '2.0',
             },
           },
           1,
-          4000
+          4000,
         );
-        if (fundsData?.status === "success" && fundsData?.data) {
+        if (fundsData?.status === 'success' && fundsData?.data) {
           const parsedFunds = parseUpstoxFundsData(fundsData);
           liveAvailableMargin = parsedFunds.usableCash;
-          setCachedUpstoxLiveMargin({ 
-            timestamp: Date.now(), 
+          setCachedUpstoxLiveMargin({
+            timestamp: Date.now(),
             margin: liveAvailableMargin,
             utilizedMargin: parsedFunds.utilizedMargin,
             payin: parsedFunds.payin,
-            payout: parsedFunds.payout
+            payout: parsedFunds.payout,
           });
         }
       } catch {
-    // Ignored
-  }
+        // Ignored
+      }
     }
 
     // Strict Capital Separation:
@@ -116,18 +173,19 @@ export async function runEntryScan(ctx: {
     // - 0 = Auto Dynamic: Evaluates real available margin in UPSTOX_LIVE mode or virtual funds in PAPER_TRADING mode.
     // - If user specifies a manual cap in Advanced Overrides (> 0), it respects that ceiling.
     const configuredCap = Number((botConfig as any).maxCapitalPerTrade || 0);
-    const activeExposure = botConfig.mode === "PAPER_TRADING" 
-      ? paperPositions
-          .filter((p: any) => !p.mode || p.mode === "PAPER_TRADING")
-          .reduce((sum: number, p: any) => sum + (p.buyPrice * p.quantity), 0)
-      : 0;
+    const activeExposure =
+      botConfig.mode === 'PAPER_TRADING'
+        ? paperPositions
+            .filter((p: any) => !p.mode || p.mode === 'PAPER_TRADING')
+            .reduce((sum: number, p: any) => sum + p.buyPrice * p.quantity, 0)
+        : 0;
     const paperPnL = paperTradeHistory
-      .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
+      .filter((t: any) => !t.mode || t.mode === 'PAPER_TRADING')
       .reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
     const paperBalance = Math.max(0, getPaperInitialCapital() + paperPnL - activeExposure);
 
     const effectiveCapital =
-      botConfig.mode === "UPSTOX_LIVE"
+      botConfig.mode === 'UPSTOX_LIVE'
         ? configuredCap > 0
           ? Math.min(liveAvailableMargin, configuredCap)
           : liveAvailableMargin
@@ -137,32 +195,35 @@ export async function runEntryScan(ctx: {
 
     // Prioritize High-Liquidity Institutional Indices (Nifty 50, BankNifty, Sensex, FinNifty, Midcap Nifty, Bankex)
     // FULL_AUTO_MULTI_INDEX: Corporate Quant Scanner monitors all indices equally and picks whichever index gives highest net profit!
-    const chosenPriority = (botConfig as any).selectedIndexPriority || "FULL_AUTO_MULTI_INDEX";
+    const chosenPriority = (botConfig as any).selectedIndexPriority || 'FULL_AUTO_MULTI_INDEX';
     let scanIndices = [
-      { key: "NSE_INDEX|Nifty 50", symbol: "NIFTY 50" },
-      { key: "NSE_INDEX|Nifty Bank", symbol: "NIFTY BANK" },
-      { key: "BSE_INDEX|SENSEX", symbol: "SENSEX" },
-      { key: "NSE_INDEX|Nifty Fin Service", symbol: "NIFTY FIN SERVICE" },
-      { key: "NSE_INDEX|NIFTY MID SELECT", symbol: "MIDCPNIFTY" },
-      { key: "BSE_INDEX|BANKEX", symbol: "BANKEX" },
+      { key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' },
+      { key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' },
+      { key: 'BSE_INDEX|SENSEX', symbol: 'SENSEX' },
+      { key: 'NSE_INDEX|Nifty Fin Service', symbol: 'NIFTY FIN SERVICE' },
+      { key: 'NSE_INDEX|NIFTY MID SELECT', symbol: 'MIDCPNIFTY' },
+      { key: 'BSE_INDEX|BANKEX', symbol: 'BANKEX' },
     ];
 
-    if (chosenPriority === "NIFTY_50_ONLY") {
-      scanIndices = [{ key: "NSE_INDEX|Nifty 50", symbol: "NIFTY 50" }];
-    } else if (chosenPriority === "BANKNIFTY_ONLY") {
-      scanIndices = [{ key: "NSE_INDEX|Nifty Bank", symbol: "NIFTY BANK" }];
-    } else if (chosenPriority === "SENSEX_ONLY") {
-      scanIndices = [{ key: "BSE_INDEX|SENSEX", symbol: "SENSEX" }];
-    } else if (chosenPriority === "FINNIFTY_ONLY") {
-      scanIndices = [{ key: "NSE_INDEX|Nifty Fin Service", symbol: "NIFTY FIN SERVICE" }];
-    } else if (chosenPriority === "MIDCPNIFTY_ONLY") {
-      scanIndices = [{ key: "NSE_INDEX|NIFTY MID SELECT", symbol: "MIDCPNIFTY" }];
-    } else if (chosenPriority === "BANKEX_ONLY") {
-      scanIndices = [{ key: "BSE_INDEX|BANKEX", symbol: "BANKEX" }];
-    } else if ((botConfig as any).selectedInstrumentKey && chosenPriority !== "FULL_AUTO_MULTI_INDEX" && chosenPriority !== "ALL_NIFTY_PRIORITY" && chosenPriority !== "ALL_EQUAL") {
-      const matching = scanIndices.find(
-        (x) => x.key === (botConfig as any).selectedInstrumentKey,
-      );
+    if (chosenPriority === 'NIFTY_50_ONLY') {
+      scanIndices = [{ key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' }];
+    } else if (chosenPriority === 'BANKNIFTY_ONLY') {
+      scanIndices = [{ key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' }];
+    } else if (chosenPriority === 'SENSEX_ONLY') {
+      scanIndices = [{ key: 'BSE_INDEX|SENSEX', symbol: 'SENSEX' }];
+    } else if (chosenPriority === 'FINNIFTY_ONLY') {
+      scanIndices = [{ key: 'NSE_INDEX|Nifty Fin Service', symbol: 'NIFTY FIN SERVICE' }];
+    } else if (chosenPriority === 'MIDCPNIFTY_ONLY') {
+      scanIndices = [{ key: 'NSE_INDEX|NIFTY MID SELECT', symbol: 'MIDCPNIFTY' }];
+    } else if (chosenPriority === 'BANKEX_ONLY') {
+      scanIndices = [{ key: 'BSE_INDEX|BANKEX', symbol: 'BANKEX' }];
+    } else if (
+      (botConfig as any).selectedInstrumentKey &&
+      chosenPriority !== 'FULL_AUTO_MULTI_INDEX' &&
+      chosenPriority !== 'ALL_NIFTY_PRIORITY' &&
+      chosenPriority !== 'ALL_EQUAL'
+    ) {
+      const matching = scanIndices.find((x) => x.key === (botConfig as any).selectedInstrumentKey);
       if (matching) {
         scanIndices = [matching];
       }
@@ -175,151 +236,43 @@ export async function runEntryScan(ctx: {
       (t: any) => t.closeTime && t.closeTime.startsWith(new Date().toISOString().slice(0, 10)),
     );
     const todayCompletedCount = todayTrades.length;
-    const todayNetPnL = todayTrades.reduce((acc: number, t: any) => acc + (t.netRealizedPnL ?? t.realizedPnL ?? 0), 0);
-    const todayWins = todayTrades.filter((t: any) => (t.netRealizedPnL ?? t.realizedPnL ?? 0) > 0).length;
+    const todayNetPnL = todayTrades.reduce(
+      (acc: number, t: any) => acc + (t.netRealizedPnL ?? t.realizedPnL ?? 0),
+      0,
+    );
+    const todayWins = todayTrades.filter(
+      (t: any) => (t.netRealizedPnL ?? t.realizedPnL ?? 0) > 0,
+    ).length;
 
     // Continuous Trading Engine: No artificial daily trade limit cap
     const isDailyTradeLimitReached = false;
     const userConfiguredMax = Number((botConfig as any).maxConcurrentTrades ?? 0);
     const balanceBasedMax = Math.max(
       1,
-      Math.min(5, Math.floor(effectiveCapital / (botConfig.mode === "UPSTOX_LIVE" ? 5000 : 3500))),
+      Math.min(5, Math.floor(effectiveCapital / (botConfig.mode === 'UPSTOX_LIVE' ? 5000 : 3500))),
     );
     const maxAllowedConcurrent = userConfiguredMax === 0 ? balanceBasedMax : userConfiguredMax;
     // console.log("[ENTRY SCAN] Starting scan for", scanIndices.map(s => s.symbol));
 
     for (const idx of scanIndices) {
       const today = new Date();
-      const toDate = today.toISOString().split("T")[0];
-      const url = `https://api.upstox.com/v2/historical-candle/intraday/${encodeURIComponent(idx.key)}/1minute`;
+      const toDate = today.toISOString().split('T')[0];
 
       try {
-        let cData: any = null;
         let verifiedRealOptionStrike = false;
         let topOptionCandidateForIndex: any = null;
         let bestCandidate: any = null;
         let cheapestSkippedStrikeForCap: any = null;
-        const cachedIntraday = intradayCandleCache[idx.key];
-        if (cachedIntraday && Date.now() - cachedIntraday.timestamp < 8000) {
-          cData = { status: "success", data: { candles: cachedIntraday.raw } };
-        } else if (token) {
-          cData = await resilientFetchJson(url, {
-            headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Api-Version": "2.0" },
-          }, 2, 6000);
-          if (cData?.status === "success" && Array.isArray(cData?.data?.candles) && cData.data.candles.length > 0) {
-            intradayCandleCache[idx.key] = {
-              timestamp: Date.now(),
-              raw: cData.data.candles,
-            };
-          } else if (cachedIntraday?.raw?.length > 0) {
-            cData = { status: "success", data: { candles: cachedIntraday.raw } };
-          }
-        }
+        const cData = await loadIntradayCandles(idx, token);
 
-        // If intraday returned fewer than 45 candles (e.g., first 30 minutes of market open 09:15–09:45 AM, or after market hours),
-        // fetch recent 1-minute historical candles from the previous trading session and prepend them for indicator warmup (EMA21, EMA50, SuperTrend, RSI, MACD)!
-        if (!cData?.data?.candles || cData.data.candles.length < 45) {
-          const fromDate = new Date(today.getTime() - 5 * 24 * 60 * 60 * 1000)
-            .toISOString()
-            .split("T")[0];
-          const histUrl = `https://api.upstox.com/v2/historical-candle/${encodeURIComponent(idx.key)}/1minute/${toDate}/${fromDate}`;
-          try {
-            if (token) {
-              const histData: any = await resilientFetchJson(histUrl, {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  Accept: "application/json",
-                  "Api-Version": "2.0",
-                },
-              }, 1, 6000);
-              if (histData?.status === "success" && histData?.data?.candles?.length > 0) {
-                const existingIntraday = Array.isArray(cData?.data?.candles)
-                  ? cData.data.candles
-                  : [];
-                const oldestIntradayTs =
-                  existingIntraday.length > 0
-                    ? new Date(existingIntraday[existingIntraday.length - 1][0]).getTime()
-                    : Infinity;
-                const priorWarmupCandles = histData.data.candles
-                  .filter((hc: any) => new Date(hc[0]).getTime() < oldestIntradayTs)
-                  .slice(0, 90);
-                const mergedCandles =
-                  existingIntraday.length > 0
-                    ? [...existingIntraday, ...priorWarmupCandles]
-                    : histData.data.candles.slice(0, 180);
-                cData = { status: "success", data: { candles: mergedCandles } };
-                intradayCandleCache[idx.key] = {
-                  timestamp: Date.now(),
-                  raw: mergedCandles,
-                };
-              }
-            }
-          } catch {
-    // Ignored
-  }
-
-          // Fallback to official NSE/BSE 1-minute candles via Yahoo Finance if Upstox token is expired
-          if (!cData?.data?.candles || cData.data.candles.length === 0) {
-            const mapped = YAHOO_NSE_MAP.find(
-              (m) => m.instrumentKey === idx.key || m.symbol.toUpperCase() === idx.symbol.toUpperCase(),
-            );
-            if (mapped) {
-              try {
-                const yRes = await fetch(
-                  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(mapped.yahooTicker)}?interval=1m&range=5d`,
-                  {
-                    headers: {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                      Accept: "application/json",
-                    },
-                  },
-                );
-                if (yRes.ok) {
-                  const yJson = await yRes.json();
-                  const resObj = yJson?.chart?.result?.[0];
-                  const timestamps: number[] = resObj?.timestamp || [];
-                  const qObj = resObj?.indicators?.quote?.[0] || {};
-                  const yCandles: any[] = [];
-                  for (let i = timestamps.length - 1; i >= 0 && yCandles.length < 180; i--) {
-                    const o = qObj.open?.[i];
-                    const h = qObj.high?.[i];
-                    const l = qObj.low?.[i];
-                    const c = qObj.close?.[i];
-                    const v = qObj.volume?.[i] || 0;
-                    if (typeof c === "number" && c > 0) {
-                      yCandles.push([
-                        new Date(timestamps[i] * 1000).toISOString(),
-                        Number((o || c).toFixed(2)),
-                        Number((h || c).toFixed(2)),
-                        Number((l || c).toFixed(2)),
-                        Number(c.toFixed(2)),
-                        Number(v),
-                      ]);
-                    }
-                  }
-                  if (yCandles.length > 0) {
-                    cData = { status: "success", data: { candles: yCandles } };
-                    intradayCandleCache[idx.key] = {
-                      timestamp: Date.now(),
-                      raw: yCandles,
-                    };
-                  }
-                }
-              } catch {
-    // Ignored
-  }
-            }
-          }
-        }
-
-        if (cData?.status === "success" && Array.isArray(cData.data?.candles)) {
+        if (cData?.status === 'success' && Array.isArray(cData.data?.candles)) {
           const rawCandles = cData.data.candles
             .map((c: any) => ({
               timestamp: new Date(c[0]).getTime(),
-              timeStr: new Date(c[0]).toLocaleTimeString("en-IN", {
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "Asia/Kolkata",
+              timeStr: new Date(c[0]).toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Asia/Kolkata',
               }),
               open: c[1],
               high: c[2],
@@ -334,8 +287,7 @@ export async function runEntryScan(ctx: {
           // Get live quote for this specific index FIRST and merge into rawCandles BEFORE enrichCandlesWithIndicators
           // so that EMA9, EMA21, SuperTrend, RSI, and MACD are calculated on the real-time tick price!
           let liveLtp =
-            globalLiveQuotes[idx.key]?.last_price ||
-            rawCandles[rawCandles.length - 1].close;
+            globalLiveQuotes[idx.key]?.last_price || rawCandles[rawCandles.length - 1].close;
           if (token && !globalLiveQuotes[idx.key]?.last_price) {
             try {
               const qData: any = await resilientFetchJson(
@@ -343,12 +295,12 @@ export async function runEntryScan(ctx: {
                 {
                   headers: {
                     Authorization: `Bearer ${token}`,
-                    Accept: "application/json",
-                    "Api-Version": "2.0",
+                    Accept: 'application/json',
+                    'Api-Version': '2.0',
                   },
                 },
                 1,
-                4000
+                4000,
               );
               if (qData?.data?.[idx.key]?.last_price) {
                 liveLtp = qData.data[idx.key].last_price;
@@ -365,26 +317,25 @@ export async function runEntryScan(ctx: {
           }
 
           // Compute Live Corporate Heavyweight Flow & Global/Macro Sector Alignment from live Upstox quotes
-          const isBankIndex =
-            idx.symbol.includes("BANK") || idx.symbol.includes("FIN");
+          const isBankIndex = idx.symbol.includes('BANK') || idx.symbol.includes('FIN');
           const heavyweightDefs = isBankIndex
             ? [
-                { sym: "HDFCBANK", key: "NSE_EQ|INE040A01034", weight: 28 },
-                { sym: "ICICIBANK", key: "NSE_EQ|INE090A01021", weight: 24 },
-                { sym: "SBIN", key: "NSE_EQ|INE062A01020", weight: 12 },
-                { sym: "AXISBANK", key: "NSE_EQ|INE238A01034", weight: 10 },
-                { sym: "KOTAKBANK", key: "NSE_EQ|INE237A01028", weight: 10 },
-                { sym: "INDUSINDBK", key: "NSE_EQ|INE095A01012", weight: 6 },
+                { sym: 'HDFCBANK', key: 'NSE_EQ|INE040A01034', weight: 28 },
+                { sym: 'ICICIBANK', key: 'NSE_EQ|INE090A01021', weight: 24 },
+                { sym: 'SBIN', key: 'NSE_EQ|INE062A01020', weight: 12 },
+                { sym: 'AXISBANK', key: 'NSE_EQ|INE238A01034', weight: 10 },
+                { sym: 'KOTAKBANK', key: 'NSE_EQ|INE237A01028', weight: 10 },
+                { sym: 'INDUSINDBK', key: 'NSE_EQ|INE095A01012', weight: 6 },
               ]
             : [
-                { sym: "HDFCBANK", key: "NSE_EQ|INE040A01034", weight: 13 },
-                { sym: "RELIANCE", key: "NSE_EQ|INE002A01018", weight: 11 },
-                { sym: "ICICIBANK", key: "NSE_EQ|INE090A01021", weight: 9 },
-                { sym: "INFY", key: "NSE_EQ|INE009A01021", weight: 7 },
-                { sym: "TCS", key: "NSE_EQ|INE467B01029", weight: 6 },
-                { sym: "ITC", key: "NSE_EQ|INE154A01025", weight: 5 },
-                { sym: "LT", key: "NSE_EQ|INE018A01030", weight: 5 },
-                { sym: "SBIN", key: "NSE_EQ|INE062A01020", weight: 4 },
+                { sym: 'HDFCBANK', key: 'NSE_EQ|INE040A01034', weight: 13 },
+                { sym: 'RELIANCE', key: 'NSE_EQ|INE002A01018', weight: 11 },
+                { sym: 'ICICIBANK', key: 'NSE_EQ|INE090A01021', weight: 9 },
+                { sym: 'INFY', key: 'NSE_EQ|INE009A01021', weight: 7 },
+                { sym: 'TCS', key: 'NSE_EQ|INE467B01029', weight: 6 },
+                { sym: 'ITC', key: 'NSE_EQ|INE154A01025', weight: 5 },
+                { sym: 'LT', key: 'NSE_EQ|INE018A01030', weight: 5 },
+                { sym: 'SBIN', key: 'NSE_EQ|INE062A01020', weight: 4 },
               ];
 
           let weightedBull = 0;
@@ -399,15 +350,12 @@ export async function runEntryScan(ctx: {
               Object.values(liveQuotesMap).find(
                 (item: any) =>
                   item?.instrument_token === hw.key ||
-                  String(item?.symbol || "").toUpperCase() === hw.sym,
+                  String(item?.symbol || '').toUpperCase() === hw.sym,
               );
             if (q && Number(q.last_price) > 0) {
               const ltpHw = Number(q.last_price);
               const openHw = Number(q.ohlc?.open || ltpHw);
-              const netChg =
-                q.net_change !== undefined
-                  ? Number(q.net_change)
-                  : ltpHw - openHw;
+              const netChg = q.net_change !== undefined ? Number(q.net_change) : ltpHw - openHw;
               totalWeightTracked += hw.weight;
               if (netChg > 0 && ltpHw >= openHw) {
                 weightedBull += hw.weight;
@@ -420,44 +368,44 @@ export async function runEntryScan(ctx: {
           }
 
           const corporateHeavyweightScore =
-            totalWeightTracked > 0
-              ? Math.round((weightedBull / totalWeightTracked) * 100)
-              : 0;
+            totalWeightTracked > 0 ? Math.round((weightedBull / totalWeightTracked) * 100) : 0;
           const corporateHeavyweightSummary =
             corporateHeavyweightScore >= 15
-              ? `Heavyweights Bullish (${bullMovers.slice(0, 4).join(", ") || "Top Corporates Buying"})`
+              ? `Heavyweights Bullish (${bullMovers.slice(0, 4).join(', ') || 'Top Corporates Buying'})`
               : corporateHeavyweightScore <= -15
-                ? `Heavyweights Bearish (${bearMovers.slice(0, 4).join(", ") || "Top Corporates Selling"})`
-                : `Mixed Heavyweight Flow (${[...bullMovers.slice(0, 2), ...bearMovers.slice(0, 2)].join(", ") || "Neutral"})`;
+                ? `Heavyweights Bearish (${bearMovers.slice(0, 4).join(', ') || 'Top Corporates Selling'})`
+                : `Mixed Heavyweight Flow (${[...bullMovers.slice(0, 2), ...bearMovers.slice(0, 2)].join(', ') || 'Neutral'})`;
 
           // Global Tech Proxy (INFY + TCS) + Broad Index Breadth
-          const infyQ = liveQuotesMap["NSE_EQ|INE009A01021"] || globalLiveQuotes["NSE_EQ|INE009A01021"];
-          const tcsQ = liveQuotesMap["NSE_EQ|INE467B01029"] || globalLiveQuotes["NSE_EQ|INE467B01029"];
-          const niftyQ = liveQuotesMap["NSE_INDEX|Nifty 50"] || globalLiveQuotes["NSE_INDEX|Nifty 50"];
-          const bankQ = liveQuotesMap["NSE_INDEX|Nifty Bank"] || globalLiveQuotes["NSE_INDEX|Nifty Bank"];
+          const infyQ =
+            liveQuotesMap['NSE_EQ|INE009A01021'] || globalLiveQuotes['NSE_EQ|INE009A01021'];
+          const tcsQ =
+            liveQuotesMap['NSE_EQ|INE467B01029'] || globalLiveQuotes['NSE_EQ|INE467B01029'];
+          const niftyQ =
+            liveQuotesMap['NSE_INDEX|Nifty 50'] || globalLiveQuotes['NSE_INDEX|Nifty 50'];
+          const bankQ =
+            liveQuotesMap['NSE_INDEX|Nifty Bank'] || globalLiveQuotes['NSE_INDEX|Nifty Bank'];
           let macroBullCount = 0;
           let macroBearCount = 0;
           for (const mqItem of [infyQ, tcsQ, niftyQ, bankQ]) {
             if (mqItem && Number(mqItem.last_price) > 0) {
-              const chg = Number(mqItem.net_change ?? (mqItem.last_price - (mqItem.ohlc?.open || mqItem.last_price)));
+              const chg = Number(
+                mqItem.net_change ?? mqItem.last_price - (mqItem.ohlc?.open || mqItem.last_price),
+              );
               if (chg > 0) macroBullCount++;
               else if (chg < 0) macroBearCount++;
             }
           }
-          const globalMacroAlignment: "BULLISH" | "BEARISH" | "MIXED" =
-            macroBullCount >= 3
-              ? "BULLISH"
-              : macroBearCount >= 3
-                ? "BEARISH"
-                : "MIXED";
+          const globalMacroAlignment: 'BULLISH' | 'BEARISH' | 'MIXED' =
+            macroBullCount >= 3 ? 'BULLISH' : macroBearCount >= 3 ? 'BEARISH' : 'MIXED';
 
           const enriched = enrichCandlesWithIndicators(rawCandles);
 
           const fiveYearMetrics = await getFiveYearRegime(idx, { token, today, toDate, liveLtp });
 
           const liveIndiaVix = Number(
-            liveQuotesMap["NSE_INDEX|India VIX"]?.last_price ||
-              globalLiveQuotes["NSE_INDEX|India VIX"]?.last_price ||
+            liveQuotesMap['NSE_INDEX|India VIX']?.last_price ||
+              globalLiveQuotes['NSE_INDEX|India VIX']?.last_price ||
               13.8,
           );
 
@@ -471,10 +419,18 @@ export async function runEntryScan(ctx: {
             undefined,
             {
               strikePrice: Math.round(liveLtp / 50) * 50,
-              optionType: corporateHeavyweightScore < 0 ? "PE" : "CE",
+              optionType: corporateHeavyweightScore < 0 ? 'PE' : 'CE',
               ltp: 0,
-              expiry: "Current Weekly",
-              lotSize: (idx.symbol.includes("BANK") ? 30 : idx.symbol.includes("SENSEX") ? 20 : idx.symbol.includes("FIN") ? 60 : idx.symbol.includes("MID") ? 120 : 65),
+              expiry: 'Current Weekly',
+              lotSize: idx.symbol.includes('BANK')
+                ? 30
+                : idx.symbol.includes('SENSEX')
+                  ? 20
+                  : idx.symbol.includes('FIN')
+                    ? 60
+                    : idx.symbol.includes('MID')
+                      ? 120
+                      : 65,
               corporateHeavyweightScore,
               corporateHeavyweightSummary,
               globalMacroAlignment,
@@ -494,20 +450,30 @@ export async function runEntryScan(ctx: {
           // BANKEX is BSE counterpart of NSE NIFTY BANK (identical constituent stocks: HDFCBANK, ICICIBANK, SBIN, AXISBANK, KOTAKBANK).
           // If BankNifty is Bearish / Red on the day, NEVER buy a BANKEX CE!
           // If BankNifty is Bullish / Green on the day, NEVER buy a BANKEX PE!
-          if (idx.symbol === "BANKEX" && signal && signal.signalType !== "HOLD") {
+          if (idx.symbol === 'BANKEX' && signal && signal.signalType !== 'HOLD') {
             const bankNiftyLtp = Number(bankQ?.last_price || 0);
             const bankNiftyOpen = Number(bankQ?.ohlc?.open || bankNiftyLtp);
-            const bankNiftyChg = Number(bankQ?.net_change ?? (bankNiftyLtp - bankNiftyOpen));
-            const isBankNiftyDown = bankNiftyLtp > 0 && (bankNiftyChg < 0 || bankNiftyLtp < bankNiftyOpen);
-            const isBankNiftyUp = bankNiftyLtp > 0 && (bankNiftyChg > 0 && bankNiftyLtp > bankNiftyOpen);
-            if (signal.signalType === "BUY" && (isBankNiftyDown || corporateHeavyweightScore <= -10)) {
-              signal.signalType = "HOLD";
+            const bankNiftyChg = Number(bankQ?.net_change ?? bankNiftyLtp - bankNiftyOpen);
+            const isBankNiftyDown =
+              bankNiftyLtp > 0 && (bankNiftyChg < 0 || bankNiftyLtp < bankNiftyOpen);
+            const isBankNiftyUp =
+              bankNiftyLtp > 0 && bankNiftyChg > 0 && bankNiftyLtp > bankNiftyOpen;
+            if (
+              signal.signalType === 'BUY' &&
+              (isBankNiftyDown || corporateHeavyweightScore <= -10)
+            ) {
+              signal.signalType = 'HOLD';
               signal.confidenceScore = 40;
-              signal.reason = "Cross-Index Veto: BankNifty / Banking heavyweights are Bearish; BANKEX CE strictly blocked.";
-            } else if (signal.signalType === "SELL" && (isBankNiftyUp || corporateHeavyweightScore >= 10)) {
-              signal.signalType = "HOLD";
+              signal.reason =
+                'Cross-Index Veto: BankNifty / Banking heavyweights are Bearish; BANKEX CE strictly blocked.';
+            } else if (
+              signal.signalType === 'SELL' &&
+              (isBankNiftyUp || corporateHeavyweightScore >= 10)
+            ) {
+              signal.signalType = 'HOLD';
               signal.confidenceScore = 40;
-              signal.reason = "Cross-Index Veto: BankNifty / Banking heavyweights are Bullish; BANKEX PE strictly blocked.";
+              signal.reason =
+                'Cross-Index Veto: BankNifty / Banking heavyweights are Bullish; BANKEX PE strictly blocked.';
             }
           }
 
@@ -515,10 +481,7 @@ export async function runEntryScan(ctx: {
           topOptionCandidateForIndex = null;
           bestCandidate = null;
 
-          if (
-            signal &&
-            (signal.signalType === "BUY" || signal.signalType === "SELL")
-          ) {
+          if (signal && (signal.signalType === 'BUY' || signal.signalType === 'SELL')) {
             if (token) {
               try {
                 const idxKey = idx.key;
@@ -532,11 +495,11 @@ export async function runEntryScan(ctx: {
                     {
                       headers: {
                         Authorization: `Bearer ${token}`,
-                        Accept: "application/json",
+                        Accept: 'application/json',
                       },
                     },
                     2,
-                    6000
+                    6000,
                   );
                   if (cJson?.data?.length > 0) {
                     contractData = cJson;
@@ -551,22 +514,17 @@ export async function runEntryScan(ctx: {
                   today.setHours(0, 0, 0, 0);
                   const validExpiries = contractData.data
                     .map((c: any) => c.expiry)
-                    .filter(
-                      (e: any) => new Date(e).getTime() >= today.getTime(),
-                    )
-                    .sort(
-                      (a: any, b: any) =>
-                        new Date(a).getTime() - new Date(b).getTime(),
-                    );
+                    .filter((e: any) => new Date(e).getTime() >= today.getTime())
+                    .sort((a: any, b: any) => new Date(a).getTime() - new Date(b).getTime());
                   const expiryDate =
-                    validExpiries.length > 0
-                      ? validExpiries[0]
-                      : contractData.data[0].expiry;
+                    validExpiries.length > 0 ? validExpiries[0] : contractData.data[0].expiry;
 
                   const todayIstStr = getTodayIstDateString();
-                  const isExpiryDay0DTE = String(expiryDate || "") === todayIstStr;
-                  const istNowMins = ((new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) % 1440);
-                  const isMiddayThetaChopWindow = istNowMins >= (12 * 60 + 15) && istNowMins <= (13 * 60 + 15);
+                  const isExpiryDay0DTE = String(expiryDate || '') === todayIstStr;
+                  const istNowMins =
+                    (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 330) % 1440;
+                  const isMiddayThetaChopWindow =
+                    istNowMins >= 12 * 60 + 15 && istNowMins <= 13 * 60 + 15;
                   const currentAdxVal = Number(signal?.indicators?.adx?.value ?? 18);
                   const passesExpiryChopShield = !(
                     isExpiryDay0DTE &&
@@ -574,14 +532,15 @@ export async function runEntryScan(ctx: {
                     (currentAdxVal < 20 || Number(signal?.confidenceScore || 0) < 82)
                   );
                   if (!passesExpiryChopShield && signal) {
-                    signal.signalType = "HOLD";
+                    signal.signalType = 'HOLD';
                     signal.confidenceScore = Math.min(signal.confidenceScore || 55, 58);
                     signal.reason = `0DTE Expiry Midday Theta Chop Guard (12:15–13:15 IST): Waiting for high-ADX (>=20) breakout (ADX: ${currentAdxVal.toFixed(1)}).`;
                   }
 
                   const activeContractForLot =
                     contractData.data.find(
-                      (c: any) => c.expiry === expiryDate && Number(c.lot_size || c.minimum_lot) > 0,
+                      (c: any) =>
+                        c.expiry === expiryDate && Number(c.lot_size || c.minimum_lot) > 0,
                     ) ||
                     contractData.data.find((c: any) => Number(c.lot_size || c.minimum_lot) > 0);
                   const liveIdxLotSize = Number(
@@ -591,7 +550,7 @@ export async function runEntryScan(ctx: {
                     const entry = {
                       lotSize: liveIdxLotSize,
                       timestamp: Date.now(),
-                      source: "UPSTOX_LIVE",
+                      source: 'UPSTOX_LIVE',
                       expiry: expiryDate,
                     };
                     lotSizeCache[idxKey] = entry;
@@ -603,19 +562,19 @@ export async function runEntryScan(ctx: {
                   if (
                     passesExpiryChopShield &&
                     (!chainData ||
-                    Date.now() - (optionChainCache[chainCacheKey]?.timestamp || 0) > 10000)
+                      Date.now() - (optionChainCache[chainCacheKey]?.timestamp || 0) > 10000)
                   ) {
                     const chJson: any = await resilientFetchJson(
                       `https://api.upstox.com/v2/option/chain?instrument_key=${encodeURIComponent(idxKey)}&expiry_date=${expiryDate}`,
                       {
                         headers: {
                           Authorization: `Bearer ${token}`,
-                          Accept: "application/json",
-                          "Api-Version": "2.0",
+                          Accept: 'application/json',
+                          'Api-Version': '2.0',
                         },
                       },
                       2,
-                      6000
+                      6000,
                     );
                     if (chJson?.data && Array.isArray(chJson.data)) {
                       chainData = chJson;
@@ -629,30 +588,38 @@ export async function runEntryScan(ctx: {
                     }
                   }
                   if (passesExpiryChopShield && chainData?.data && Array.isArray(chainData.data)) {
-                    const rawSigType = signal?.signalType || "HOLD";
+                    const rawSigType = signal?.signalType || 'HOLD';
                     const isBullish =
-                      rawSigType === "BUY" ||
-                      (String(rawSigType) === "HOLD" &&
-                        (signal?.recommendedOptionStrike?.optionType === "CE" ||
-                          (!signal?.rationale?.includes("Bearish") &&
-                            (signal?.rationale?.includes("Bullish") || (signal?.confidenceScore || 50) >= 50))));
-                    const isOptionSellingMode =
-                      botConfig.optionStrategyMode === "OPTION_SELLING";
+                      rawSigType === 'BUY' ||
+                      (String(rawSigType) === 'HOLD' &&
+                        (signal?.recommendedOptionStrike?.optionType === 'CE' ||
+                          (!signal?.rationale?.includes('Bearish') &&
+                            (signal?.rationale?.includes('Bullish') ||
+                              (signal?.confidenceScore || 50) >= 50))));
+                    const isOptionSellingMode = botConfig.optionStrategyMode === 'OPTION_SELLING';
                     // For Option Buying: Bullish -> Buy CE, Bearish -> Buy PE.
                     // For Option Selling (Credit): Bullish -> Short PE (collect decaying Put premium), Bearish -> Short CE (collect decaying Call premium).
-                    const optType: "CE" | "PE" = isOptionSellingMode
+                    const optType: 'CE' | 'PE' = isOptionSellingMode
                       ? isBullish
-                        ? "PE"
-                        : "CE"
+                        ? 'PE'
+                        : 'CE'
                       : isBullish
-                        ? "CE"
-                        : "PE";
+                        ? 'CE'
+                        : 'PE';
                     const lotSz =
                       liveIdxLotSize > 0
                         ? liveIdxLotSize
-                        : (lotSizeCache[idxKey]?.lotSize ||
+                        : lotSizeCache[idxKey]?.lotSize ||
                           lotSizeCache[idx.symbol.toUpperCase()]?.lotSize ||
-                          (idx.symbol.includes("BANK") ? 30 : idx.symbol.includes("SENSEX") ? 20 : idx.symbol.includes("FIN") ? 60 : idx.symbol.includes("MID") ? 120 : 65));
+                          (idx.symbol.includes('BANK')
+                            ? 30
+                            : idx.symbol.includes('SENSEX')
+                              ? 20
+                              : idx.symbol.includes('FIN')
+                                ? 60
+                                : idx.symbol.includes('MID')
+                                  ? 120
+                                  : 65);
 
                     // Calculate overall Put-Call Ratio (PCR) + Highest Call OI Resistance Wall & Highest Put OI Support Wall
                     let totalCallOi = 0;
@@ -698,16 +665,24 @@ export async function runEntryScan(ctx: {
                       ? effectiveCapital
                       : Math.min(Math.max(effectiveCapital, 15000), 25000);
                     const isBseIndex =
-                      idxKey.includes("BSE_INDEX") ||
-                      idx.symbol.includes("SENSEX") ||
-                      idx.symbol.includes("BANKEX");
+                      idxKey.includes('BSE_INDEX') ||
+                      idx.symbol.includes('SENSEX') ||
+                      idx.symbol.includes('BANKEX');
                     const isSecondaryIdx =
-                      idx.symbol.includes("BANK") ||
-                      idx.symbol.includes("FIN") ||
-                      idx.symbol.includes("MID");
-                    const tierCfg = getCapitalTierOptionConstraints(effectiveCapital, isBseIndex, idx.symbol);
+                      idx.symbol.includes('BANK') ||
+                      idx.symbol.includes('FIN') ||
+                      idx.symbol.includes('MID');
+                    const tierCfg = getCapitalTierOptionConstraints(
+                      effectiveCapital,
+                      isBseIndex,
+                      idx.symbol,
+                    );
                     const maxAllowedBidAskSpreadPct = tierCfg.maxSpreadPct;
-                    const calcEntryAffordableLots = (ltpVal: number, lotSzVal: number, cashCap: number): number => {
+                    const calcEntryAffordableLots = (
+                      ltpVal: number,
+                      lotSzVal: number,
+                      cashCap: number,
+                    ): number => {
                       if (cashCap <= 0 || ltpVal <= 0) return 0;
                       let maxLotsFit = 0;
                       for (let l = 1; l <= 3; l++) {
@@ -722,7 +697,7 @@ export async function runEntryScan(ctx: {
                       effectiveCapital > 0
                         ? allValidRows
                             .filter((r: any) => {
-                              const optObj = optType === "CE" ? r.call_options : r.put_options;
+                              const optObj = optType === 'CE' ? r.call_options : r.put_options;
                               const ltp = Number(optObj?.market_data?.ltp || 0);
                               const absDelta = Math.abs(
                                 Number(optObj?.option_greeks?.delta ?? 0.35),
@@ -732,28 +707,44 @@ export async function runEntryScan(ctx: {
                               );
                               const vol = Number(optObj?.market_data?.volume || 0);
                               const oiVal = Number(optObj?.market_data?.oi || 0);
-                              const underlyingAtrVal = Number(signal?.institutionalQuantAnalysis?.atr14 || 18);
-                              const underlyingResVal = Number(signal?.institutionalQuantAnalysis?.nearestResistance || (liveLtp + underlyingAtrVal * 2.5));
-                              const underlyingSupVal = Number(signal?.institutionalQuantAnalysis?.nearestSupport || (liveLtp - underlyingAtrVal * 2.5));
+                              const underlyingAtrVal = Number(
+                                signal?.institutionalQuantAnalysis?.atr14 || 18,
+                              );
+                              const underlyingResVal = Number(
+                                signal?.institutionalQuantAnalysis?.nearestResistance ||
+                                  liveLtp + underlyingAtrVal * 2.5,
+                              );
+                              const underlyingSupVal = Number(
+                                signal?.institutionalQuantAnalysis?.nearestSupport ||
+                                  liveLtp - underlyingAtrVal * 2.5,
+                              );
                               const runwayPoints = isBullish
                                 ? Math.max(underlyingAtrVal * 1.8, underlyingResVal - liveLtp)
                                 : Math.max(underlyingAtrVal * 1.8, liveLtp - underlyingSupVal);
-                              const gammaGainPts = 0.5 * absGamma * Math.pow(Math.min(runwayPoints, underlyingAtrVal * 3), 2);
-                              const expGainPts = Math.max(ltp * 0.25, runwayPoints * absDelta + gammaGainPts);
+                              const gammaGainPts =
+                                0.5 *
+                                absGamma *
+                                Math.pow(Math.min(runwayPoints, underlyingAtrVal * 3), 2);
+                              const expGainPts = Math.max(
+                                ltp * 0.25,
+                                runwayPoints * absDelta + gammaGainPts,
+                              );
                               const tMult = Math.max(1.25, (ltp + expGainPts) / (ltp || 1));
-                              const charges = calculateTradeCharges(
+                              const charges = calculateTradeCharges(ltp, lotSz, true, ltp * tMult);
+                              const lotAfford = calculateAffordableLotsWithBrokerage(
                                 ltp,
                                 lotSz,
+                                compactCapCeiling,
                                 true,
-                                ltp * tMult,
+                                5,
                               );
-                              const lotAfford = calculateAffordableLotsWithBrokerage(ltp, lotSz, compactCapCeiling, true, 5);
-                              const liveEntryLots = botConfig.mode === "UPSTOX_LIVE"
-                                ? calcEntryAffordableLots(ltp, lotSz, compactCapCeiling)
-                                : 0;
+                              const liveEntryLots =
+                                botConfig.mode === 'UPSTOX_LIVE'
+                                  ? calcEntryAffordableLots(ltp, lotSz, compactCapCeiling)
+                                  : 0;
                               const entryCashNeeded = charges.tradeValue + charges.buyCharges + 3;
                               const requiredCapForRow =
-                                botConfig.mode === "UPSTOX_LIVE"
+                                botConfig.mode === 'UPSTOX_LIVE'
                                   ? entryCashNeeded
                                   : charges.totalRequiredWithBrokerage;
                               const possibleLots = Math.max(
@@ -762,16 +753,22 @@ export async function runEntryScan(ctx: {
                                 requiredCapForRow <= compactCapCeiling ? 1 : 0,
                               );
                               const expNet =
-                                ltp * (tMult - 1) * lotSz * Math.max(1, possibleLots) - charges.roundTripCharges;
-                              const strikeDistPct = Math.abs(Number(r.strike_price) - liveLtp) / liveLtp;
+                                ltp * (tMult - 1) * lotSz * Math.max(1, possibleLots) -
+                                charges.roundTripCharges;
+                              const strikeDistPct =
+                                Math.abs(Number(r.strike_price) - liveLtp) / liveLtp;
                               const reqMinProfit = tierCfg.getMinReqNetProfit(
                                 charges.roundTripCharges,
                                 botConfig.minOptionProfitAmount,
                               );
                               const hasLiquidity =
-                                tierCfg.tier === "STANDARD" || isSecondaryIdx || effectiveCapital < 300
-                                  ? ((vol >= tierCfg.minVolume || oiVal >= tierCfg.minOi) && vol > 0 && oiVal > 0)
-                                  : (vol >= tierCfg.minVolume && oiVal >= tierCfg.minOi);
+                                tierCfg.tier === 'STANDARD' ||
+                                isSecondaryIdx ||
+                                effectiveCapital < 300
+                                  ? (vol >= tierCfg.minVolume || oiVal >= tierCfg.minOi) &&
+                                    vol > 0 &&
+                                    oiVal > 0
+                                  : vol >= tierCfg.minVolume && oiVal >= tierCfg.minOi;
                               const brokerageDragPct =
                                 charges.tradeValue > 0
                                   ? charges.roundTripCharges / charges.tradeValue
@@ -805,7 +802,7 @@ export async function runEntryScan(ctx: {
                     const scoredCandidates: any[] = [];
 
                     for (const row of candidateRows) {
-                      const optObj = optType === "CE" ? row.call_options : row.put_options;
+                      const optObj = optType === 'CE' ? row.call_options : row.put_options;
                       const ltp = Number(optObj?.market_data?.ltp || 0);
                       if (ltp < tierCfg.minLtp || ltp <= 1.0) continue;
 
@@ -818,9 +815,7 @@ export async function runEntryScan(ctx: {
                       const iv = Number(optObj?.option_greeks?.iv || 15);
                       const oi = Number(optObj?.market_data?.oi || 0);
                       const prevOi = Number(optObj?.market_data?.prev_oi || oi);
-                      const oiChange = Number(
-                        optObj?.market_data?.oi_change ?? (oi - prevOi),
-                      );
+                      const oiChange = Number(optObj?.market_data?.oi_change ?? oi - prevOi);
                       const volume = Number(optObj?.market_data?.volume || 0);
                       const closePrice = Number(optObj?.market_data?.close_price || 0);
                       const bidPrice = Number(optObj?.market_data?.bid_price || ltp);
@@ -835,9 +830,11 @@ export async function runEntryScan(ctx: {
 
                       // Skip illiquid strikes or strikes with excessively wide bid-ask spreads
                       const passesCandLiquidity =
-                        tierCfg.tier === "STANDARD" || isSecondaryIdx || effectiveCapital < 300
-                          ? ((volume >= tierCfg.minVolume || oi >= tierCfg.minOi) && volume > 0 && oi > 0)
-                          : (volume >= tierCfg.minVolume && oi >= tierCfg.minOi);
+                        tierCfg.tier === 'STANDARD' || isSecondaryIdx || effectiveCapital < 300
+                          ? (volume >= tierCfg.minVolume || oi >= tierCfg.minOi) &&
+                            volume > 0 &&
+                            oi > 0
+                          : volume >= tierCfg.minVolume && oi >= tierCfg.minOi;
                       if (!passesCandLiquidity) {
                         continue;
                       }
@@ -849,10 +846,15 @@ export async function runEntryScan(ctx: {
                       //    while still allowing other qualified strikes immediately after 30s.
                       const optKeyCandidate = optObj?.instrument_key;
                       const liveStrikeClosedTrades = optKeyCandidate
-                        ? activeSessionTrades.filter((t: any) => t.instrumentKey === optKeyCandidate)
+                        ? activeSessionTrades.filter(
+                            (t: any) => t.instrumentKey === optKeyCandidate,
+                          )
                         : [];
                       const strikeTradesToday = optKeyCandidate
-                        ? Math.max(strikeDailyEntryCount[optKeyCandidate] || 0, liveStrikeClosedTrades.length)
+                        ? Math.max(
+                            strikeDailyEntryCount[optKeyCandidate] || 0,
+                            liveStrikeClosedTrades.length,
+                          )
                         : 0;
                       const recentClosed = optKeyCandidate
                         ? recentClosedStrikes[optKeyCandidate]
@@ -860,12 +862,14 @@ export async function runEntryScan(ctx: {
                       const latestLiveStrikeClosed = liveStrikeClosedTrades[0] || null;
                       const latestStrikeExitTs = Math.max(
                         recentClosed?.exitTime || 0,
-                        latestLiveStrikeClosed?.closeTime ? new Date(latestLiveStrikeClosed.closeTime).getTime() : 0,
+                        latestLiveStrikeClosed?.closeTime
+                          ? new Date(latestLiveStrikeClosed.closeTime).getTime()
+                          : 0,
                       );
                       const lastStrikeWasNetLoss = recentClosed
-                        ? (typeof recentClosed.netRealizedPnL === "number"
-                            ? recentClosed.netRealizedPnL < 0
-                            : recentClosed.sellPrice < (recentClosed.buyPrice || 0))
+                        ? typeof recentClosed.netRealizedPnL === 'number'
+                          ? recentClosed.netRealizedPnL < 0
+                          : recentClosed.sellPrice < (recentClosed.buyPrice || 0)
                         : latestLiveStrikeClosed
                           ? getTradeNetPnL(latestLiveStrikeClosed) < 0
                           : false;
@@ -885,15 +889,30 @@ export async function runEntryScan(ctx: {
                           continue;
                         }
                       }
-                      const rowUnderlyingAtr = Number(signal?.institutionalQuantAnalysis?.atr14 || 18);
-                      const rowUnderlyingRes = Number(signal?.institutionalQuantAnalysis?.nearestResistance || (liveLtp + rowUnderlyingAtr * 2.5));
-                      const rowUnderlyingSup = Number(signal?.institutionalQuantAnalysis?.nearestSupport || (liveLtp - rowUnderlyingAtr * 2.5));
+                      const rowUnderlyingAtr = Number(
+                        signal?.institutionalQuantAnalysis?.atr14 || 18,
+                      );
+                      const rowUnderlyingRes = Number(
+                        signal?.institutionalQuantAnalysis?.nearestResistance ||
+                          liveLtp + rowUnderlyingAtr * 2.5,
+                      );
+                      const rowUnderlyingSup = Number(
+                        signal?.institutionalQuantAnalysis?.nearestSupport ||
+                          liveLtp - rowUnderlyingAtr * 2.5,
+                      );
                       const rowRunwayPts = isBullish
                         ? Math.max(rowUnderlyingAtr * 1.8, rowUnderlyingRes - liveLtp)
                         : Math.max(rowUnderlyingAtr * 1.8, liveLtp - rowUnderlyingSup);
-                      const rowGammaGainPts = 0.5 * Math.abs(gamma) * Math.pow(Math.min(rowRunwayPts, rowUnderlyingAtr * 3), 2);
-                      const rowExpGainPts = Math.max(ltp * 0.25, rowRunwayPts * absDelta + rowGammaGainPts);
-                      const baseMult = ltp <= 14 ? 1.65 : ltp <= 65 ? 1.45 : ltp <= 120 ? 1.35 : 1.28;
+                      const rowGammaGainPts =
+                        0.5 *
+                        Math.abs(gamma) *
+                        Math.pow(Math.min(rowRunwayPts, rowUnderlyingAtr * 3), 2);
+                      const rowExpGainPts = Math.max(
+                        ltp * 0.25,
+                        rowRunwayPts * absDelta + rowGammaGainPts,
+                      );
+                      const baseMult =
+                        ltp <= 14 ? 1.65 : ltp <= 65 ? 1.45 : ltp <= 120 ? 1.35 : 1.28;
                       const targetMult = Math.max(baseMult, (ltp + rowExpGainPts) / (ltp || 1));
                       const strikeCharges = calculateTradeCharges(
                         ltp,
@@ -905,8 +924,7 @@ export async function runEntryScan(ctx: {
                       const estimatedBrokerage = strikeCharges.roundTripCharges;
                       const strikeBrokerageDragPct =
                         oneLotCost > 0 ? estimatedBrokerage / oneLotCost : 1;
-                      const totalRequiredWithBrokerage =
-                        strikeCharges.totalRequiredWithBrokerage;
+                      const totalRequiredWithBrokerage = strikeCharges.totalRequiredWithBrokerage;
                       const expectedNetProfit = Number(
                         (ltp * (targetMult - 1) * lotSz - estimatedBrokerage).toFixed(2),
                       );
@@ -915,17 +933,18 @@ export async function runEntryScan(ctx: {
                         (oneLotCost + strikeCharges.buyCharges + 3).toFixed(2),
                       );
                       const fitsCapital =
-                        botConfig.mode === "UPSTOX_LIVE"
-                          ? effectiveCapital > 0 &&
-                            entryRequiredCashForStrike <= effectiveCapital
-                          : effectiveCapital <= 0 ||
-                            totalRequiredWithBrokerage <= effectiveCapital;
+                        botConfig.mode === 'UPSTOX_LIVE'
+                          ? effectiveCapital > 0 && entryRequiredCashForStrike <= effectiveCapital
+                          : effectiveCapital <= 0 || totalRequiredWithBrokerage <= effectiveCapital;
 
                       // Score strike on Capital Fit + High Risk-Reward Ratio + ROI % (കുറഞ്ഞ മുതൽമുടക്കിൽ പരമാവധി ലാഭം)
                       // Sweet spot: Compact capital (₹2,500 - ₹8,500 per lot), High Delta (0.35 - 0.65), ROI >= 20%
-                      const roiPotentialPct = totalRequiredWithBrokerage > 0
-                        ? Number(((expectedNetProfit / totalRequiredWithBrokerage) * 100).toFixed(1))
-                        : 0;
+                      const roiPotentialPct =
+                        totalRequiredWithBrokerage > 0
+                          ? Number(
+                              ((expectedNetProfit / totalRequiredWithBrokerage) * 100).toFixed(1),
+                            )
+                          : 0;
 
                       let score = 0;
                       if (fitsCapital) {
@@ -934,19 +953,27 @@ export async function runEntryScan(ctx: {
                           score += 220; // Institutional Golden Sweet Spot
                         } else if (absDelta >= 0.42) {
                           score += 130;
-                        } else if (tierCfg.tier !== "STANDARD" && absDelta >= tierCfg.minDelta) {
+                        } else if (tierCfg.tier !== 'STANDARD' && absDelta >= tierCfg.minDelta) {
                           // Reward closest-to-ATM highest-Delta liquid strikes that fit Compact/Micro balance
                           score += Math.round(absDelta * 400);
                         } else {
                           score -= 250; // Heavily penalize deep OTM contracts when standard capital exists
                         }
-                        if (tierCfg.tier === "STANDARD" && totalRequiredWithBrokerage >= 2500 && totalRequiredWithBrokerage <= 8500) {
+                        if (
+                          tierCfg.tier === 'STANDARD' &&
+                          totalRequiredWithBrokerage >= 2500 &&
+                          totalRequiredWithBrokerage <= 8500
+                        ) {
                           score += 150;
-                        } else if (tierCfg.tier !== "STANDARD") {
+                        } else if (tierCfg.tier !== 'STANDARD') {
                           score += 120; // Rewards exact capital fit on compact/micro balance
                         }
-                      } else if (botConfig.mode === "UPSTOX_LIVE" && effectiveCapital <= 0) {
-                        if (totalRequiredWithBrokerage >= 1800 && totalRequiredWithBrokerage <= 8500 && absDelta >= 0.42) {
+                      } else if (botConfig.mode === 'UPSTOX_LIVE' && effectiveCapital <= 0) {
+                        if (
+                          totalRequiredWithBrokerage >= 1800 &&
+                          totalRequiredWithBrokerage <= 8500 &&
+                          absDelta >= 0.42
+                        ) {
                           score += 120;
                         }
                       } else {
@@ -958,7 +985,8 @@ export async function runEntryScan(ctx: {
                           absDelta >= tierCfg.minDelta &&
                           strikeBrokerageDragPct <= tierCfg.maxBrokerageDragPct &&
                           (!cheapestSkippedStrikeForCap ||
-                            totalRequiredWithBrokerage < cheapestSkippedStrikeForCap.totalRequiredWithBrokerage)
+                            totalRequiredWithBrokerage <
+                              cheapestSkippedStrikeForCap.totalRequiredWithBrokerage)
                         ) {
                           cheapestSkippedStrikeForCap = {
                             strikePrice: Number(row.strike_price),
@@ -976,7 +1004,10 @@ export async function runEntryScan(ctx: {
                           };
                         }
                         // Strictly skip strikes that exceed the user's available capital!
-                        const skipNeeded = botConfig.mode === "UPSTOX_LIVE" ? entryRequiredCashForStrike : totalRequiredWithBrokerage;
+                        const skipNeeded =
+                          botConfig.mode === 'UPSTOX_LIVE'
+                            ? entryRequiredCashForStrike
+                            : totalRequiredWithBrokerage;
                         if (effectiveCapital > 0 && skipNeeded > effectiveCapital) {
                           continue;
                         }
@@ -1081,12 +1112,12 @@ export async function runEntryScan(ctx: {
                             {
                               headers: {
                                 Authorization: `Bearer ${token}`,
-                                Accept: "application/json",
-                                "Api-Version": "2.0",
+                                Accept: 'application/json',
+                                'Api-Version': '2.0',
                               },
                             },
                             1,
-                            3500
+                            3500,
                           );
                           const qItem =
                             optQJson?.data?.[cand.instrumentKey] ||
@@ -1099,8 +1130,8 @@ export async function runEntryScan(ctx: {
                             };
                           }
                         } catch {
-    // Ignored
-  }
+                          // Ignored
+                        }
 
                         const chainSnapshotLtp = Number(cand.ltp || liveOptLtp);
                         cand.ltp = liveOptLtp;
@@ -1108,12 +1139,8 @@ export async function runEntryScan(ctx: {
                         let candMomentumOk = false;
                         try {
                           let optRawCandles: any[] = [];
-                          const cachedOptC =
-                            optionIntradayCandleCache[cand.instrumentKey];
-                          if (
-                            cachedOptC &&
-                            Date.now() - cachedOptC.timestamp < 5000
-                          ) {
+                          const cachedOptC = optionIntradayCandleCache[cand.instrumentKey];
+                          if (cachedOptC && Date.now() - cachedOptC.timestamp < 5000) {
                             optRawCandles = cachedOptC.raw;
                           } else {
                             const optCJson: any = await resilientFetchJson(
@@ -1121,15 +1148,15 @@ export async function runEntryScan(ctx: {
                               {
                                 headers: {
                                   Authorization: `Bearer ${token}`,
-                                  Accept: "application/json",
-                                  "Api-Version": "2.0",
+                                  Accept: 'application/json',
+                                  'Api-Version': '2.0',
                                 },
                               },
                               1,
-                              4000
+                              4000,
                             );
                             if (
-                              optCJson?.status === "success" &&
+                              optCJson?.status === 'success' &&
                               Array.isArray(optCJson?.data?.candles) &&
                               optCJson.data.candles.length > 0
                             ) {
@@ -1163,10 +1190,18 @@ export async function runEntryScan(ctx: {
                             // Evaluate across combined 2-candle window (c1 + c0) so a brand-new 1-minute candle with a ₹0.50 range never gets falsely rejected
                             const combined2mHigh = Math.max(optHigh0, optHigh1);
                             const combined2mLow = Math.min(optLow0, optLow1);
-                            const isFlatRangeBar = combined2mHigh - combined2mLow <= (liveOptLtp < 15 ? 0.05 : 0.15);
-                            const combined2mRange = Math.max(liveOptLtp < 6 ? 0.15 : 0.5, combined2mHigh - combined2mLow);
-                            const optClosePos = isFlatRangeBar ? 0.65 : (liveOptLtp - combined2mLow) / combined2mRange;
-                            const optUpperWickRatio = isFlatRangeBar ? 0.15 : (combined2mHigh - liveOptLtp) / combined2mRange;
+                            const isFlatRangeBar =
+                              combined2mHigh - combined2mLow <= (liveOptLtp < 15 ? 0.05 : 0.15);
+                            const combined2mRange = Math.max(
+                              liveOptLtp < 6 ? 0.15 : 0.5,
+                              combined2mHigh - combined2mLow,
+                            );
+                            const optClosePos = isFlatRangeBar
+                              ? 0.65
+                              : (liveOptLtp - combined2mLow) / combined2mRange;
+                            const optUpperWickRatio = isFlatRangeBar
+                              ? 0.15
+                              : (combined2mHigh - liveOptLtp) / combined2mRange;
 
                             // Compute Option 3-minute VWAP / Typical Price Floor
                             const tp0 = (optHigh0 + optLow0 + liveOptLtp) / 3;
@@ -1181,8 +1216,10 @@ export async function runEntryScan(ctx: {
                             const idxLastCandle = enriched[enriched.length - 1];
                             const idxPrevCandle = enriched[enriched.length - 2] || idxLastCandle;
                             const isUnderlying1mConfirmingNow = isBullish
-                              ? liveLtp >= idxLastCandle.open * 0.9997 || liveLtp >= idxPrevCandle.close * 0.9997
-                              : liveLtp <= idxLastCandle.open * 1.0003 || liveLtp <= idxPrevCandle.close * 1.0003;
+                              ? liveLtp >= idxLastCandle.open * 0.9997 ||
+                                liveLtp >= idxPrevCandle.close * 0.9997
+                              : liveLtp <= idxLastCandle.open * 1.0003 ||
+                                liveLtp <= idxPrevCandle.close * 1.0003;
 
                             const singleMinuteSpikePct =
                               optOpen0 > 0 ? ((liveOptLtp - optOpen0) / optOpen0) * 100 : 0;
@@ -1196,13 +1233,37 @@ export async function runEntryScan(ctx: {
                             // Scales tick/percentage tolerance smoothly for micro (<₹15) and compact (<₹85) contracts.
                             const isLowPremOpt = liveOptLtp > 0 && liveOptLtp < 15;
                             const isCompactPremOpt = liveOptLtp >= 15 && liveOptLtp < 85;
-                            const dynMaxSpikePct = isLowPremOpt ? 14.0 : isCompactPremOpt ? 7.0 : 4.0;
+                            const dynMaxSpikePct = isLowPremOpt
+                              ? 14.0
+                              : isCompactPremOpt
+                                ? 7.0
+                                : 4.0;
                             const dynMaxWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.28;
-                            const dynMaxTurnWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.30;
-                            const dynMaxCleanWick = isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.38 : 0.25;
-                            const dynMaxVwapMult = isLowPremOpt ? 1.10 : isCompactPremOpt ? 1.07 : 1.035;
-                            const dynMaxBaseMult = isLowPremOpt ? 1.15 : isCompactPremOpt ? 1.12 : 1.045;
-                            const dynMaxClosePos = isLowPremOpt ? 0.88 : isCompactPremOpt ? 0.86 : 0.82;
+                            const dynMaxTurnWick = isLowPremOpt
+                              ? 0.45
+                              : isCompactPremOpt
+                                ? 0.42
+                                : 0.3;
+                            const dynMaxCleanWick = isLowPremOpt
+                              ? 0.45
+                              : isCompactPremOpt
+                                ? 0.38
+                                : 0.25;
+                            const dynMaxVwapMult = isLowPremOpt
+                              ? 1.1
+                              : isCompactPremOpt
+                                ? 1.07
+                                : 1.035;
+                            const dynMaxBaseMult = isLowPremOpt
+                              ? 1.15
+                              : isCompactPremOpt
+                                ? 1.12
+                                : 1.045;
+                            const dynMaxClosePos = isLowPremOpt
+                              ? 0.88
+                              : isCompactPremOpt
+                                ? 0.86
+                                : 0.82;
 
                             const optLowestBase = Math.min(optLow0, optLow1, optLow2);
                             const isBottomDipBounce =
@@ -1215,7 +1276,9 @@ export async function runEntryScan(ctx: {
                             const isEarlyReversalTurn =
                               isUnderlying1mConfirmingNow &&
                               liveOptLtp >= optOpen0 * (isFlatRangeBar ? 1.0 : 1.001) &&
-                              liveOptLtp <= optOpen0 * (isLowPremOpt ? 1.12 : isCompactPremOpt ? 1.07 : 1.035) &&
+                              liveOptLtp <=
+                                optOpen0 *
+                                  (isLowPremOpt ? 1.12 : isCompactPremOpt ? 1.07 : 1.035) &&
                               liveOptLtp >= optShortVwap * 0.975 &&
                               liveOptLtp <= optShortVwap * dynMaxVwapMult &&
                               optUpperWickRatio <= dynMaxTurnWick;
@@ -1224,7 +1287,7 @@ export async function runEntryScan(ctx: {
                               isUnderlying1mConfirmingNow &&
                               liveOptLtp >= optShortVwap * 0.975 &&
                               liveOptLtp <= optShortVwap * dynMaxVwapMult &&
-                              optClosePos >= 0.20 &&
+                              optClosePos >= 0.2 &&
                               optClosePos <= dynMaxClosePos &&
                               optUpperWickRatio <= dynMaxWick &&
                               singleMinuteSpikePct <= dynMaxSpikePct &&
@@ -1242,17 +1305,23 @@ export async function runEntryScan(ctx: {
                               singleMinuteSpikePct <= dynMaxSpikePct &&
                               singleMinuteSpikePct >= -1.5;
 
-                            const currentIstHourNow = ((new Date().getUTCHours() + 5.5) % 24);
+                            const currentIstHourNow = (new Date().getUTCHours() + 5.5) % 24;
                             const currentIstMinNow = new Date().getUTCMinutes();
-                            const currentIstMinutesTotal = currentIstHourNow * 60 + currentIstMinNow;
-                            const isMorningOpeningWindow = currentIstMinutesTotal >= (9 * 60 + 15) && currentIstMinutesTotal <= (10 * 60 + 45);
+                            const currentIstMinutesTotal =
+                              currentIstHourNow * 60 + currentIstMinNow;
+                            const isMorningOpeningWindow =
+                              currentIstMinutesTotal >= 9 * 60 + 15 &&
+                              currentIstMinutesTotal <= 10 * 60 + 45;
 
                             const isMorningOpenImpulse =
                               isMorningOpeningWindow &&
                               isUnderlying1mConfirmingNow &&
                               liveOptLtp >= optLowestBase &&
-                              liveOptLtp <= optLowestBase * (isLowPremOpt ? 1.15 : isCompactPremOpt ? 1.12 : 1.055) &&
-                              optUpperWickRatio <= (isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.32);
+                              liveOptLtp <=
+                                optLowestBase *
+                                  (isLowPremOpt ? 1.15 : isCompactPremOpt ? 1.12 : 1.055) &&
+                              optUpperWickRatio <=
+                                (isLowPremOpt ? 0.45 : isCompactPremOpt ? 0.42 : 0.32);
 
                             if (isOptionSellingMode) {
                               if (
@@ -1287,7 +1356,11 @@ export async function runEntryScan(ctx: {
                           } else if (optRawCandles.length === 1) {
                             const c0 = optRawCandles[0];
                             const optOpen0 = Number(c0[1] || liveOptLtp);
-                            if (isOptionSellingMode ? liveOptLtp <= optOpen0 * 1.005 : liveOptLtp >= optOpen0 * 0.985) {
+                            if (
+                              isOptionSellingMode
+                                ? liveOptLtp <= optOpen0 * 1.005
+                                : liveOptLtp >= optOpen0 * 0.985
+                            ) {
                               candMomentumOk = true;
                             }
                           } else if (optRawCandles.length === 0) {
@@ -1296,16 +1369,21 @@ export async function runEntryScan(ctx: {
                             const isUnderlying1mConfirmingNow = isBullish
                               ? liveLtp >= idxLastCandle.open * 0.9997
                               : liveLtp <= idxLastCandle.open * 1.0003;
-                            if (isUnderlying1mConfirmingNow && liveOptLtp >= chainSnapshotLtp * 0.98) {
+                            if (
+                              isUnderlying1mConfirmingNow &&
+                              liveOptLtp >= chainSnapshotLtp * 0.98
+                            ) {
                               candMomentumOk = true;
                             }
                           }
                         } catch (optCandleErr) {
-                          console.error("Option 1m candle eval error:", optCandleErr);
+                          console.error('Option 1m candle eval error:', optCandleErr);
                         }
 
                         // Anti-Double-Order Guard (15-second buffer):
-                        const recentClosed = cand.instrumentKey ? recentClosedStrikes[cand.instrumentKey] : null;
+                        const recentClosed = cand.instrumentKey
+                          ? recentClosedStrikes[cand.instrumentKey]
+                          : null;
                         if (recentClosed) {
                           const elapsedSinceExit = Date.now() - recentClosed.exitTime;
                           if (elapsedSinceExit < STRIKE_LOCKOUT_MS) {
@@ -1319,16 +1397,40 @@ export async function runEntryScan(ctx: {
 
                         const candDeltaAbs = Math.abs(Number(cand.delta || 0.48));
                         const candGammaAbs = Math.abs(Number(cand.gamma || 0.0001));
-                        const candUnderlyingAtr = Number(signal?.institutionalQuantAnalysis?.atr14 || 18);
-                        const candUnderlyingRes = Number(signal?.institutionalQuantAnalysis?.nearestResistance || (liveLtp + candUnderlyingAtr * 2.5));
-                        const candUnderlyingSup = Number(signal?.institutionalQuantAnalysis?.nearestSupport || (liveLtp - candUnderlyingAtr * 2.5));
+                        const candUnderlyingAtr = Number(
+                          signal?.institutionalQuantAnalysis?.atr14 || 18,
+                        );
+                        const candUnderlyingRes = Number(
+                          signal?.institutionalQuantAnalysis?.nearestResistance ||
+                            liveLtp + candUnderlyingAtr * 2.5,
+                        );
+                        const candUnderlyingSup = Number(
+                          signal?.institutionalQuantAnalysis?.nearestSupport ||
+                            liveLtp - candUnderlyingAtr * 2.5,
+                        );
                         const candRunwayPoints = isBullish
                           ? Math.max(candUnderlyingAtr * 1.8, candUnderlyingRes - liveLtp)
                           : Math.max(candUnderlyingAtr * 1.8, liveLtp - candUnderlyingSup);
-                        const candGammaGainPts = 0.5 * candGammaAbs * Math.pow(Math.min(candRunwayPoints, candUnderlyingAtr * 3), 2);
-                        const candExpGainPts = Math.max(liveOptLtp * 0.25, candRunwayPoints * candDeltaAbs + candGammaGainPts);
-                        const freshBaseMult = liveOptLtp <= 14 ? 1.65 : liveOptLtp <= 65 ? 1.45 : liveOptLtp <= 120 ? 1.35 : 1.28;
-                        const freshTargetMult = Math.max(freshBaseMult, (liveOptLtp + candExpGainPts) / (liveOptLtp || 1));
+                        const candGammaGainPts =
+                          0.5 *
+                          candGammaAbs *
+                          Math.pow(Math.min(candRunwayPoints, candUnderlyingAtr * 3), 2);
+                        const candExpGainPts = Math.max(
+                          liveOptLtp * 0.25,
+                          candRunwayPoints * candDeltaAbs + candGammaGainPts,
+                        );
+                        const freshBaseMult =
+                          liveOptLtp <= 14
+                            ? 1.65
+                            : liveOptLtp <= 65
+                              ? 1.45
+                              : liveOptLtp <= 120
+                                ? 1.35
+                                : 1.28;
+                        const freshTargetMult = Math.max(
+                          freshBaseMult,
+                          (liveOptLtp + candExpGainPts) / (liveOptLtp || 1),
+                        );
                         const freshCharges = calculateTradeCharges(
                           liveOptLtp,
                           lotSz,
@@ -1338,9 +1440,10 @@ export async function runEntryScan(ctx: {
                         cand.oneLotCost = freshCharges.tradeValue;
                         cand.estimatedBrokerage = freshCharges.roundTripCharges;
                         cand.buyCharges = freshCharges.buyCharges;
-                        cand.entryRequiredCash = Number((freshCharges.tradeValue + freshCharges.buyCharges + 3).toFixed(2));
-                        cand.totalRequiredWithBrokerage =
-                          freshCharges.totalRequiredWithBrokerage;
+                        cand.entryRequiredCash = Number(
+                          (freshCharges.tradeValue + freshCharges.buyCharges + 3).toFixed(2),
+                        );
+                        cand.totalRequiredWithBrokerage = freshCharges.totalRequiredWithBrokerage;
 
                         // Compute net profit based on all affordable lots with the user's available margin
                         const lotAfford = calculateAffordableLotsWithBrokerage(
@@ -1350,9 +1453,10 @@ export async function runEntryScan(ctx: {
                           true,
                           5,
                         );
-                        const liveEntryPossibleLots = botConfig.mode === "UPSTOX_LIVE"
-                          ? calcEntryAffordableLots(liveOptLtp, lotSz, compactCapCeiling)
-                          : 0;
+                        const liveEntryPossibleLots =
+                          botConfig.mode === 'UPSTOX_LIVE'
+                            ? calcEntryAffordableLots(liveOptLtp, lotSz, compactCapCeiling)
+                            : 0;
                         const possibleLots = Math.max(
                           lotAfford.affordableLots,
                           liveEntryPossibleLots,
@@ -1374,9 +1478,10 @@ export async function runEntryScan(ctx: {
                           freshCharges.tradeValue > 0
                             ? freshCharges.roundTripCharges / freshCharges.tradeValue
                             : 1;
-                        const entryCashCapCheck = botConfig.mode === "UPSTOX_LIVE"
-                          ? cand.entryRequiredCash
-                          : cand.totalRequiredWithBrokerage;
+                        const entryCashCapCheck =
+                          botConfig.mode === 'UPSTOX_LIVE'
+                            ? cand.entryRequiredCash
+                            : cand.totalRequiredWithBrokerage;
                         if (
                           cand.expectedNetProfit < minReqNetProfit ||
                           liveOptLtp < tierCfg.minLtp ||
@@ -1399,13 +1504,13 @@ export async function runEntryScan(ctx: {
                         const liveOptLtp = Number(bestCandidate.ltp || 0);
                         const symUpper = idx.symbol.toUpperCase();
                         let indexPrefix = symUpper;
-                        if (symUpper.includes("BANKEX")) indexPrefix = "BANKEX";
-                        else if (symUpper.includes("SENSEX")) indexPrefix = "SENSEX";
-                        else if (symUpper.includes("MID SELECT") || symUpper.includes("MIDCP"))
-                          indexPrefix = "MIDCPNIFTY";
-                        else if (symUpper.includes("FIN")) indexPrefix = "FINNIFTY";
-                        else if (symUpper.includes("BANK")) indexPrefix = "BANKNIFTY";
-                        else if (symUpper.includes("NIFTY")) indexPrefix = "NIFTY";
+                        if (symUpper.includes('BANKEX')) indexPrefix = 'BANKEX';
+                        else if (symUpper.includes('SENSEX')) indexPrefix = 'SENSEX';
+                        else if (symUpper.includes('MID SELECT') || symUpper.includes('MIDCP'))
+                          indexPrefix = 'MIDCPNIFTY';
+                        else if (symUpper.includes('FIN')) indexPrefix = 'FINNIFTY';
+                        else if (symUpper.includes('BANK')) indexPrefix = 'BANKNIFTY';
+                        else if (symUpper.includes('NIFTY')) indexPrefix = 'NIFTY';
 
                         const chosenOptSymbol = `${indexPrefix} ${bestCandidate.strikePrice} ${optType}`;
 
@@ -1416,7 +1521,10 @@ export async function runEntryScan(ctx: {
                           true,
                           5,
                         );
-                        const affordableLots = Math.max(lotAffordability.affordableLots, bestCandidate.possibleLots || 1);
+                        const affordableLots = Math.max(
+                          lotAffordability.affordableLots,
+                          bestCandidate.possibleLots || 1,
+                        );
 
                         // Re-run Layer-1 + Layer-2 analyzer with real option price, Greeks, Corporate Heavyweights, OI Walls, and Capital + Brokerage fit
                         signal = analyzeTradingSignals(
@@ -1460,8 +1568,7 @@ export async function runEntryScan(ctx: {
                             instrumentKey: bestCandidate.instrumentKey,
                             requiredCapital: bestCandidate.oneLotCost,
                             estimatedBrokerage: bestCandidate.estimatedBrokerage,
-                            totalRequiredWithBrokerage:
-                              bestCandidate.totalRequiredWithBrokerage,
+                            totalRequiredWithBrokerage: bestCandidate.totalRequiredWithBrokerage,
                             expectedNetProfit: bestCandidate.expectedNetProfit,
                             affordableLots,
                             availableCapital: effectiveCapital,
@@ -1475,7 +1582,7 @@ export async function runEntryScan(ctx: {
                             lotSizeCache[bestCandidate.instrumentKey] = {
                               lotSize: lotSz,
                               timestamp: Date.now(),
-                              source: "UPSTOX_LIVE",
+                              source: 'UPSTOX_LIVE',
                               expiry: expiryDate,
                             };
                           }
@@ -1485,12 +1592,12 @@ export async function runEntryScan(ctx: {
                   }
                 }
               } catch (e) {
-                console.error("Option Fetch Error: ", e);
+                console.error('Option Fetch Error: ', e);
               }
             }
 
             if (signal && !verifiedRealOptionStrike) {
-              signal.signalType = "HOLD";
+              signal.signalType = 'HOLD';
               signal.confidenceScore = Math.min(signal.confidenceScore || 50, 58);
               signal.confidence = Math.min(signal.confidence || 50, 58);
             }
@@ -1527,38 +1634,45 @@ export async function runEntryScan(ctx: {
             !topOptionCandidateForIndex &&
             cheapestSkippedStrikeForCap &&
             effectiveCapital > 0 &&
-            cheapestSkippedStrikeForCap.totalRequiredWithBrokerage > effectiveCapital
+            cheapestSkippedStrikeForCap.totalRequiredWithBrokerage > effectiveCapital,
           );
-          if (isCapitalShortfallBlocked && idx.symbol === "NIFTY 50" && Date.now() - lastCapitalShortfallLogMs >= 180000) {
+          if (
+            isCapitalShortfallBlocked &&
+            idx.symbol === 'NIFTY 50' &&
+            Date.now() - lastCapitalShortfallLogMs >= 180000
+          ) {
             lastCapitalShortfallLogMs = Date.now();
             const reqAmt = Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage);
-            const capTag = botConfig.mode === "UPSTOX_LIVE" ? "CAPITAL & BROKERAGE SHIELD" : "PAPER CAPITAL GUARD";
+            const capTag =
+              botConfig.mode === 'UPSTOX_LIVE'
+                ? 'CAPITAL & BROKERAGE SHIELD'
+                : 'PAPER CAPITAL GUARD';
             botLogs.unshift({
               id: Date.now().toString(),
               time: new Date().toLocaleTimeString(),
-              message: `[${capTag}] ⚠️ ${idx.symbol} മികച്ച സ്ട്രൈക്കിന് (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType} @ ₹${cheapestSkippedStrikeForCap.ltp}) 1 Lot + ബ്രോക്കറേജ് (₹72) ഉൾപ്പെടെ ₹${reqAmt.toLocaleString("en-IN")} വേണം — നിലവിലെ ബാലൻസ് ₹${effectiveCapital.toFixed(2)} മാത്രമാണ്. ബ്രോക്കറേജ് നഷ്ടം വരുന്ന വിലകുറഞ്ഞ Deep-OTM ട്രേഡുകൾ ബ്ലോക്ക് ചെയ്ത് പണം സംരക്ഷിച്ചു.`,
-              type: "WARN",
+              message: `[${capTag}] ⚠️ ${idx.symbol} മികച്ച സ്ട്രൈക്കിന് (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType} @ ₹${cheapestSkippedStrikeForCap.ltp}) 1 Lot + ബ്രോക്കറേജ് (₹72) ഉൾപ്പെടെ ₹${reqAmt.toLocaleString('en-IN')} വേണം — നിലവിലെ ബാലൻസ് ₹${effectiveCapital.toFixed(2)} മാത്രമാണ്. ബ്രോക്കറേജ് നഷ്ടം വരുന്ന വിലകുറഞ്ഞ Deep-OTM ട്രേഡുകൾ ബ്ലോക്ക് ചെയ്ത് പണം സംരക്ഷിച്ചു.`,
+              type: 'WARN',
             });
             if (botLogs.length > 200) botLogs.length = 200;
           }
 
           const expNetVal = Number(displayCandidate?.expectedNetProfit || 0);
-          const timeframe15m = signal?.mtfConfirmation?.timeframe15m ?? "NEUTRAL";
+          const timeframe15m = signal?.mtfConfirmation?.timeframe15m ?? 'NEUTRAL';
           const idxScanItem: any = {
             key: idx.key,
             symbol: idx.symbol,
             displayName: idx.symbol,
-            exchange: idx.key.startsWith("BSE") ? "BSE" : "NSE",
+            exchange: idx.key.startsWith('BSE') ? 'BSE' : 'NSE',
             spotLtp: liveLtp,
             trend15m: timeframe15m,
-            trend5m: signal?.mtfConfirmation?.timeframe5m || "NEUTRAL",
-            signalType: signal?.signalType || "HOLD",
+            trend5m: signal?.mtfConfirmation?.timeframe5m || 'NEUTRAL',
+            signalType: signal?.signalType || 'HOLD',
             confidenceScore: signal?.confidenceScore || 50,
             corporateHeavyweightScore,
             corporateHeavyweightSummary,
             bestOptionSymbol:
-              displayCandidate && (signal?.signalType !== "HOLD" || isCapitalShortfallBlocked)
-                ? `${idx.symbol.split(" ")[0]} ${displayCandidate.strikePrice} ${displayCandidate.optType || ""}`.trim()
+              displayCandidate && (signal?.signalType !== 'HOLD' || isCapitalShortfallBlocked)
+                ? `${idx.symbol.split(' ')[0]} ${displayCandidate.strikePrice} ${displayCandidate.optType || ''}`.trim()
                 : undefined,
             bestOptionLtp: displayCandidate?.ltp || 0,
             lotSize: displayCandidate?.lotSize || lotSizeCache[idx.key]?.lotSize || 1,
@@ -1571,23 +1685,23 @@ export async function runEntryScan(ctx: {
             alphaOpportunityScore: 0,
             verifiedRealOptionStrike,
             statusTextMl:
-              signal?.signalType === "BUY"
+              signal?.signalType === 'BUY'
                 ? `🔥 ശക്തമായ CE ബ്രേക്ക്ഔട്ട് (Exp Net: +₹${Math.round(expNetVal)})`
-                : signal?.signalType === "SELL"
+                : signal?.signalType === 'SELL'
                   ? `⚡ ശക്തമായ PE ബ്രേക്ക്ഡൗൺ (Exp Net: +₹${Math.round(expNetVal)})`
                   : isCapitalShortfallBlocked
-                    ? `⚠️ ബാലൻസ് പോരാ: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType})-ന് ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString("en-IN")} വേണം (ലഭ്യം: ₹${effectiveCapital.toFixed(0)})`
-                    : timeframe15m !== "NEUTRAL"
+                    ? `⚠️ ബാലൻസ് പോരാ: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType})-ന് ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString('en-IN')} വേണം (ലഭ്യം: ₹${effectiveCapital.toFixed(0)})`
+                    : timeframe15m !== 'NEUTRAL'
                       ? `⏳ 15m ${timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
                       : `⏳ ഇൻഡക്സ് കൺസോളിഡേഷനിലാണ് (Chop Zone) - റേഞ്ച് ബ്രേക്ക്ഔട്ട് വെയിറ്റ് ചെയ്യുന്നു`,
             statusTextEn:
-              signal?.signalType === "BUY"
+              signal?.signalType === 'BUY'
                 ? `Bullish Breakout CE (Exp Net: +₹${Math.round(expNetVal)})`
-                : signal?.signalType === "SELL"
+                : signal?.signalType === 'SELL'
                   ? `Bearish Breakdown PE (Exp Net: +₹${Math.round(expNetVal)})`
                   : isCapitalShortfallBlocked
-                    ? `Insufficient Funds: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType}) needs ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString("en-IN")} (Avail: ₹${effectiveCapital.toFixed(0)})`
-                    : timeframe15m !== "NEUTRAL"
+                    ? `Insufficient Funds: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType}) needs ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString('en-IN')} (Avail: ₹${effectiveCapital.toFixed(0)})`
+                    : timeframe15m !== 'NEUTRAL'
                       ? `15m ${timeframe15m} - Waiting for high-momentum premium entry`
                       : `Consolidation Chop - Waiting for institutional breakout`,
           };
@@ -1596,7 +1710,7 @@ export async function runEntryScan(ctx: {
           const isUnderlyingAlreadyOpen = activePositions.some(
             (p: any) =>
               p.underlyingInstrumentKey === idx.key ||
-              (p.symbol && p.symbol.startsWith(idx.symbol.split(" ")[0])),
+              (p.symbol && p.symbol.startsWith(idx.symbol.split(' ')[0])),
           );
 
           if (
@@ -1609,35 +1723,52 @@ export async function runEntryScan(ctx: {
             verifiedRealOptionStrike &&
             signal &&
             signal.instrumentKey &&
-            !String(signal.instrumentKey).includes("INDEX") &&
-            (signal.signalType === "BUY" || signal.signalType === "SELL") &&
-            (signal.mtfConfirmation?.status === true || (signal.signalType === "BUY" ? signal.mtfConfirmation?.timeframe15m === "BULLISH" : signal.mtfConfirmation?.timeframe15m === "BEARISH")) &&
+            !String(signal.instrumentKey).includes('INDEX') &&
+            (signal.signalType === 'BUY' || signal.signalType === 'SELL') &&
+            (signal.mtfConfirmation?.status === true ||
+              (signal.signalType === 'BUY'
+                ? signal.mtfConfirmation?.timeframe15m === 'BULLISH'
+                : signal.mtfConfirmation?.timeframe15m === 'BEARISH')) &&
             signal.confidenceScore >= Math.max(78, Number(botConfig.minConfidence || 78))
           ) {
-            const isBullish = signal.signalType === "BUY";
+            const isBullish = signal.signalType === 'BUY';
             const optionSymbol = signal.symbol;
             const optionPrice = Number(signal.price || 0);
             const optInstrumentKey =
-              signal.instrumentKey || signal.underlyingInstrumentKey || "NSE_FO|" + optionSymbol;
+              signal.instrumentKey || signal.underlyingInstrumentKey || 'NSE_FO|' + optionSymbol;
 
             // PERSISTENT ANTI-CHURN & SMART BIG-PROFIT RE-ENTRY GUARD
             const sameStrikeLiveTrades = activeSessionTrades.filter(
-              (h: any) => h && (h.symbol === optionSymbol || (optInstrumentKey && h.instrumentKey === optInstrumentKey)),
+              (h: any) =>
+                h &&
+                (h.symbol === optionSymbol ||
+                  (optInstrumentKey && h.instrumentKey === optInstrumentKey)),
             );
             const allTradeHist = Array.isArray(paperTradeHistory) ? paperTradeHistory : [];
             const sameStrikeLocalClosed = allTradeHist.find(
-              (h: any) => h && (h.symbol === optionSymbol || (optInstrumentKey && h.instrumentKey === optInstrumentKey))
+              (h: any) =>
+                h &&
+                (h.symbol === optionSymbol ||
+                  (optInstrumentKey && h.instrumentKey === optInstrumentKey)),
             );
-            const sameStrikeRecent = optInstrumentKey ? recentClosedStrikes[optInstrumentKey] : null;
+            const sameStrikeRecent = optInstrumentKey
+              ? recentClosedStrikes[optInstrumentKey]
+              : null;
             const latestSameStrikeTs = Math.max(
               sameStrikeRecent?.exitTime || 0,
-              sameStrikeLiveTrades[0]?.closeTime ? new Date(sameStrikeLiveTrades[0].closeTime).getTime() : 0,
-              sameStrikeLocalClosed ? new Date(sameStrikeLocalClosed.closeTime || sameStrikeLocalClosed.timestamp || 0).getTime() : 0,
+              sameStrikeLiveTrades[0]?.closeTime
+                ? new Date(sameStrikeLiveTrades[0].closeTime).getTime()
+                : 0,
+              sameStrikeLocalClosed
+                ? new Date(
+                    sameStrikeLocalClosed.closeTime || sameStrikeLocalClosed.timestamp || 0,
+                  ).getTime()
+                : 0,
             );
             const sameStrikeLostLast = sameStrikeRecent
-              ? (typeof sameStrikeRecent.netRealizedPnL === "number"
-                  ? sameStrikeRecent.netRealizedPnL < 0
-                  : sameStrikeRecent.sellPrice < (sameStrikeRecent.buyPrice || 0))
+              ? typeof sameStrikeRecent.netRealizedPnL === 'number'
+                ? sameStrikeRecent.netRealizedPnL < 0
+                : sameStrikeRecent.sellPrice < (sameStrikeRecent.buyPrice || 0)
               : sameStrikeLiveTrades[0]
                 ? getTradeNetPnL(sameStrikeLiveTrades[0]) < 0
                 : sameStrikeLocalClosed
@@ -1647,12 +1778,17 @@ export async function runEntryScan(ctx: {
               optInstrumentKey ? strikeDailyEntryCount[optInstrumentKey] || 0 : 0,
               sameStrikeLiveTrades.length,
             );
-            if (totalEntriesForStrike >= (sameStrikeLostLast ? MAX_STRIKE_ENTRIES_DEFAULT : MAX_STRIKE_ENTRIES_TRENDING)) {
+            if (
+              totalEntriesForStrike >=
+              (sameStrikeLostLast ? MAX_STRIKE_ENTRIES_DEFAULT : MAX_STRIKE_ENTRIES_TRENDING)
+            ) {
               continue;
             }
             if (latestSameStrikeTs > 0) {
               const timeSinceExit = Date.now() - latestSameStrikeTs;
-              const requiredStrikeCooldown = sameStrikeLostLast ? STRIKE_LOSS_LOCKOUT_MS : STRIKE_LOCKOUT_MS;
+              const requiredStrikeCooldown = sameStrikeLostLast
+                ? STRIKE_LOSS_LOCKOUT_MS
+                : STRIKE_LOCKOUT_MS;
               if (timeSinceExit < requiredStrikeCooldown) {
                 continue;
               }
@@ -1671,21 +1807,35 @@ export async function runEntryScan(ctx: {
               true,
               signal.target1 || optionPrice * 1.25,
             );
-            const oneLotEntryCashNeeded = oneLotEntryCheck.tradeValue + oneLotEntryCheck.buyCharges + 3;
+            const oneLotEntryCashNeeded =
+              oneLotEntryCheck.tradeValue + oneLotEntryCheck.buyCharges + 3;
             const canAffordOneLiveLot =
-              botConfig.mode === "UPSTOX_LIVE" &&
+              botConfig.mode === 'UPSTOX_LIVE' &&
               effectiveCapital > 0 &&
               oneLotEntryCashNeeded <= effectiveCapital;
             let liveEntryMaxLots = lotCalc.affordableLots;
-            if (botConfig.mode === "UPSTOX_LIVE" && effectiveCapital > 0 && effectiveCapital <= 6500) {
+            if (
+              botConfig.mode === 'UPSTOX_LIVE' &&
+              effectiveCapital > 0 &&
+              effectiveCapital <= 6500
+            ) {
               for (let l = 1; l <= 3; l++) {
-                const lc = calculateTradeCharges(optionPrice, lotSize * l, true, signal.target1 || optionPrice * 1.25);
-                if (lc.tradeValue + lc.buyCharges + 3 <= effectiveCapital) liveEntryMaxLots = Math.max(liveEntryMaxLots, l);
+                const lc = calculateTradeCharges(
+                  optionPrice,
+                  lotSize * l,
+                  true,
+                  signal.target1 || optionPrice * 1.25,
+                );
+                if (lc.tradeValue + lc.buyCharges + 3 <= effectiveCapital)
+                  liveEntryMaxLots = Math.max(liveEntryMaxLots, l);
                 else break;
               }
             }
             // CRITICAL CAPITAL GUARD: Never enter trade if account balance cannot afford even 1 lot!
-            if (effectiveCapital <= 0 || (lotCalc.affordableLots < 1 && !canAffordOneLiveLot && liveEntryMaxLots < 1)) {
+            if (
+              effectiveCapital <= 0 ||
+              (lotCalc.affordableLots < 1 && !canAffordOneLiveLot && liveEntryMaxLots < 1)
+            ) {
               continue;
             }
             let affordableLots = Math.max(lotCalc.affordableLots, liveEntryMaxLots, 1);
@@ -1714,10 +1864,11 @@ export async function runEntryScan(ctx: {
               continue;
             }
 
-            const isOptionSellingEntry = botConfig.optionStrategyMode === "OPTION_SELLING";
-            const execTransactionType = isOptionSellingEntry ? "SELL" : "BUY";
-            const execOrderType = botConfig.limitOrderSlippageGuard ? "LIMIT" : "MARKET";
-            const roundToTick = (val: number, tick = 0.05) => Number((Math.round(val / tick) * tick).toFixed(2));
+            const isOptionSellingEntry = botConfig.optionStrategyMode === 'OPTION_SELLING';
+            const execTransactionType = isOptionSellingEntry ? 'SELL' : 'BUY';
+            const execOrderType = botConfig.limitOrderSlippageGuard ? 'LIMIT' : 'MARKET';
+            const roundToTick = (val: number, tick = 0.05) =>
+              Number((Math.round(val / tick) * tick).toFixed(2));
             const limitPriceWithSlippageGuard = isOptionSellingEntry
               ? roundToTick(optionPrice * 0.995)
               : roundToTick(optionPrice * 1.005);
@@ -1732,15 +1883,24 @@ export async function runEntryScan(ctx: {
             // Evaluates Net Profit Expectancy, Capital Efficiency, Greek Delta Momentum, and MTF Confluence
             const expNetProfit = Number(
               bestCandidate?.expectedNetProfit ||
-                Math.max(350, (effectiveTarget1 - optionPrice) * targetQuantity - totalTradeBrokerage),
+                Math.max(
+                  350,
+                  (effectiveTarget1 - optionPrice) * targetQuantity - totalTradeBrokerage,
+                ),
             );
             const totalReqCash = Math.max(100, totalRequiredCashWithBrokerage);
             const profitYield = expNetProfit / totalReqCash; // Expected Net ROI
             const mtfStatusBonus = signal.mtfConfirmation?.status ? 1.35 : 1.0;
-            const rvolMultiplier = Math.min(2.0, Math.max(0.8, Number(signal.indicators?.rvol || 1.15)));
+            const rvolMultiplier = Math.min(
+              2.0,
+              Math.max(0.8, Number(signal.indicators?.rvol || 1.15)),
+            );
             const confidence = Number(signal.confidenceScore || 85);
             const alphaOpportunityScore = Number(
-              (expNetProfit * (confidence / 100) * mtfStatusBonus * rvolMultiplier + profitYield * 120).toFixed(2),
+              (
+                expNetProfit * (confidence / 100) * mtfStatusBonus * rvolMultiplier +
+                profitYield * 120
+              ).toFixed(2),
             );
 
             marketAlphaCandidates.push({
@@ -1773,19 +1933,23 @@ export async function runEntryScan(ctx: {
           }
         }
       } catch (innerErr: any) {
-        const errStr = String(innerErr?.message || innerErr?.cause?.message || innerErr?.cause?.code || innerErr);
+        const errStr = String(
+          innerErr?.message || innerErr?.cause?.message || innerErr?.cause?.code || innerErr,
+        );
         const isTransient =
-          errStr.includes("ECONNRESET") ||
-          errStr.includes("fetch failed") ||
-          errStr.includes("socket hang up") ||
-          errStr.includes("ETIMEDOUT") ||
-          errStr.includes("UND_ERR_SOCKET") ||
-          errStr.includes("EAI_AGAIN") ||
-          innerErr?.name === "AbortError";
+          errStr.includes('ECONNRESET') ||
+          errStr.includes('fetch failed') ||
+          errStr.includes('socket hang up') ||
+          errStr.includes('ETIMEDOUT') ||
+          errStr.includes('UND_ERR_SOCKET') ||
+          errStr.includes('EAI_AGAIN') ||
+          innerErr?.name === 'AbortError';
         if (isTransient) {
-          console.warn(`[Index Polling] Handled transient network reset for ${idx.key}. Using cached market state.`);
+          console.warn(
+            `[Index Polling] Handled transient network reset for ${idx.key}. Using cached market state.`,
+          );
         } else {
-          console.error("Inner loop err for", idx.key, innerErr);
+          console.error('Inner loop err for', idx.key, innerErr);
         }
       }
     }
@@ -1793,20 +1957,18 @@ export async function runEntryScan(ctx: {
     // Update global multi-index comparative alpha matrix & rank indices
     if (currentTickMultiIndexComparison.length > 0) {
       currentTickMultiIndexComparison.sort((a, b) => {
-        const aActive = a.signalType !== "HOLD" ? 1000 : 0;
-        const bActive = b.signalType !== "HOLD" ? 1000 : 0;
+        const aActive = a.signalType !== 'HOLD' ? 1000 : 0;
+        const bActive = b.signalType !== 'HOLD' ? 1000 : 0;
         return (
           bActive +
           (b.alphaOpportunityScore || 0) +
           (b.confidenceScore || 0) -
-          (aActive +
-            (a.alphaOpportunityScore || 0) +
-            (a.confidenceScore || 0))
+          (aActive + (a.alphaOpportunityScore || 0) + (a.confidenceScore || 0))
         );
       });
       currentTickMultiIndexComparison.forEach((item, rIndex) => {
         item.rank = rIndex + 1;
-        item.isTopPick = rIndex === 0 && item.signalType !== "HOLD";
+        item.isTopPick = rIndex === 0 && item.signalType !== 'HOLD';
       });
       setLatestMultiIndexAlphaMatrix(currentTickMultiIndexComparison);
     }
@@ -1822,7 +1984,7 @@ export async function runEntryScan(ctx: {
       isTradingHours
     ) {
       // If OPTIONS_ONLY mode is active, strictly filter out any equity trade candidates
-      if (botConfig.tradeMode === "OPTIONS_ONLY") {
+      if (botConfig.tradeMode === 'OPTIONS_ONLY') {
         for (let i = marketAlphaCandidates.length - 1; i >= 0; i--) {
           if (marketAlphaCandidates[i].isEquityTrade) {
             marketAlphaCandidates.splice(i, 1);
@@ -1835,14 +1997,17 @@ export async function runEntryScan(ctx: {
 
       const topPick = marketAlphaCandidates[0];
       const summaryIndices = marketAlphaCandidates
-        .map((c) => `${c.idx.symbol}: Score ${c.alphaOpportunityScore} (+₹${c.expectedNetProfit.toFixed(0)})`)
-        .join(" | ");
+        .map(
+          (c) =>
+            `${c.idx.symbol}: Score ${c.alphaOpportunityScore} (+₹${c.expectedNetProfit.toFixed(0)})`,
+        )
+        .join(' | ');
 
       botLogs.unshift({
         id: Date.now().toString(),
         time: new Date().toLocaleTimeString(),
         message: `[MULTI-INDEX OPPORTUNITY SCANNER] Scanned 6 Major Indices: ${summaryIndices}. Top Pick: ${topPick.idx.symbol} (${topPick.optionSymbol}) chosen as #1 MOST PROFITABLE opportunity!`,
-        type: "SIGNAL",
+        type: 'SIGNAL',
       });
       if (botLogs.length > 200) botLogs.length = 200;
 
@@ -1852,47 +2017,48 @@ export async function runEntryScan(ctx: {
         const isUnderlyingAlreadyOpen = activePositions.some(
           (p: any) =>
             p.underlyingInstrumentKey === cand.idx.key ||
-            (p.symbol && p.symbol.startsWith(cand.idx.symbol.split(" ")[0])),
+            (p.symbol && p.symbol.startsWith(cand.idx.symbol.split(' ')[0])),
         );
         if (isUnderlyingAlreadyOpen) continue;
 
         // Capital & Margin verification
-        if (botConfig.mode === "UPSTOX_LIVE") {
+        if (botConfig.mode === 'UPSTOX_LIVE') {
           const requiredLiveEntryCash = Number(
             cand.entryRequiredCash || cand.totalRequiredCashWithBrokerage,
           );
-          if (
-            liveAvailableMargin <= 0 ||
-            requiredLiveEntryCash > liveAvailableMargin
-          ) {
-            const warnMsg = `[LIVE CAPITAL GUARD] ⚠️ ബാലൻസ് കുറവായതിനാൽ (₹${liveAvailableMargin.toLocaleString("en-IN")}) പുതിയ ട്രേഡ് എടുത്തില്ല. ഗുണനിലവാരമുള്ള ട്രേഡിന് ₹${requiredLiveEntryCash.toLocaleString("en-IN")} ആവശ്യമാണ്. അനാവശ്യ OTM ട്രേഡുകൾ ഒഴിവാക്കി പണം സംരക്ഷിച്ചു.`;
+          if (liveAvailableMargin <= 0 || requiredLiveEntryCash > liveAvailableMargin) {
+            const warnMsg = `[LIVE CAPITAL GUARD] ⚠️ ബാലൻസ് കുറവായതിനാൽ (₹${liveAvailableMargin.toLocaleString('en-IN')}) പുതിയ ട്രേഡ് എടുത്തില്ല. ഗുണനിലവാരമുള്ള ട്രേഡിന് ₹${requiredLiveEntryCash.toLocaleString('en-IN')} ആവശ്യമാണ്. അനാവശ്യ OTM ട്രേഡുകൾ ഒഴിവാക്കി പണം സംരക്ഷിച്ചു.`;
             botLogs.unshift({
               id: Date.now().toString(),
               time: new Date().toLocaleTimeString(),
               message: warnMsg,
-              type: "ERROR",
+              type: 'ERROR',
             });
             if (botLogs.length > 200) botLogs.length = 200;
             continue;
           }
-        } else if (botConfig.mode === "PAPER_TRADING") {
+        } else if (botConfig.mode === 'PAPER_TRADING') {
           // Paper Mode Capital Guard (consistent ₹2000 default paper capital)
           const initialBalance = getPaperInitialCapital();
           const totalRealized = paperTradeHistory
-            .filter((t: any) => !t.mode || t.mode === "PAPER_TRADING")
-            .reduce((acc, t) => acc + (t.netRealizedPnL ?? ((t.realizedPnL || 0) - (t.brokerageCharges || 0))), 0);
+            .filter((t: any) => !t.mode || t.mode === 'PAPER_TRADING')
+            .reduce(
+              (acc, t) =>
+                acc + (t.netRealizedPnL ?? (t.realizedPnL || 0) - (t.brokerageCharges || 0)),
+              0,
+            );
           const totalInvestedInOpen = paperPositions
-            .filter((p: any) => !p.mode || p.mode === "PAPER_TRADING")
-            .reduce((acc, p) => acc + (p.buyPrice * p.quantity), 0);
+            .filter((p: any) => !p.mode || p.mode === 'PAPER_TRADING')
+            .reduce((acc, p) => acc + p.buyPrice * p.quantity, 0);
           const currentPaperBalance = initialBalance + totalRealized - totalInvestedInOpen;
 
           if (cand.totalRequiredCashWithBrokerage > currentPaperBalance) {
-            const warnMsg = `[PAPER CAPITAL GUARD] Cannot buy ${cand.optionSymbol}: 1 Lot requires ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")}, but virtual balance is only ₹${currentPaperBalance.toFixed(2)}. Trade blocked to prevent overleveraging.`;
+            const warnMsg = `[PAPER CAPITAL GUARD] Cannot buy ${cand.optionSymbol}: 1 Lot requires ₹${cand.totalRequiredCashWithBrokerage.toLocaleString('en-IN')}, but virtual balance is only ₹${currentPaperBalance.toFixed(2)}. Trade blocked to prevent overleveraging.`;
             botLogs.unshift({
               id: Date.now().toString(),
               time: new Date().toLocaleTimeString(),
               message: warnMsg,
-              type: "ERROR",
+              type: 'ERROR',
             });
             if (botLogs.length > 200) botLogs.length = 200;
             continue;
@@ -1900,42 +2066,43 @@ export async function runEntryScan(ctx: {
         }
 
         // Execute Paper Trade or Live Order!
-        if (botConfig.mode === "PAPER_TRADING") {
+        if (botConfig.mode === 'PAPER_TRADING') {
           const logMsg = cand.isEquityTrade
             ? `[PAPER MICRO-CAPITAL COMPOUNDING] Top Setup Confirmed (${cand.signal.confidenceScore}%): BUY ${cand.stockSymbol} [${cand.targetQuantity} Shares @ ₹${cand.optionPrice} | Value: ₹${cand.totalTradeCost} + Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage} | Target: ₹${cand.effectiveTarget1} (+₹${cand.expectedNetProfit})]. Capital Compounding Active!`
-            : `[PAPER MODE] Top Alpha Setup Confirmed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "SHORT SELLING" : "BUYING"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
+            : `[PAPER MODE] Top Alpha Setup Confirmed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? 'SHORT SELLING' : 'BUYING'} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString('en-IN')} + Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString('en-IN')} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
 
           botLogs.unshift({
             id: Date.now().toString(),
             time: new Date().toLocaleTimeString(),
             message: logMsg,
-            type: "TRADE",
+            type: 'TRADE',
           });
           if (botLogs.length > 200) botLogs.length = 200;
 
-          const newPosId = "POS" + Date.now();
+          const newPosId = 'POS' + Date.now();
           paperOrders.unshift({
-            id: "ORD" + Date.now(),
-            orderId: "PAP_" + Date.now().toString().slice(-6),
+            id: 'ORD' + Date.now(),
+            orderId: 'PAP_' + Date.now().toString().slice(-6),
             positionId: newPosId,
             symbol: cand.optionSymbol,
             instrumentKey: cand.optInstrumentKey,
             transactionType: cand.execTransactionType,
             type: cand.execTransactionType,
             orderType: cand.execOrderType,
-            productType: "INTRADAY",
+            productType: 'INTRADAY',
             quantity: cand.targetQuantity,
             buyPrice: cand.optionPrice,
             price: cand.optionPrice,
             executedPrice: cand.optionPrice,
-            status: "COMPLETE",
-            timestamp: new Date().toLocaleTimeString("en-IN"),
+            status: 'COMPLETE',
+            timestamp: new Date().toLocaleTimeString('en-IN'),
             time: new Date().toISOString(),
-            mode: "PAPER_TRADING",
+            mode: 'PAPER_TRADING',
             isOption: !cand.isEquityTrade,
           });
           if (cand.optInstrumentKey) {
-            strikeDailyEntryCount[cand.optInstrumentKey] = (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
+            strikeDailyEntryCount[cand.optInstrumentKey] =
+              (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
           }
           paperPositions.push({
             id: newPosId,
@@ -1943,7 +2110,7 @@ export async function runEntryScan(ctx: {
             symbol: cand.optionSymbol,
             instrumentKey: cand.optInstrumentKey,
             underlyingInstrumentKey: cand.signal.underlyingInstrumentKey,
-            productType: "INTRADAY",
+            productType: 'INTRADAY',
             quantity: cand.targetQuantity,
             buyPrice: cand.optionPrice,
             currentLTP: cand.optionPrice,
@@ -1960,25 +2127,29 @@ export async function runEntryScan(ctx: {
             estimatedMinutesToTarget:
               cand.signal.institutionalQuantAnalysis?.estimatedMinutesToTarget,
             type: cand.execTransactionType,
-            optionStrategyType: cand.isOptionSellingEntry ? "OPTION_SELLING" : "OPTION_BUYING",
-            mode: "PAPER_TRADING",
-            openedAt: new Date().toLocaleTimeString("en-IN"),
+            optionStrategyType: cand.isOptionSellingEntry ? 'OPTION_SELLING' : 'OPTION_BUYING',
+            mode: 'PAPER_TRADING',
+            openedAt: new Date().toLocaleTimeString('en-IN'),
             isOption: !cand.isEquityTrade,
           });
-          savePostgresDb().catch(() => { /* ignore */ });
+          savePostgresDb().catch(() => {
+            /* ignore */
+          });
 
           sendTelegramNotification(
-            `🟢 <b>PAPER BOT ENTRY TRIGGERED (${cand.isEquityTrade ? "EQUITY COMPOUNDING" : cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
-            `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
-            `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
-            `🎯 <b>Direction:</b> ${cand.isEquityTrade ? "BUY STOCK (INTRADAY/DELIVERY)" : cand.isOptionSellingEntry ? `SHORT ${cand.isBullish ? "PE" : "CE"}` : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
-            `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? "Shares" : `Qty (${cand.affordableLots} Lot)`}\n` +
-            `💰 <b>Entry Price:</b> ₹${cand.optionPrice} (${cand.execOrderType} | Capital: ₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
-            `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
-            `🛡️ <b>Mode:</b> PAPER_TRADING\n` +
-            `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-          ).catch(() => { /* ignore */ });
-        } else if (botConfig.mode === "UPSTOX_LIVE" && token) {
+            `🟢 <b>PAPER BOT ENTRY TRIGGERED (${cand.isEquityTrade ? 'EQUITY COMPOUNDING' : cand.isOptionSellingEntry ? 'OPTION SELLING' : 'OPTION BUYING'})</b>\n\n` +
+              `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
+              `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
+              `🎯 <b>Direction:</b> ${cand.isEquityTrade ? 'BUY STOCK (INTRADAY/DELIVERY)' : cand.isOptionSellingEntry ? `SHORT ${cand.isBullish ? 'PE' : 'CE'}` : cand.isBullish ? 'CE (Bullish Call)' : 'PE (Bearish Put)'}\n` +
+              `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? 'Shares' : `Qty (${cand.affordableLots} Lot)`}\n` +
+              `💰 <b>Entry Price:</b> ₹${cand.optionPrice} (${cand.execOrderType} | Capital: ₹${cand.totalTradeCost.toLocaleString('en-IN')})\n` +
+              `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
+              `🛡️ <b>Mode:</b> PAPER_TRADING\n` +
+              `⏰ <b>Time:</b> ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`,
+          ).catch(() => {
+            /* ignore */
+          });
+        } else if (botConfig.mode === 'UPSTOX_LIVE' && token) {
           // Live Double-Order Guard: Never place another live order within 10s of a prior placement while Upstox settles positions & margin!
           if (
             Date.now() - lastLiveOrderPlacedAtMs < 10000 ||
@@ -1992,22 +2163,30 @@ export async function runEntryScan(ctx: {
             if (cand.optInstrumentKey) {
               recentLiveStrikeOrderMs[cand.optInstrumentKey] = Date.now();
             }
-            const orderJson = await placeUpstoxOrderIpv4({
-              quantity: cand.targetQuantity,
-              product: cand.isEquityTrade ? "D" : "D",
-              validity: "DAY",
-              price: cand.execOrderType === "LIMIT" ? cand.limitPriceWithSlippageGuard : 0,
-              tag: cand.isEquityTrade ? "bot_equity_buy" : (cand.isOptionSellingEntry ? "bot_auto_short" : "bot_auto_entry"),
-              instrument_token: cand.optInstrumentKey,
-              order_type: cand.execOrderType,
-              transaction_type: cand.execTransactionType,
-              disclosed_quantity: 0,
-              trigger_price: 0,
-              is_amo: false,
-            }, token);
-            if (orderJson?.status === "success") {
+            const orderJson = await placeUpstoxOrderIpv4(
+              {
+                quantity: cand.targetQuantity,
+                product: cand.isEquityTrade ? 'D' : 'D',
+                validity: 'DAY',
+                price: cand.execOrderType === 'LIMIT' ? cand.limitPriceWithSlippageGuard : 0,
+                tag: cand.isEquityTrade
+                  ? 'bot_equity_buy'
+                  : cand.isOptionSellingEntry
+                    ? 'bot_auto_short'
+                    : 'bot_auto_entry',
+                instrument_token: cand.optInstrumentKey,
+                order_type: cand.execOrderType,
+                transaction_type: cand.execTransactionType,
+                disclosed_quantity: 0,
+                trigger_price: 0,
+                is_amo: false,
+              },
+              token,
+            );
+            if (orderJson?.status === 'success') {
               if (cand.optInstrumentKey) {
-                strikeDailyEntryCount[cand.optInstrumentKey] = (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
+                strikeDailyEntryCount[cand.optInstrumentKey] =
+                  (strikeDailyEntryCount[cand.optInstrumentKey] || 0) + 1;
               }
               // Immediately invalidate cached live positions/orders & deduct estimated used cash so the very next 1s tick NEVER double-orders!
               invalidateCachedLiveDayOrders();
@@ -2016,10 +2195,13 @@ export async function runEntryScan(ctx: {
               setCachedUpstoxLiveMargin({
                 ...prevMarginCache,
                 timestamp: 0,
-                margin: Math.max(0, Number((liveAvailableMargin - cand.totalRequiredCashWithBrokerage).toFixed(2))),
+                margin: Math.max(
+                  0,
+                  Number((liveAvailableMargin - cand.totalRequiredCashWithBrokerage).toFixed(2)),
+                ),
               });
               activePositions.push({
-                id: "PENDING_" + Date.now(),
+                id: 'PENDING_' + Date.now(),
                 symbol: cand.optionSymbol,
                 instrumentKey: cand.optInstrumentKey,
                 underlyingInstrumentKey: cand.signal.underlyingInstrumentKey,
@@ -2027,72 +2209,81 @@ export async function runEntryScan(ctx: {
                 buyPrice: cand.optionPrice,
                 currentLTP: cand.optionPrice,
                 type: cand.execTransactionType,
-                mode: "UPSTOX_LIVE",
+                mode: 'UPSTOX_LIVE',
                 isOption: !cand.isEquityTrade,
               });
               paperOrders.unshift({
-                id: "ORD" + Date.now(),
-                orderId: orderJson.data?.order_id || "LIVE_" + Date.now().toString().slice(-6),
+                id: 'ORD' + Date.now(),
+                orderId: orderJson.data?.order_id || 'LIVE_' + Date.now().toString().slice(-6),
                 symbol: cand.optionSymbol,
                 instrumentKey: cand.optInstrumentKey,
                 transactionType: cand.execTransactionType,
                 type: cand.execTransactionType,
                 orderType: cand.execOrderType,
-                productType: "DELIVERY",
+                productType: 'DELIVERY',
                 quantity: cand.targetQuantity,
                 buyPrice: cand.optionPrice,
                 price: cand.optionPrice,
                 executedPrice: cand.optionPrice,
-                status: "COMPLETE",
-                timestamp: new Date().toLocaleTimeString("en-IN"),
+                status: 'COMPLETE',
+                timestamp: new Date().toLocaleTimeString('en-IN'),
                 time: new Date().toISOString(),
-                mode: "UPSTOX_LIVE",
+                mode: 'UPSTOX_LIVE',
                 isOption: !cand.isEquityTrade,
               });
               if (paperOrders.length > 200) paperOrders.length = 200;
-              savePostgresDb().catch(() => { /* ignore */ });
+              savePostgresDb().catch(() => {
+                /* ignore */
+              });
               const liveLogMsg = cand.isEquityTrade
-                ? `[UPSTOX LIVE MICRO-CAPITAL] Top Setup Executed (${cand.signal.confidenceScore}%): Bought ${cand.targetQuantity} Shares of ${cand.stockSymbol} @ ₹${cand.optionPrice} (Trade Value: ₹${cand.totalTradeCost.toLocaleString("en-IN")}, Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)}). Live Capital Compounding Active!`
-                : `[UPSTOX LIVE] Top Alpha Order Executed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? "Short Sold" : "Bought"} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString("en-IN")} + Brokerage & Taxes: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total Cash Used: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
+                ? `[UPSTOX LIVE MICRO-CAPITAL] Top Setup Executed (${cand.signal.confidenceScore}%): Bought ${cand.targetQuantity} Shares of ${cand.stockSymbol} @ ₹${cand.optionPrice} (Trade Value: ₹${cand.totalTradeCost.toLocaleString('en-IN')}, Est. Brokerage: ₹${cand.totalTradeBrokerage.toFixed(2)}). Live Capital Compounding Active!`
+                : `[UPSTOX LIVE] Top Alpha Order Executed (${cand.signal.confidenceScore}%): ${cand.isOptionSellingEntry ? 'Short Sold' : 'Bought'} ${cand.optionSymbol} [${cand.affordableLots} Lot = ${cand.targetQuantity} Qty @ ₹${cand.optionPrice} (${cand.execOrderType}) | Premium: ₹${cand.totalTradeCost.toLocaleString('en-IN')} + Brokerage & Taxes: ₹${cand.totalTradeBrokerage.toFixed(2)} = Total Cash Used: ₹${cand.totalRequiredCashWithBrokerage.toLocaleString('en-IN')} | Est. Net Profit: +₹${cand.expectedNetProfit}].`;
 
               botLogs.unshift({
                 id: Date.now().toString(),
                 time: new Date().toLocaleTimeString(),
                 message: liveLogMsg,
-                type: "TRADE",
+                type: 'TRADE',
               });
               if (botLogs.length > 200) botLogs.length = 200;
 
               sendTelegramNotification(
-                `🟢 <b>UPSTOX LIVE ENTRY EXECUTED (${cand.isEquityTrade ? "EQUITY COMPOUNDING" : cand.isOptionSellingEntry ? "OPTION SELLING" : "OPTION BUYING"})</b>\n\n` +
-                `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
-                `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
-                `🎯 <b>Direction:</b> ${cand.isEquityTrade ? "BUY STOCK (CASH DELIVERY/INTRADAY)" : cand.isOptionSellingEntry ? "SHORT OPTION" : cand.isBullish ? "CE (Bullish Call)" : "PE (Bearish Put)"}\n` +
-                `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? "Shares" : `Qty (${cand.affordableLots} Lot)`}\n` +
-                `💰 <b>Price:</b> ₹${cand.optionPrice} (₹${cand.totalTradeCost.toLocaleString("en-IN")})\n` +
-                `🧾 <b>Est. Brokerage & Taxes:</b> ₹${cand.totalTradeBrokerage.toFixed(2)}\n` +
-                `💳 <b>Total Cash Used:</b> ₹${cand.totalRequiredCashWithBrokerage.toLocaleString("en-IN")}\n` +
-                `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
-                `🛡️ <b>Mode:</b> UPSTOX_LIVE\n` +
-                `⏰ <b>Time:</b> ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST`,
-              ).catch(() => { /* ignore */ });
+                `🟢 <b>UPSTOX LIVE ENTRY EXECUTED (${cand.isEquityTrade ? 'EQUITY COMPOUNDING' : cand.isOptionSellingEntry ? 'OPTION SELLING' : 'OPTION BUYING'})</b>\n\n` +
+                  `📊 <b>Symbol / Contract:</b> <code>${cand.optionSymbol}</code>\n` +
+                  `🏆 <b>Rank:</b> #1 Most Profitable Setup (Alpha Score: ${cand.alphaOpportunityScore})\n` +
+                  `🎯 <b>Direction:</b> ${cand.isEquityTrade ? 'BUY STOCK (CASH DELIVERY/INTRADAY)' : cand.isOptionSellingEntry ? 'SHORT OPTION' : cand.isBullish ? 'CE (Bullish Call)' : 'PE (Bearish Put)'}\n` +
+                  `📦 <b>Quantity:</b> ${cand.targetQuantity} ${cand.isEquityTrade ? 'Shares' : `Qty (${cand.affordableLots} Lot)`}\n` +
+                  `💰 <b>Price:</b> ₹${cand.optionPrice} (₹${cand.totalTradeCost.toLocaleString('en-IN')})\n` +
+                  `🧾 <b>Est. Brokerage & Taxes:</b> ₹${cand.totalTradeBrokerage.toFixed(2)}\n` +
+                  `💳 <b>Total Cash Used:</b> ₹${cand.totalRequiredCashWithBrokerage.toLocaleString('en-IN')}\n` +
+                  `📈 <b>Est. Net Profit:</b> +₹${cand.expectedNetProfit}\n` +
+                  `🛡️ <b>Mode:</b> UPSTOX_LIVE\n` +
+                  `⏰ <b>Time:</b> ${new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`,
+              ).catch(() => {
+                /* ignore */
+              });
             } else {
-              let errDetail = orderJson?.errors?.[0]?.message || orderJson?.message || JSON.stringify(orderJson);
-              if (errDetail.includes("static IP") || errDetail.includes("34.96.48") || errDetail.includes("UDAPI1154")) {
+              let errDetail =
+                orderJson?.errors?.[0]?.message || orderJson?.message || JSON.stringify(orderJson);
+              if (
+                errDetail.includes('static IP') ||
+                errDetail.includes('34.96.48') ||
+                errDetail.includes('UDAPI1154')
+              ) {
                 const liveIpNow = await getDetectedContainerIp();
-                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (${FIXED_PRIMARY_IP}${liveIpNow ? `, ${liveIpNow}` : ""}) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
+                errDetail = `⚠️ Upstox static IP restriction: Upstox Developer Console-ൽ നിങ്ങളുടെ Static IP-കൾ (${FIXED_PRIMARY_IP}${liveIpNow ? `, ${liveIpNow}` : ''}) കൃത്യമായി നൽകിയിട്ടുണ്ടെന്ന് ഉറപ്പാക്കുക. (${errDetail})`;
               }
               const liveErrText = `[UPSTOX LIVE REJECTED] Order for ${cand.optionSymbol} rejected: ${errDetail}`;
               botLogs.unshift({
                 id: Date.now().toString(),
                 time: new Date().toLocaleTimeString(),
                 message: liveErrText,
-                type: "ERROR",
+                type: 'ERROR',
               });
               if (botLogs.length > 200) botLogs.length = 200;
             }
           } catch (err: any) {
-            console.error("Error placing live auto buy order:", err);
+            console.error('Error placing live auto buy order:', err);
           }
         }
       }
