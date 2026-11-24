@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { TrendingUp, Sliders, Sparkles, Layers, RefreshCw } from 'lucide-react';
-import { createChart, CrosshairMode, LineStyle, IChartApi, ColorType, CandlestickSeries, HistogramSeries, LineSeries, createSeriesMarkers } from 'lightweight-charts';
+import { Sparkles, RefreshCw } from 'lucide-react';
+import { ChartToolbar } from './chart/ChartToolbar';
+import {
+  createChart,
+  CrosshairMode,
+  LineStyle,
+  IChartApi,
+  ColorType,
+  CandlestickSeries,
+  HistogramSeries,
+  LineSeries,
+  createSeriesMarkers,
+} from 'lightweight-charts';
 import { CandleData, StockQuote, Language, TradingSignal } from '../types';
 
 interface CandlestickChartProps {
@@ -32,10 +43,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const [showEMA, setShowEMA] = useState(true);
   const [activeSubChart, setActiveSubChart] = useState<'RSI' | 'MACD' | 'NONE'>('RSI');
   const [isAiOverlayMinimized, setIsAiOverlayMinimized] = useState(false);
-  
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  
+
   const seriesRef = useRef<{
     candlestick?: any;
     candlestickMarkers?: any;
@@ -76,7 +87,11 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               IST_MARKET_OPEN_OFFSET_MS
             : lastCandle.timestamp;
 
-        if (intervalMs > 0 && currentBucketStart > lastCandle.timestamp && currentBucketStart - lastCandle.timestamp <= intervalMs * 4) {
+        if (
+          intervalMs > 0 &&
+          currentBucketStart > lastCandle.timestamp &&
+          currentBucketStart - lastCandle.timestamp <= intervalMs * 4
+        ) {
           // A new minute/5m bar has started: append the new live bar immediately so the chart never waits for historical API lag!
           currentCandles.push({
             ...lastCandle,
@@ -97,8 +112,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
     return currentCandles;
   }, [candles, quote?.ltp, interval]);
-
-  const intervals = ['1m', '3m', '5m', '15m', '1h', '1D'];
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -125,7 +138,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         secondsVisible: false,
       },
     });
-    
+
     chartRef.current = chart;
 
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
@@ -137,7 +150,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     });
     seriesRef.current.candlestick = candlestickSeries;
     seriesRef.current.candlestickMarkers = createSeriesMarkers(candlestickSeries, []);
-    
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       color: '#26a69a',
@@ -156,12 +168,32 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     seriesRef.current.volume = volumeSeries;
 
     // EMA Series
-    seriesRef.current.ema9 = chart.addSeries(LineSeries, { color: '#06b6d4', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
-    seriesRef.current.ema21 = chart.addSeries(LineSeries, { color: '#f59e0b', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
-    seriesRef.current.ema50 = chart.addSeries(LineSeries, { color: '#a855f7', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
+    seriesRef.current.ema9 = chart.addSeries(LineSeries, {
+      color: '#06b6d4',
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
+    seriesRef.current.ema21 = chart.addSeries(LineSeries, {
+      color: '#f59e0b',
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
+    seriesRef.current.ema50 = chart.addSeries(LineSeries, {
+      color: '#a855f7',
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
 
     // Supertrend Series
-    seriesRef.current.supertrend = chart.addSeries(LineSeries, { color: '#10b981', lineWidth: 2, crosshairMarkerVisible: false, priceLineVisible: false });
+    seriesRef.current.supertrend = chart.addSeries(LineSeries, {
+      color: '#10b981',
+      lineWidth: 2,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
 
     return () => {
       chart.remove();
@@ -189,14 +221,16 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     // Prepare data - ensure unique timestamps and integers
     const uniqueCandlesMap = new Map();
-    displayCandles.forEach(c => {
-       const istSec = Math.floor(c.timestamp / 1000) + IST_OFFSET_SECONDS;
-       uniqueCandlesMap.set(istSec, { ...c, _istSec: istSec });
+    displayCandles.forEach((c) => {
+      const istSec = Math.floor(c.timestamp / 1000) + IST_OFFSET_SECONDS;
+      uniqueCandlesMap.set(istSec, { ...c, _istSec: istSec });
     });
-    
-    const uniqueCandles = Array.from(uniqueCandlesMap.values()).sort((a, b) => a._istSec - b._istSec);
 
-    const candlestickData = uniqueCandles.map(c => ({
+    const uniqueCandles = Array.from(uniqueCandlesMap.values()).sort(
+      (a, b) => a._istSec - b._istSec,
+    );
+
+    const candlestickData = uniqueCandles.map((c) => ({
       time: c._istSec as any,
       open: c.open,
       high: c.high,
@@ -204,7 +238,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       close: c.close,
     }));
 
-    const volumeData = uniqueCandles.map(c => ({
+    const volumeData = uniqueCandles.map((c) => ({
       time: c._istSec as any,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
@@ -229,9 +263,21 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       // Add Buy/Sell Markers
       if (c.signal === 'BUY') {
-        markers.push({ time, position: 'belowBar', color: '#10b981', shape: 'arrowUp', text: 'BUY' });
+        markers.push({
+          time,
+          position: 'belowBar',
+          color: '#10b981',
+          shape: 'arrowUp',
+          text: 'BUY',
+        });
       } else if (c.signal === 'SELL') {
-        markers.push({ time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'SELL' });
+        markers.push({
+          time,
+          position: 'aboveBar',
+          color: '#ef4444',
+          shape: 'arrowDown',
+          text: 'SELL',
+        });
       }
     });
 
@@ -259,193 +305,133 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       chartRef.current.priceScale('right').applyOptions({ autoScale: true });
       chartRef.current.timeScale().fitContent();
     }
-
   }, [displayCandles, showEMA, showSupertrend, symbol, interval]);
 
   const isMatchingQuote = Boolean(
     quote &&
-      (quote.symbol === symbol ||
-        symbol.includes(quote.symbol) ||
-        quote.symbol.includes(symbol) ||
-        (quote.instrumentKey && quote.instrumentKey.includes(symbol)))
+    (quote.symbol === symbol ||
+      symbol.includes(quote.symbol) ||
+      quote.symbol.includes(symbol) ||
+      (quote.instrumentKey && quote.instrumentKey.includes(symbol))),
   );
 
   const candleClose = displayCandles[displayCandles.length - 1]?.close || 0;
   const candleOpen = displayCandles[0]?.open || candleClose;
-  const currentLtp = isMatchingQuote && (quote?.ltp || 0) > 0 ? (quote?.ltp || 0) : (candleClose || quote?.ltp || 0);
-  const currentChangePts = isMatchingQuote && quote?.change !== undefined
-    ? quote.change
-    : (displayCandles.length > 1 ? Number((candleClose - candleOpen).toFixed(2)) : 0);
-  const currentChange = isMatchingQuote && quote?.changePercent !== undefined
-    ? quote.changePercent
-    : (candleOpen > 0 ? Number((((candleClose - candleOpen) / candleOpen) * 100).toFixed(2)) : 0);
+  const currentLtp =
+    isMatchingQuote && (quote?.ltp || 0) > 0 ? quote?.ltp || 0 : candleClose || quote?.ltp || 0;
+  const currentChangePts =
+    isMatchingQuote && quote?.change !== undefined
+      ? quote.change
+      : displayCandles.length > 1
+        ? Number((candleClose - candleOpen).toFixed(2))
+        : 0;
+  const currentChange =
+    isMatchingQuote && quote?.changePercent !== undefined
+      ? quote.changePercent
+      : candleOpen > 0
+        ? Number((((candleClose - candleOpen) / candleOpen) * 100).toFixed(2))
+        : 0;
   const isPositive = currentChange >= 0 && currentChangePts >= 0;
 
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 bg-slate-900/80 text-slate-200 overflow-hidden">
-      {/* Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-3 border-b border-slate-800/90 bg-[#080c16] gap-1.5 sm:gap-3 shrink-0 w-full max-w-full min-w-0 overflow-hidden">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm sm:text-base font-black text-white tracking-tight">{symbol}</h2>
-            <div className="flex items-center gap-1.5 font-mono-num">
-              <span className={`text-sm sm:text-base font-bold ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {currentLtp > 0 ? `₹${currentLtp.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Live...'}
-              </span>
-              {currentLtp > 0 && (
-                <span className={`text-[10px] sm:text-xs px-1.5 py-0.5 rounded font-bold border ${isPositive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border-rose-500/30'}`}>
-                  {isPositive ? '+' : ''}{currentChangePts.toFixed(2)} ({isPositive ? '+' : ''}{currentChange.toFixed(2)}%)
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Quick Buy/Sell for mobile right top */}
-          <div className="flex sm:hidden items-center gap-1.5">
-            <button 
-              onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
-              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-emerald-950"
-            >
-              BUY
-            </button>
-            <button 
-              onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
-              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-2.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-rose-950"
-            >
-              SELL
-            </button>
-          </div>
-        </div>
-
-        {/* Intervals & Indicators */}
-        <div className="flex items-center justify-between sm:justify-end gap-2 overflow-x-auto no-scrollbar py-0.5">
-          <div className="flex bg-slate-900/90 rounded-xl p-0.5 border border-slate-800 shrink-0">
-            {intervals.map((int) => (
-              <button
-                key={int}
-                onClick={() => onChangeInterval(int)}
-                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 text-[11px] sm:text-xs font-bold rounded-lg transition-all ${
-                  interval === int
-                    ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/80'
-                }`}
-              >
-                {int}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-1 sm:gap-1.5 border-l border-slate-800 pl-2 shrink-0">
-             <button
-              onClick={() => setShowSupertrend(!showSupertrend)}
-              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${showSupertrend ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
-              title="Toggle Supertrend"
-            >
-              <TrendingUp size={15} />
-            </button>
-            <button
-              onClick={() => setShowEMA(!showEMA)}
-              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${showEMA ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
-              title="Toggle EMA (9/21)"
-            >
-              <Layers size={15} />
-            </button>
-            <button
-              onClick={() => setActiveSubChart(activeSubChart === 'RSI' ? 'MACD' : activeSubChart === 'MACD' ? 'NONE' : 'RSI')}
-              className={`p-1 sm:p-1.5 rounded-lg border transition-colors ${activeSubChart !== 'NONE' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30' : 'text-slate-500 border-transparent hover:bg-slate-800'}`}
-              title="Toggle Sub-chart (RSI/MACD)"
-            >
-              <Sliders size={15} />
-            </button>
-          </div>
-
-          {/* Desktop Buy/Sell */}
-          <div className="hidden sm:flex items-center gap-2 border-l border-slate-800 pl-3 shrink-0">
-            <button 
-              onClick={() => onOpenOrderModal('BUY', symbol, currentLtp)}
-              className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-3.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-emerald-950"
-            >
-              BUY
-            </button>
-            <button 
-              onClick={() => onOpenOrderModal('SELL', symbol, currentLtp)}
-              className="bg-rose-600 hover:bg-rose-500 active:scale-95 text-white px-3.5 py-1 rounded-lg text-xs font-extrabold transition shadow-sm shadow-rose-950"
-            >
-              SELL
-            </button>
-          </div>
-        </div>
-      </div>
-
+      <ChartToolbar
+        symbol={symbol}
+        currentLtp={currentLtp}
+        currentChange={currentChange}
+        currentChangePts={currentChangePts}
+        isPositive={isPositive}
+        interval={interval}
+        onChangeInterval={onChangeInterval}
+        showSupertrend={showSupertrend}
+        setShowSupertrend={setShowSupertrend}
+        showEMA={showEMA}
+        setShowEMA={setShowEMA}
+        activeSubChart={activeSubChart}
+        setActiveSubChart={setActiveSubChart}
+        onOpenOrderModal={onOpenOrderModal}
+      />
       <div className="relative flex-1 flex flex-col w-full max-w-full min-w-0 min-h-0 bg-[#070a12] overflow-hidden">
-         {/* Main Chart Container */}
-         <div className="flex-1 w-full h-full relative min-h-0 min-w-0 overflow-hidden"><div ref={chartContainerRef} className="absolute inset-0 w-full h-full overflow-hidden" /></div>
+        {/* Main Chart Container */}
+        <div className="flex-1 w-full h-full relative min-h-0 min-w-0 overflow-hidden">
+          <div ref={chartContainerRef} className="absolute inset-0 w-full h-full overflow-hidden" />
+        </div>
 
-         {/* Live Candlestick Feed Loading State */}
-         {displayCandles.length === 0 && (
-           <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#070a12]/80 backdrop-blur-sm z-20">
-             <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
-             <p className="text-xs sm:text-sm font-bold text-slate-200">
-               {language === 'ml' ? 'ലൈവ് കാൻഡിൽസ്റ്റിക്കുകൾ ലോഡ് ചെയ്യുന്നു...' : 'Loading Live Market Candlesticks...'}
-             </p>
-             <p className="text-[11px] text-slate-400 mt-1">100% Real-Time NSE / BSE Live Exchange Feed</p>
-           </div>
-         )}
-         
-         {/* AI Signal Overlay - if generated */}
-         {signal && (
-           <div className={`absolute top-3 left-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl z-10 transition-all duration-200 ${
-             isAiOverlayMinimized ? 'p-2 max-w-[220px]' : 'p-3.5 max-w-xs'
-           }`}>
-              <div className="flex items-center justify-between gap-2">
-                 <div 
-                   className="flex items-center gap-1.5 cursor-pointer select-none"
-                   onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
-                   title={isAiOverlayMinimized ? "Expand AI Analysis" : "Minimize AI Analysis"}
-                 >
-                    <Sparkles size={14} className="text-amber-400 shrink-0" />
-                    <span className="font-bold text-amber-300 text-xs">AI Analysis</span>
-                    <span className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
-                      (signal.action || signal.signalType) === 'BUY'
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : (signal.action || signal.signalType) === 'SELL'
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                          : 'bg-slate-800 text-slate-300'
-                    }`}>
-                      {signal.action || signal.signalType}
-                    </span>
-                 </div>
-                 <div className="flex items-center gap-1">
-                   <button
-                     onClick={() => onGenerateAiAnalysis()}
-                     className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition"
-                     title="Refresh AI Analysis"
-                   >
-                     <RefreshCw size={12} className={aiLoading ? "animate-spin" : ""} />
-                   </button>
-                   <button
-                     onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
-                     className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition text-xs font-mono font-bold"
-                     title={isAiOverlayMinimized ? "Expand" : "Minimize"}
-                   >
-                     {isAiOverlayMinimized ? "➕" : "➖"}
-                   </button>
-                 </div>
+        {/* Live Candlestick Feed Loading State */}
+        {displayCandles.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#070a12]/80 backdrop-blur-sm z-20">
+            <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mb-3" />
+            <p className="text-xs sm:text-sm font-bold text-slate-200">
+              {language === 'ml'
+                ? 'ലൈവ് കാൻഡിൽസ്റ്റിക്കുകൾ ലോഡ് ചെയ്യുന്നു...'
+                : 'Loading Live Market Candlesticks...'}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              100% Real-Time NSE / BSE Live Exchange Feed
+            </p>
+          </div>
+        )}
+
+        {/* AI Signal Overlay - if generated */}
+        {signal && (
+          <div
+            className={`absolute top-3 left-3 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl z-10 transition-all duration-200 ${
+              isAiOverlayMinimized ? 'p-2 max-w-[220px]' : 'p-3.5 max-w-xs'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div
+                className="flex items-center gap-1.5 cursor-pointer select-none"
+                onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
+                title={isAiOverlayMinimized ? 'Expand AI Analysis' : 'Minimize AI Analysis'}
+              >
+                <Sparkles size={14} className="text-amber-400 shrink-0" />
+                <span className="font-bold text-amber-300 text-xs">AI Analysis</span>
+                <span
+                  className={`text-[10px] font-black px-1.5 py-0.2 rounded ${
+                    (signal.action || signal.signalType) === 'BUY'
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      : (signal.action || signal.signalType) === 'SELL'
+                        ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                        : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {signal.action || signal.signalType}
+                </span>
               </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onGenerateAiAnalysis()}
+                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition"
+                  title="Refresh AI Analysis"
+                >
+                  <RefreshCw size={12} className={aiLoading ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
+                  className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition text-xs font-mono font-bold"
+                  title={isAiOverlayMinimized ? 'Expand' : 'Minimize'}
+                >
+                  {isAiOverlayMinimized ? '➕' : '➖'}
+                </button>
+              </div>
+            </div>
 
-              {!isAiOverlayMinimized && (
-                <div className="mt-2 pt-2 border-t border-slate-800">
-                  <div className="flex items-center justify-between text-xs mb-1.5 font-mono">
-                    <span className="text-slate-400 text-[11px]">Confidence:</span>
-                    <span className="font-bold text-cyan-300">{signal.confidence ?? signal.confidenceScore}%</span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 line-clamp-3 leading-relaxed">
-                    {signal.reason || signal.rationale}
-                  </p>
+            {!isAiOverlayMinimized && (
+              <div className="mt-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between text-xs mb-1.5 font-mono">
+                  <span className="text-slate-400 text-[11px]">Confidence:</span>
+                  <span className="font-bold text-cyan-300">
+                    {signal.confidence ?? signal.confidenceScore}%
+                  </span>
                 </div>
-              )}
-           </div>
-         )}
+                <p className="text-[11px] text-slate-300 line-clamp-3 leading-relaxed">
+                  {signal.reason || signal.rationale}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
