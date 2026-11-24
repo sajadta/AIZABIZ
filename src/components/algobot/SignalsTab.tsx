@@ -10,6 +10,7 @@ import type {
 import type { Translations } from './types';
 import { AlphaMatrix } from './signals/AlphaMatrix';
 import { CorporateQuantShield } from './signals/CorporateQuantShield';
+import { InstitutionalQuantMatrix } from './signals/InstitutionalQuantMatrix';
 interface SignalsTabProps {
   t: Translations;
   botConfig: BotConfig;
@@ -179,100 +180,11 @@ export const SignalsTab: React.FC<SignalsTabProps> = ({
                 </span>
               </div>
             )}
-            {/* 7-Layer Institutional Quant Matrix (Chart History S/R, Corporate Heavyweights, Global Macro, OI & Target Forecast) */}
             {sig.institutionalQuantAnalysis && (
-              <div className="mt-2.5 p-3 rounded-2xl bg-slate-950/60 backdrop-blur-sm border border-indigo-500/25 space-y-2 text-[11px]">
-                <div className="flex items-center justify-between gap-2 flex-wrap pb-1.5 border-b border-indigo-500/20">
-                  <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-wider">
-                    {language === 'ml'
-                      ? '🏛️ 7-തല ഇൻസ്റ്റിറ്റ്യൂഷണൽ & ചാർട്ട് ഹിസ്റ്ററി അനാലിസിസ്'
-                      : '🏛️ 7-Layer Institutional & Chart History Quant Matrix'}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-[10px] font-bold">
-                    {language === 'ml' ? 'പ്രതീക്ഷിക്കുന്ന സമയം:' : 'Est. Target Time:'}{' '}
-                    {sig.institutionalQuantAnalysis.estimatedMinutesToTarget} |{' '}
-                    {sig.institutionalQuantAnalysis.estimatedNetProfitRange}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] font-mono pt-0.5">
-                  <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
-                    <span className="text-slate-400">
-                      {language === 'ml' ? 'ചാർട്ട് സ്ട്രക്ചർ:' : 'Chart Structure:'}
-                    </span>
-                    <span className="text-cyan-300 font-bold truncate max-w-[190px]">
-                      {language === 'ml'
-                        ? sig.institutionalQuantAnalysis.chartStructurePatternMl
-                        : sig.institutionalQuantAnalysis.chartStructurePattern}
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
-                    <span className="text-slate-400">
-                      {language === 'ml' ? 'സപ്പോർട്ട് / റെസിസ്റ്റൻസ് റൺവേ:' : 'S/R Clear Runway:'}
-                    </span>
-                    <span className="text-emerald-300 font-bold">
-                      S: ₹{sig.institutionalQuantAnalysis.nearestSupport} | R: ₹
-                      {sig.institutionalQuantAnalysis.nearestResistance} (+
-                      {sig.institutionalQuantAnalysis.clearRunwayPoints} pts)
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
-                    <span className="text-slate-400">
-                      {language === 'ml'
-                        ? 'കോർപ്പറേറ്റ് ഹെവിവെയ്റ്റ്സ്:'
-                        : 'Corporate Heavyweights:'}
-                    </span>
-                    <span
-                      className={`font-bold truncate max-w-[190px] ${
-                        sig.institutionalQuantAnalysis.corporateHeavyweightScore >= 0
-                          ? 'text-emerald-400'
-                          : 'text-rose-400'
-                      }`}
-                    >
-                      {sig.institutionalQuantAnalysis.corporateHeavyweightSummary}
-                    </span>
-                  </div>
-                  <div className="bg-slate-900/40 px-2.5 py-1.5 rounded-xl border border-slate-800/50 flex items-center justify-between">
-                    <span className="text-slate-400">
-                      {language === 'ml' ? 'ആഗോള മാക്രോ & OI ഫ്ലോ:' : 'Global Macro & OI Flow:'}
-                    </span>
-                    <span className="text-amber-300 font-bold truncate max-w-[190px]">
-                      {sig.institutionalQuantAnalysis.globalMacroAlignment} |{' '}
-                      {sig.institutionalQuantAnalysis.oiBuildupType}
-                    </span>
-                  </div>
-                  {sig.institutionalQuantAnalysis.fiveYearRegimeSummary && (
-                    <div className="sm:col-span-2 bg-indigo-950/25 px-2.5 py-1.5 rounded-xl border border-indigo-500/25 flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-indigo-300 font-bold">
-                        {language === 'ml'
-                          ? '📅 5-വർഷ ചാർട്ട് & 200D EMA ഹിസ്റ്ററി:'
-                          : '📅 5-Year Daily Chart & 200D EMA Regime:'}
-                      </span>
-                      <span className="text-emerald-300 font-bold">
-                        {language === 'ml'
-                          ? sig.institutionalQuantAnalysis.fiveYearRegimeSummaryMl ||
-                            sig.institutionalQuantAnalysis.fiveYearRegimeSummary
-                          : sig.institutionalQuantAnalysis.fiveYearRegimeSummary}
-                      </span>
-                    </div>
-                  )}
-                  {sig.institutionalQuantAnalysis.multiLegDetails && (
-                    <div className="sm:col-span-2 bg-cyan-950/25 px-2.5 py-1.5 rounded-xl border border-cyan-500/25 flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-cyan-300 font-bold">
-                        {language === 'ml'
-                          ? `⚖️ ${sig.institutionalQuantAnalysis.multiLegDetails.strategyType === 'SHORT_STRANGLE' ? 'Short Strangle (സൈഡ്‌വേയ്‌സ് മൾട്ടി-ലെഗ്)' : 'Short Straddle / Option Selling'}:`
-                          : `⚖️ ${sig.institutionalQuantAnalysis.multiLegDetails.strategyType}:`}
-                      </span>
-                      <span className="text-amber-300 font-bold">
-                        SELL {sig.institutionalQuantAnalysis.multiLegDetails.callStrike} CE @ ₹
-                        {sig.institutionalQuantAnalysis.multiLegDetails.callLtp} + SELL{' '}
-                        {sig.institutionalQuantAnalysis.multiLegDetails.putStrike} PE @ ₹
-                        {sig.institutionalQuantAnalysis.multiLegDetails.putLtp} | Theta: +₹
-                        {sig.institutionalQuantAnalysis.multiLegDetails.thetaDecayPerDayRupees}/day
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <InstitutionalQuantMatrix
+                analysis={sig.institutionalQuantAnalysis}
+                language={language}
+              />
             )}
             {/* Target & Stop Loss Levels (Unified Translucent Strip with Hairline Dividers) */}
             <div className="mt-2.5 p-2 rounded-xl bg-slate-950/50 backdrop-blur-sm border border-slate-800/60 grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-800/60 text-xs font-mono">
