@@ -1,15 +1,5 @@
 import React from 'react';
-import {
-  CheckCircle2,
-  PieChart,
-  Plus,
-  RefreshCw,
-  BarChart2,
-  Check,
-  Lock,
-  Edit2,
-  X,
-} from 'lucide-react';
+import { CheckCircle2, PieChart, RefreshCw } from 'lucide-react';
 import type { Holding, Language } from '../../types';
 import type { ViewChartFn } from './types';
 import { HoldingsCard } from './HoldingsCard';
