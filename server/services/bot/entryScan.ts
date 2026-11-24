@@ -64,6 +64,7 @@ import { computeInstitutionalFlow } from './entryScan/institutionalFlow';
 import { computeChainOiMetrics } from './entryScan/chainMetrics';
 import { computeEffectiveCapital } from './entryScan/capitalSizing';
 import { resolveScanIndices } from './entryScan/scanIndices';
+import { rankAlphaCandidates } from './entryScan/alphaMatrix';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -1817,21 +1818,7 @@ export async function runEntryScan(ctx: {
 
     // Update global multi-index comparative alpha matrix & rank indices
     if (currentTickMultiIndexComparison.length > 0) {
-      currentTickMultiIndexComparison.sort((a, b) => {
-        const aActive = a.signalType !== 'HOLD' ? 1000 : 0;
-        const bActive = b.signalType !== 'HOLD' ? 1000 : 0;
-        return (
-          bActive +
-          (b.alphaOpportunityScore || 0) +
-          (b.confidenceScore || 0) -
-          (aActive + (a.alphaOpportunityScore || 0) + (a.confidenceScore || 0))
-        );
-      });
-      currentTickMultiIndexComparison.forEach((item, rIndex) => {
-        item.rank = rIndex + 1;
-        item.isTopPick = rIndex === 0 && item.signalType !== 'HOLD';
-      });
-      setLatestMultiIndexAlphaMatrix(currentTickMultiIndexComparison);
+      setLatestMultiIndexAlphaMatrix(rankAlphaCandidates(currentTickMultiIndexComparison));
     }
 
     // PASS 2: Multi-Index Alpha Comparison & Execution of the #1 Most Profitable Setup
