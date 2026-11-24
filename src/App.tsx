@@ -19,6 +19,7 @@ import {
 import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
 import { safeStorage } from './utils/storage';
 import { useBackendBotSync } from './hooks/useBackendBotSync';
+import { useTradingActions } from './hooks/useTradingActions';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -231,8 +232,12 @@ export const App: React.FC = () => {
         }
 
         const [botRes, configRes, historyRes] = await Promise.allSettled([
-          fetch('/api/bot/config', { signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/market/config', { headers, signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/bot/config', { signal: initCtrl.signal }).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+          fetch('/api/market/config', { headers, signal: initCtrl.signal }).then((r) =>
+            r.ok ? r.json() : null,
+          ),
           fetch('/api/history', { signal: initCtrl.signal }).then((r) => (r.ok ? r.json() : null)),
         ]);
 
@@ -295,7 +300,11 @@ export const App: React.FC = () => {
             cfg.accessToken = savedDailyToken;
             cfg.isConnected = true;
           }
-          setApiConfig((prev) => ({ ...prev, ...cfg, isConnected: Boolean(cfg.accessToken || cfg.isConnected) }));
+          setApiConfig((prev) => ({
+            ...prev,
+            ...cfg,
+            isConnected: Boolean(cfg.accessToken || cfg.isConnected),
+          }));
           if (cfg.accessToken && !serverUserExplicitMode && !hasPreferredMode) {
             setMode('UPSTOX_LIVE');
           }
@@ -330,7 +339,10 @@ export const App: React.FC = () => {
         const syncHeaders: Record<string, string> = {};
         if (syncToken) syncHeaders['Authorization'] = `Bearer ${syncToken}`;
 
-        const res = await fetch('/api/market/config', { headers: syncHeaders, signal: ctrl.signal });
+        const res = await fetch('/api/market/config', {
+          headers: syncHeaders,
+          signal: ctrl.signal,
+        });
         if (res.ok && isMounted) {
           const cfg = await res.json();
           if (cfg && typeof cfg.isConnected === 'boolean') {
@@ -340,14 +352,19 @@ export const App: React.FC = () => {
             setApiConfig((prev) => {
               const nextAccessToken = cfg.accessToken || (cfg.tokenExpired ? '' : prev.accessToken);
               const nextAvailableMargin = Number(cfg.availableMargin ?? prev.availableMargin);
-              const nextSettledCash = cfg.settledCash !== undefined ? Number(cfg.settledCash) : prev.settledCash;
-              const nextDeliverySellCredit = cfg.deliverySellCredit !== undefined ? Number(cfg.deliverySellCredit) : prev.deliverySellCredit;
+              const nextSettledCash =
+                cfg.settledCash !== undefined ? Number(cfg.settledCash) : prev.settledCash;
+              const nextDeliverySellCredit =
+                cfg.deliverySellCredit !== undefined
+                  ? Number(cfg.deliverySellCredit)
+                  : prev.deliverySellCredit;
               const nextUsedMargin = Number(cfg.usedMargin ?? prev.usedMargin);
               const nextUtilizedMargin = Number(cfg.utilizedMargin ?? prev.utilizedMargin);
               const nextPayin = Number(cfg.payin ?? prev.payin);
               const nextPayout = Number(cfg.payout ?? prev.payout);
               const nextTotalBalance = Number(cfg.totalBalance ?? prev.totalBalance);
-              const nextHoldingsCount = typeof cfg.holdingsCount === 'number' ? cfg.holdingsCount : prev.holdingsCount;
+              const nextHoldingsCount =
+                typeof cfg.holdingsCount === 'number' ? cfg.holdingsCount : prev.holdingsCount;
               const nextUserName = cfg.userName || prev.userName;
               const nextUserClientCode = cfg.userClientCode || prev.userClientCode;
               const nextTokenGeneratedAt = cfg.tokenGeneratedAt || prev.tokenGeneratedAt;
@@ -356,7 +373,10 @@ export const App: React.FC = () => {
               const nextServerOutboundIp = cfg.serverOutboundIp || prev.serverOutboundIp;
               const nextServerSecondaryIp = cfg.serverSecondaryIp || prev.serverSecondaryIp;
               const nextActualDetectedIp = cfg.actualDetectedIp || prev.actualDetectedIp;
-              const nextIsFixedProxyActive = typeof cfg.isFixedProxyActive === 'boolean' ? cfg.isFixedProxyActive : prev.isFixedProxyActive;
+              const nextIsFixedProxyActive =
+                typeof cfg.isFixedProxyActive === 'boolean'
+                  ? cfg.isFixedProxyActive
+                  : prev.isFixedProxyActive;
               const nextProxyError = cfg.proxyError ?? prev.proxyError;
 
               if (
@@ -533,7 +553,12 @@ export const App: React.FC = () => {
       const res = await fetch(url, { headers, signal: ctrl.signal });
       if (res.ok && !ctrl.signal.aborted) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.candles) && json.candles.length > 0 && !ctrl.signal.aborted) {
+        if (
+          json.success &&
+          Array.isArray(json.candles) &&
+          json.candles.length > 0 &&
+          !ctrl.signal.aborted
+        ) {
           const enriched = enrichCandlesWithIndicators(json.candles);
           setCandles(enriched);
           return;
@@ -1019,7 +1044,9 @@ export const App: React.FC = () => {
             }
           }
 
-          setPositions((prev) => (prev.length === 0 && paperPosList.length === 0 ? prev : paperPosList));
+          setPositions((prev) =>
+            prev.length === 0 && paperPosList.length === 0 ? prev : paperPosList,
+          );
 
           if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
             const oData = await paperOrdRes.value.json();
@@ -1115,7 +1142,9 @@ export const App: React.FC = () => {
               );
             }
           }
-          setPositions((prev) => (prev.length === 0 && livePosList.length === 0 ? prev : livePosList));
+          setPositions((prev) =>
+            prev.length === 0 && livePosList.length === 0 ? prev : livePosList,
+          );
 
           if (liveOrdRes.status === 'fulfilled' && liveOrdRes.value && liveOrdRes.value.ok) {
             const liveOrdData = await liveOrdRes.value.json();
@@ -1123,7 +1152,10 @@ export const App: React.FC = () => {
               setOrders((prev) => {
                 const nonLive = prev.filter((o) => (o.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
                 if (liveOrdData.length === 0 && nonLive.length === prev.length) return prev;
-                const liveMapped = liveOrdData.map((o: any) => ({ ...o, mode: 'UPSTOX_LIVE' as const }));
+                const liveMapped = liveOrdData.map((o: any) => ({
+                  ...o,
+                  mode: 'UPSTOX_LIVE' as const,
+                }));
                 return [...liveMapped, ...nonLive];
               });
             }
@@ -1134,7 +1166,10 @@ export const App: React.FC = () => {
               setTradeHistory((prev) => {
                 const nonLive = prev.filter((t) => (t.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
                 if (liveHistData.length === 0 && nonLive.length === prev.length) return prev;
-                const liveMapped = liveHistData.map((t: any) => ({ ...t, mode: 'UPSTOX_LIVE' as const }));
+                const liveMapped = liveHistData.map((t: any) => ({
+                  ...t,
+                  mode: 'UPSTOX_LIVE' as const,
+                }));
                 return [...liveMapped, ...nonLive].sort((a, b) => {
                   const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
                   const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
@@ -1294,202 +1329,29 @@ export const App: React.FC = () => {
     setIsOrderModalOpen(false);
   };
 
-  // Square off single position (both Paper Trading and Upstox Live)
-  const handleSquareOffPosition = async (id: string) => {
-    const pos = positions.find((p) => p.id === id);
-    if (!pos) return;
-
-    const sellPrice = pos.currentLTP;
-    const grossPnL = (sellPrice - pos.buyPrice) * pos.quantity;
-    const posMode = pos.mode || mode;
-
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const savedTok = safeStorage.getItem('upstox_daily_token');
-      if (savedTok && savedTok.length > 30) {
-        headers['Authorization'] = `Bearer ${savedTok}`;
-      }
-      const res = await fetch(`/api/trading/squareoff/${encodeURIComponent(pos.id)}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          mode: posMode,
-          symbol: pos.symbol,
-          instrumentKey: pos.instrumentKey,
-          quantity: pos.quantity,
-          productType: pos.productType,
-          type: pos.type,
-          sellPrice,
-        }),
-      });
-      const data = await res.json();
-      if (posMode === 'UPSTOX_LIVE' && !data.success) {
-        setBotLogs((prev) => [
-          {
-            id: Date.now().toString(),
-            timestamp: new Date().toLocaleTimeString(),
-            message: `[SQUARE-OFF ERROR] ${data.error || 'Could not square off live position on Upstox'}`,
-            type: 'ERROR',
-          },
-          ...prev.slice(0, 199),
-        ]);
-        return;
-      }
-    } catch {
-      // Ignored
-    }
-
-    const closedPos: Position = {
-      ...pos,
-      sellPrice,
-      realizedPnL: grossPnL,
-      closeTime: new Date().toISOString(),
-    };
-
-    setPositions((prev) => prev.filter((p) => p.id !== id));
-    setTradeHistory((prev) => [closedPos, ...prev]);
-
-    // Record close order
-    const exitOrderIdTime = Date.now().toString().slice(-6);
-    const exitOrder: Order = {
-      id: `ord_${Date.now()}`,
-      orderId: `UP_${exitOrderIdTime}`,
-      symbol: pos.symbol,
-      instrumentKey: pos.instrumentKey,
-      transactionType: 'SELL',
-      orderType: 'MARKET',
-      productType: pos.productType,
-      quantity: pos.quantity,
-      price: sellPrice,
-      executedPrice: sellPrice,
-      status: 'COMPLETE',
-      timestamp: new Date().toLocaleTimeString(),
-      mode,
-      notes: 'Manual Square-Off',
-    };
-    setOrders((prev) => [exitOrder, ...prev]);
-
-    if (soundEnabled) {
-      soundEngine.play(grossPnL >= 0 ? 'SUCCESS' : 'ALERT');
-      if (grossPnL >= 0) {
-        soundEngine.speak(
-          language === 'ml'
-            ? `ലാഭം ₹${grossPnL.toFixed(0)} ബുക്ക് ചെയ്തു!`
-            : `Profit of ${grossPnL.toFixed(0)} rupees locked!`,
-          language,
-        );
-      } else {
-        soundEngine.speak(
-          language === 'ml' ? `സ്റ്റോപ്പ് ലോസ് എക്സിറ്റ് ആയി!` : `Stop loss exit triggered!`,
-          language,
-        );
-      }
-    }
-  };
-
-  // Square off all positions
-  const handleSquareOffAll = () => {
-    positions.forEach((p) => handleSquareOffPosition(p.id));
-  };
-
-  // Square off equity-only positions (keeping options & holdings untouched)
-  const handleSquareOffEquityOnly = () => {
-    setIsEquityExitConfirmOpen(true);
-  };
-
-  const confirmSquareOffEquityOnly = async () => {
-    setIsEquityExitConfirmOpen(false);
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const savedTok = safeStorage.getItem('upstox_daily_token');
-      if (savedTok && savedTok.length > 30) {
-        headers['Authorization'] = `Bearer ${savedTok}`;
-      }
-      const res = await fetch('/api/trading/squareoff-equity-only', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ mode }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setPositions((prev) =>
-          prev.filter((p) => p.isOption || p.symbol.includes('CE') || p.symbol.includes('PE')),
-        );
-        setBotLogs((prev) => [
-          {
-            id: Date.now().toString(),
-            timestamp: new Date().toLocaleTimeString(),
-            message:
-              language === 'ml'
-                ? `✅ ഇന്നത്തെ എല്ലാ ഇക്വിറ്റി ട്രേഡുകളും എക്സിറ്റ് ചെയ്തു. (ഹോൾഡിംഗുകൾ സുരക്ഷിതം)`
-                : `✅ Exited all equity trades. (Holdings untouched)`,
-            type: 'SUCCESS',
-          },
-          ...prev.slice(0, 199),
-        ]);
-        if (soundEnabled) {
-          soundEngine.play('SUCCESS');
-          soundEngine.speak(
-            language === 'ml'
-              ? 'ഇക്വിറ്റി ട്രേഡുകൾ എക്സിറ്റ് ചെയ്തു'
-              : 'Equity trades exited',
-            language,
-          );
-        }
-      }
-    } catch (e: any) {
-      console.error('Failed to square off equity only:', e);
-    }
-  };
-
-  const handleSyncHistoryBrokerage = async () => {
-    try {
-      const res = await fetch('/api/bot/sync-history-brokerage', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        // Refresh history to see updated brokerage from API
-        fetchHistory();
-      }
-    } catch (err) {
-      console.error('Failed to sync history brokerage:', err);
-    }
-  };
-
-  const handleResetPaperAccount = () => {
-    setIsResetConfirmOpen(true);
-  };
-
-  const confirmResetPaperAccount = async () => {
-    setIsResetConfirmOpen(false);
-    try {
-      const res = await fetch('/api/paper/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initialCapital: 10000 }),
-      });
-      if (res.ok) {
-        setOrders([]);
-        setPositions([]);
-        setTradeHistory([]);
-        setBotLogs([]);
-        safeStorage.removeItem('aizabiz_persisted_orders_v2');
-        safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
-        safeStorage.removeItem('aizabiz_persisted_orders_v3');
-        safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
-        setLightingBanner({
-          id: `reset-${Date.now()}`,
-          title: language === 'ml' ? 'പേപ്പർ അക്കൗണ്ട് റീസെറ്റ് ചെയ്തു' : 'Paper Account Reset',
-          subtitle:
-            language === 'ml'
-              ? 'ട്രേഡിംഗ് ഹിസ്റ്ററി ക്ലിയർ ചെയ്ത് ബാലൻസ് ₹10,000 ആയി സെറ്റ് ചെയ്തു.'
-              : 'Trade history cleared and balance reset to ₹10,000.',
-          type: 'SUCCESS',
-        } as any);
-      }
-    } catch (e) {
-      console.error('Failed to reset account', e);
-    }
-  };
+  // Square-off, paper reset and brokerage-sync actions (see useTradingActions)
+  const {
+    handleSquareOffPosition,
+    handleSquareOffAll,
+    handleSquareOffEquityOnly,
+    confirmSquareOffEquityOnly,
+    handleSyncHistoryBrokerage,
+    handleResetPaperAccount,
+    confirmResetPaperAccount,
+  } = useTradingActions({
+    positions,
+    mode,
+    language,
+    soundEnabled,
+    setPositions,
+    setOrders,
+    setTradeHistory,
+    setBotLogs,
+    setLightingBanner,
+    setIsResetConfirmOpen,
+    setIsEquityExitConfirmOpen,
+    fetchHistory,
+  });
 
   // Dedicated Option Premium & Instrument Chart Handler (Supports running positions, history, orders & holdings)
   const handleViewChart = useCallback(
@@ -1740,7 +1602,6 @@ export const App: React.FC = () => {
     }
   }, [activeTab, geminiAnalysis, aiLoading, handleFetchGeminiAnalysis]);
 
-
   // 5. Multi-Tier Audio & Visual Lighting Alert Monitor for Positions & Holdings
   usePositionAlerts({ positions, holdings, soundEnabled, setLightingBanner });
 
@@ -1986,7 +1847,9 @@ export const App: React.FC = () => {
         <div className="fixed inset-0 z-[1000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-sm rounded-2xl bg-[#0b101d] border border-slate-800 p-5 shadow-2xl space-y-4">
             <h3 className="text-base font-black text-white">
-              {language === 'ml' ? 'പേപ്പർ അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണോ?' : 'Reset Paper Trading Account?'}
+              {language === 'ml'
+                ? 'പേപ്പർ അക്കൗണ്ട് റീസെറ്റ് ചെയ്യണോ?'
+                : 'Reset Paper Trading Account?'}
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
               {language === 'ml'
