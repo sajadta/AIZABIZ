@@ -26,6 +26,7 @@ import { computeOptionStopLossPlan } from './positionMonitor/stopLoss';
 import { handleShortOptionExit, isShortOptionPosition } from './positionMonitor/shortOptionExit';
 import { detectUnderlyingReversal, isCallOptionSymbol } from './positionMonitor/underlyingReversal';
 import { evaluateOptionTrend } from './positionMonitor/optionTrend';
+import { computeTrailingStopLadder } from './positionMonitor/trailingLadder';
 import { sendTelegramNotification } from '.././notifications';
 import { savePostgresDb, getPaperInitialCapital } from '.././persistence';
 import { shouldMonitorEquityPosition } from '../../lib/portfolioNormalize';
@@ -390,74 +391,18 @@ export async function monitorActivePositions(ctx: {
                 isCorporateOrMacroTurningAgainst)) ||
             (isUnderlyingParametersReversing && dropFromPeakPct >= 7.5));
 
-        // 1. DYNAMIC MAXIMUM PROFIT TREND-RIDING & ASYMMETRIC REWARD ENGINE
-        // Mandate: "Labham nashtapedathe maximum profit pidichedukkenam"
-        let candidateStopLoss = staticStopLossPrice;
-
-        const tier0NetTrigger = isMicroDeployedOpt ? 45 : 75;
-        const tier1NetTrigger = isMicroDeployedOpt ? 85 : 150;
-        const slCushion = Math.max(0.25, Number((avgOptionAtr * 0.2).toFixed(2)));
-        const maxNonTriggerSlCap = Number(Math.max(staticStopLossPrice, ltp - 0.15).toFixed(2));
-
-        // Tier 0: Only lock Breakeven (incl. Upstox brokerage) AFTER live LTP is cleanly above breakEvenWithBrokerage!
-        // Prevents setting SL >= current LTP on cheap options where brokerage is a high % of buyPrice.
-        if (
-          (peakGainPct >= 8.0 || posNetPnL >= tier0NetTrigger) &&
-          ltp >= breakEvenWithBrokerage + slCushion
-        ) {
-          candidateStopLoss = Math.max(
-            candidateStopLoss,
-            Math.min(breakEvenWithBrokerage, maxNonTriggerSlCap),
-          );
-        }
-
-        // Tier 1: Zero-Loss Vault (Only lock guaranteed net profit floor once LTP has cleared minZeroLossPrice + cushion)
-        if (
-          (peakGainPct >= 15.0 || posNetPnL >= tier1NetTrigger) &&
-          ltp >= minZeroLossPrice + slCushion
-        ) {
-          candidateStopLoss = Math.max(
-            candidateStopLoss,
-            Math.min(minZeroLossPrice, maxNonTriggerSlCap),
-          );
-        }
-
-        if (
-          peakGainPct >= 25.0 &&
-          peakGainPct < 35.0 &&
-          netPeakPoints > 0 &&
-          ltp >= minZeroLossPrice
-        ) {
-          const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.65).toFixed(2));
-          const breathingRoomPrice = Number((peakLtp * 0.9).toFixed(2));
-          candidateStopLoss = Math.max(
-            candidateStopLoss,
-            minZeroLossPrice,
-            Math.max(dynamicPeakGainLock, breathingRoomPrice),
-          );
-        } else if (
-          peakGainPct >= 35.0 &&
-          peakGainPct < 55.0 &&
-          netPeakPoints > 0 &&
-          ltp >= minZeroLossPrice
-        ) {
-          const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.8).toFixed(2));
-          const breathingRoomPrice = Number((peakLtp * 0.92).toFixed(2));
-          candidateStopLoss = Math.max(
-            candidateStopLoss,
-            minZeroLossPrice,
-            Math.max(dynamicPeakGainLock, breathingRoomPrice),
-          );
-        } else if (peakGainPct >= 55.0 && netPeakPoints > 0 && ltp >= minZeroLossPrice) {
-          const dynamicPeakGainLock = Number((pos.buyPrice + netPeakPoints * 0.88).toFixed(2));
-          const breathingRoomPrice = Number((peakLtp * 0.94).toFixed(2));
-          candidateStopLoss = Math.max(
-            candidateStopLoss,
-            minZeroLossPrice,
-            Math.max(dynamicPeakGainLock, breathingRoomPrice),
-          );
-        }
-
+        const candidateStopLoss = computeTrailingStopLadder({
+          staticStopLossPrice,
+          isMicroDeployedOpt,
+          avgOptionAtr,
+          ltp,
+          buyPrice: pos.buyPrice,
+          posNetPnL,
+          peakGainPct,
+          peakLtp,
+          breakEvenWithBrokerage,
+          minZeroLossPrice,
+        });
         const previousLockedStop = Number(
           pos.lockedStopLossPrice || activeTracker?.lockedStopLossPrice || staticStopLossPrice,
         );
