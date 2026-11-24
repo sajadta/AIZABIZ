@@ -37,18 +37,13 @@ import { usePriceAlerts } from './hooks/usePriceAlerts';
 import { usePositionAlerts } from './hooks/usePositionAlerts';
 import { useMarketSessionClock } from './hooks/useMarketSessionClock';
 import { useAppUiState } from './hooks/useAppUiState';
+import { useAppShellActions } from './hooks/useAppShellActions';
 import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
-import { Header } from './components/Header';
-import { TickerBar } from './components/TickerBar';
+import { AppChrome } from './components/app/AppChrome';
 import { AppWorkspace } from './components/app/AppWorkspace';
-import { AppTopSections } from './components/app/AppTopSections';
-import { AppInspectionBanner } from './components/app/AppInspectionBanner';
-import { AppIpWhitelistNotice } from './components/app/AppIpWhitelistNotice';
+import { AppOverlays } from './components/app/AppOverlays';
 import { AppDesktopNav } from './components/app/AppDesktopNav';
 import { AppTabContent } from './components/app/AppTabContent';
-import { AppMobileNav } from './components/app/AppMobileNav';
-import { AppModals } from './components/app/AppModals';
-import { AppConfirmDialogs } from './components/app/AppConfirmDialogs';
 import {
   enrichCandlesWithIndicators,
   analyzeTradingSignals,
@@ -110,6 +105,7 @@ export const App: React.FC = () => {
     isTerminalLocked,
     setIsTerminalLocked,
   } = useAppUiState();
+
   const marketSession = useMarketSessionClock({ soundEnabled, setLightingBanner });
 
   // Quotes and Selection
@@ -121,6 +117,11 @@ export const App: React.FC = () => {
 
   // Bot state
   const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
+
+  const { handleModeChange, handleToggleBot, handleIndexFocus } = useAppShellActions({
+    setMode,
+    setBotConfig,
+  });
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
 
@@ -395,109 +396,57 @@ export const App: React.FC = () => {
   const t = translations[language];
   return (
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] w-full max-w-full bg-[#070a12] text-slate-100 overflow-hidden font-sans select-none">
-      <Header
-        isWsConnected={isWsConnected}
-        mode={mode}
-        setMode={(newMode) => {
-          safeStorage.setItem('aizabiz_preferred_trading_mode', newMode);
-          setMode(newMode);
-          setBotConfig((prev) => {
-            const updated = { ...prev, mode: newMode };
-            fetch('/api/bot/config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(updated),
-            }).catch(() => {
-              /* ignore */
-            });
-            return updated;
-          });
+      <AppChrome
+        header={{
+          isWsConnected,
+          mode,
+          language,
+          setLanguage,
+          soundEnabled,
+          setSoundEnabled,
+          apiConfig,
+          activePositionsCount: positions.length,
+          onSquareOffAll: handleSquareOffAll,
+          totalPnL: totalNetMtm,
+          dailyProfit: todayProfit,
+          cumulativeProfit: totalCumulativeProfit,
+          virtualCapital: paperAccountBalance,
+          onResetPaperAccount: handleResetPaperAccount,
+          botEnabled: botConfig.enabled,
         }}
-        language={language}
-        setLanguage={setLanguage}
-        soundEnabled={soundEnabled}
-        setSoundEnabled={setSoundEnabled}
-        apiConfig={apiConfig}
+        onModeChange={handleModeChange}
         onOpenApiSettings={() => setIsApiModalOpen(true)}
         onOpenAndroidModal={() => setIsAndroidModalOpen(true)}
-        activePositionsCount={positions.length}
-        onSquareOffAll={handleSquareOffAll}
-        totalPnL={totalNetMtm}
-        dailyProfit={todayProfit}
-        cumulativeProfit={totalCumulativeProfit}
-        virtualCapital={paperAccountBalance}
         onOpenAlerts={() => setIsAlertsModalOpen(true)}
-        onResetPaperAccount={handleResetPaperAccount}
-        botEnabled={botConfig.enabled}
-        onToggleBot={() => {
-          const newState = !botConfig.enabled;
-          setBotConfig((prev) => {
-            const updated = { ...prev, enabled: newState, dailyLossLocked: false };
-            fetch('/api/bot/config', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(updated),
-            }).catch(() => {
-              /* ignore */
-            });
-            return updated;
-          });
+        onToggleBot={handleToggleBot}
+        onOpenApiModal={() => setIsApiModalOpen(true)}
+        topSections={{
+          apiConfig,
+          language,
+          lightingBanner,
+          setLightingBanner,
+          triggerAlertEvent,
+          marketSession,
         }}
-      />
-
-      <AppTopSections
-        apiConfig={apiConfig}
-        language={language}
-        lightingBanner={lightingBanner}
-        setLightingBanner={setLightingBanner}
-        triggerAlertEvent={triggerAlertEvent}
-        marketSession={marketSession}
-      />
-
-      <TickerBar
-        quotes={quotes}
-        selectedSymbol={selectedSymbol}
-        onSelectSymbol={(sym, key) => {
-          setSelectedSymbol(sym);
-          if (key) setSelectedInstrumentKey(key);
-
-          // Auto-sync Algo Bot focus when clicking an index in the ticker bar
-          const indexPriorityMap: Record<string, string> = {
-            'NIFTY 50': 'NIFTY_50_ONLY',
-            BANKNIFTY: 'BANKNIFTY_ONLY',
-            SENSEX: 'SENSEX_ONLY',
-            FINNIFTY: 'FINNIFTY_ONLY',
-            MIDCPNIFTY: 'MIDCPNIFTY_ONLY',
-            BANKEX: 'BANKEX_ONLY',
-          };
-
-          if (indexPriorityMap[sym]) {
-            setBotConfig((prev) => {
-              const updated = { ...prev, selectedIndexPriority: indexPriorityMap[sym] as any };
-              fetch('/api/bot/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updated),
-              }).catch(() => {
-                /* ignore */
-              });
-              return updated;
-            });
-          }
+        tickerBar={{
+          quotes,
+          selectedSymbol,
+          onSelectSymbol: (sym, key) => {
+            setSelectedSymbol(sym);
+            if (key) setSelectedInstrumentKey(key);
+            handleIndexFocus(sym);
+          },
         }}
-      />
-
-      <AppInspectionBanner botLogs={botLogs} language={language} />
-
-      <AppIpWhitelistNotice
-        botLogs={botLogs}
-        dismissedIpWarning={dismissedIpWarning}
-        ipCopiedNotice={ipCopiedNotice}
-        language={language}
-        setDismissedIpWarning={setDismissedIpWarning}
-        setIpCopiedNotice={setIpCopiedNotice}
-        setIsApiModalOpen={setIsApiModalOpen}
-        serverSecondaryIp={apiConfig.actualDetectedIp || apiConfig.serverSecondaryIp}
+        inspection={{ botLogs, language }}
+        ipNotice={{
+          botLogs,
+          dismissedIpWarning,
+          ipCopiedNotice,
+          language,
+          setDismissedIpWarning,
+          setIpCopiedNotice,
+          serverSecondaryIp: apiConfig.actualDetectedIp || apiConfig.serverSecondaryIp,
+        }}
       />
 
       {/* 3. MAIN WORKSPACE */}
@@ -562,50 +511,44 @@ export const App: React.FC = () => {
         }}
       />
 
-      <AppMobileNav
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        botConfig={botConfig}
-        positions={positions}
-        language={language}
-      />
-
-      <AppModals
-        isOrderModalOpen={isOrderModalOpen}
-        setIsOrderModalOpen={setIsOrderModalOpen}
-        orderModalData={orderModalData}
-        apiConfig={apiConfig}
-        botConfig={botConfig}
-        mode={mode}
-        handlePlaceOrder={handlePlaceOrder}
-        language={language}
-        isApiModalOpen={isApiModalOpen}
-        setIsApiModalOpen={setIsApiModalOpen}
-        fetchHoldings={fetchHoldings}
-        fetchLivePositions={fetchLivePositions}
-        setApiConfig={setApiConfig}
-        isAlertsModalOpen={isAlertsModalOpen}
-        priceAlerts={priceAlerts}
-        setIsAlertsModalOpen={setIsAlertsModalOpen}
-        handleAddAlert={handleAddAlert}
-        handleRemoveAlert={handleRemoveAlert}
-        isAndroidModalOpen={isAndroidModalOpen}
-        setIsAndroidModalOpen={setIsAndroidModalOpen}
-        isOnboardingOpen={isOnboardingOpen}
-        setIsOnboardingOpen={setIsOnboardingOpen}
-        isTerminalLocked={isTerminalLocked}
-        setIsTerminalLocked={setIsTerminalLocked}
-        paperAccountBalance={paperAccountBalance}
-      />
-
-      <AppConfirmDialogs
-        language={language}
-        isResetConfirmOpen={isResetConfirmOpen}
-        setIsResetConfirmOpen={setIsResetConfirmOpen}
-        confirmResetPaperAccount={confirmResetPaperAccount}
-        isEquityExitConfirmOpen={isEquityExitConfirmOpen}
-        setIsEquityExitConfirmOpen={setIsEquityExitConfirmOpen}
-        confirmSquareOffEquityOnly={confirmSquareOffEquityOnly}
+      <AppOverlays
+        mobileNav={{ activeTab, setActiveTab, botConfig, positions, language }}
+        modals={{
+          isOrderModalOpen,
+          setIsOrderModalOpen,
+          orderModalData,
+          apiConfig,
+          botConfig,
+          mode,
+          handlePlaceOrder,
+          language,
+          isApiModalOpen,
+          setIsApiModalOpen,
+          fetchHoldings,
+          fetchLivePositions,
+          setApiConfig,
+          isAlertsModalOpen,
+          priceAlerts,
+          setIsAlertsModalOpen,
+          handleAddAlert,
+          handleRemoveAlert,
+          isAndroidModalOpen,
+          setIsAndroidModalOpen,
+          isOnboardingOpen,
+          setIsOnboardingOpen,
+          isTerminalLocked,
+          setIsTerminalLocked,
+          paperAccountBalance,
+        }}
+        confirmDialogs={{
+          language,
+          isResetConfirmOpen,
+          setIsResetConfirmOpen,
+          confirmResetPaperAccount,
+          isEquityExitConfirmOpen,
+          setIsEquityExitConfirmOpen,
+          confirmSquareOffEquityOnly,
+        }}
       />
     </div>
   );
