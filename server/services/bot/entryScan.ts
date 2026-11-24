@@ -60,6 +60,7 @@ import {
   getTradeNetPnL,
 } from './entryScan/sessionCircuit';
 import { getFiveYearRegime } from './entryScan/fiveYearRegime';
+import { computeInstitutionalFlow } from './entryScan/institutionalFlow';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -316,88 +317,12 @@ export async function runEntryScan(ctx: {
             if (liveLtp < lastRaw.low) lastRaw.low = liveLtp;
           }
 
-          // Compute Live Corporate Heavyweight Flow & Global/Macro Sector Alignment from live Upstox quotes
-          const isBankIndex = idx.symbol.includes('BANK') || idx.symbol.includes('FIN');
-          const heavyweightDefs = isBankIndex
-            ? [
-                { sym: 'HDFCBANK', key: 'NSE_EQ|INE040A01034', weight: 28 },
-                { sym: 'ICICIBANK', key: 'NSE_EQ|INE090A01021', weight: 24 },
-                { sym: 'SBIN', key: 'NSE_EQ|INE062A01020', weight: 12 },
-                { sym: 'AXISBANK', key: 'NSE_EQ|INE238A01034', weight: 10 },
-                { sym: 'KOTAKBANK', key: 'NSE_EQ|INE237A01028', weight: 10 },
-                { sym: 'INDUSINDBK', key: 'NSE_EQ|INE095A01012', weight: 6 },
-              ]
-            : [
-                { sym: 'HDFCBANK', key: 'NSE_EQ|INE040A01034', weight: 13 },
-                { sym: 'RELIANCE', key: 'NSE_EQ|INE002A01018', weight: 11 },
-                { sym: 'ICICIBANK', key: 'NSE_EQ|INE090A01021', weight: 9 },
-                { sym: 'INFY', key: 'NSE_EQ|INE009A01021', weight: 7 },
-                { sym: 'TCS', key: 'NSE_EQ|INE467B01029', weight: 6 },
-                { sym: 'ITC', key: 'NSE_EQ|INE154A01025', weight: 5 },
-                { sym: 'LT', key: 'NSE_EQ|INE018A01030', weight: 5 },
-                { sym: 'SBIN', key: 'NSE_EQ|INE062A01020', weight: 4 },
-              ];
-
-          let weightedBull = 0;
-          let totalWeightTracked = 0;
-          const bullMovers: string[] = [];
-          const bearMovers: string[] = [];
-
-          for (const hw of heavyweightDefs) {
-            const q =
-              liveQuotesMap[hw.key] ||
-              globalLiveQuotes[hw.key] ||
-              Object.values(liveQuotesMap).find(
-                (item: any) =>
-                  item?.instrument_token === hw.key ||
-                  String(item?.symbol || '').toUpperCase() === hw.sym,
-              );
-            if (q && Number(q.last_price) > 0) {
-              const ltpHw = Number(q.last_price);
-              const openHw = Number(q.ohlc?.open || ltpHw);
-              const netChg = q.net_change !== undefined ? Number(q.net_change) : ltpHw - openHw;
-              totalWeightTracked += hw.weight;
-              if (netChg > 0 && ltpHw >= openHw) {
-                weightedBull += hw.weight;
-                bullMovers.push(`${hw.sym} ↑`);
-              } else if (netChg < 0 && ltpHw <= openHw) {
-                weightedBull -= hw.weight;
-                bearMovers.push(`${hw.sym} ↓`);
-              }
-            }
-          }
-
-          const corporateHeavyweightScore =
-            totalWeightTracked > 0 ? Math.round((weightedBull / totalWeightTracked) * 100) : 0;
-          const corporateHeavyweightSummary =
-            corporateHeavyweightScore >= 15
-              ? `Heavyweights Bullish (${bullMovers.slice(0, 4).join(', ') || 'Top Corporates Buying'})`
-              : corporateHeavyweightScore <= -15
-                ? `Heavyweights Bearish (${bearMovers.slice(0, 4).join(', ') || 'Top Corporates Selling'})`
-                : `Mixed Heavyweight Flow (${[...bullMovers.slice(0, 2), ...bearMovers.slice(0, 2)].join(', ') || 'Neutral'})`;
-
-          // Global Tech Proxy (INFY + TCS) + Broad Index Breadth
-          const infyQ =
-            liveQuotesMap['NSE_EQ|INE009A01021'] || globalLiveQuotes['NSE_EQ|INE009A01021'];
-          const tcsQ =
-            liveQuotesMap['NSE_EQ|INE467B01029'] || globalLiveQuotes['NSE_EQ|INE467B01029'];
-          const niftyQ =
-            liveQuotesMap['NSE_INDEX|Nifty 50'] || globalLiveQuotes['NSE_INDEX|Nifty 50'];
-          const bankQ =
-            liveQuotesMap['NSE_INDEX|Nifty Bank'] || globalLiveQuotes['NSE_INDEX|Nifty Bank'];
-          let macroBullCount = 0;
-          let macroBearCount = 0;
-          for (const mqItem of [infyQ, tcsQ, niftyQ, bankQ]) {
-            if (mqItem && Number(mqItem.last_price) > 0) {
-              const chg = Number(
-                mqItem.net_change ?? mqItem.last_price - (mqItem.ohlc?.open || mqItem.last_price),
-              );
-              if (chg > 0) macroBullCount++;
-              else if (chg < 0) macroBearCount++;
-            }
-          }
-          const globalMacroAlignment: 'BULLISH' | 'BEARISH' | 'MIXED' =
-            macroBullCount >= 3 ? 'BULLISH' : macroBearCount >= 3 ? 'BEARISH' : 'MIXED';
+          const {
+            corporateHeavyweightScore,
+            corporateHeavyweightSummary,
+            globalMacroAlignment,
+            bankQuote: bankQ,
+          } = computeInstitutionalFlow(idx.symbol, liveQuotesMap, globalLiveQuotes);
 
           const enriched = enrichCandlesWithIndicators(rawCandles);
 
