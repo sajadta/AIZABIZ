@@ -1,8 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { Clock, Scale, BarChart3, CheckCircle2, XCircle, ChevronDown, ChevronUp, Calendar, Globe, Zap, Coins } from 'lucide-react';
+import {
+  Clock,
+  Scale,
+  BarChart3,
+  CheckCircle2,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Globe,
+  Zap,
+  Coins,
+} from 'lucide-react';
 import { Position, Language } from '../types';
 import { calculateTradeCharges } from '../utils/indicators';
 import { computeMetrics, getTradeSessionDate, formatDurationString } from './performance/metrics';
+import { CompareView } from './performance/CompareView';
 
 interface PerformanceOverviewCardProps {
   tradeHistory: Position[];
@@ -23,8 +36,11 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
 
   // Compute metrics helper
   // Filter Today's trades (IST based on when the trade was opened/taken)
-  const todayIst = useMemo(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), []);
-  
+  const todayIst = useMemo(
+    () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+    [],
+  );
+
   const todayTrades = useMemo(() => {
     return closedTradesOnly.filter((t) => getTradeSessionDate(t, todayIst) === todayIst);
   }, [closedTradesOnly, todayIst]);
@@ -60,9 +76,9 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
               </div>
             </div>
             <p className="text-[10px] sm:text-[11px] text-slate-400 truncate hidden sm:block">
-              {language === 'ml' 
-                ? 'ഒരു ദിവസത്തെ ട്രേഡിംഗ് ലാഭവും ആകെ മൊത്തം ഹിസ്റ്ററിയും പ്രത്യേകം തിരിച്ച് കാണിക്കുന്നു' 
-                : "Distinct daily trading profits and total cumulative performance metrics"}
+              {language === 'ml'
+                ? 'ഒരു ദിവസത്തെ ട്രേഡിംഗ് ലാഭവും ആകെ മൊത്തം ഹിസ്റ്ററിയും പ്രത്യേകം തിരിച്ച് കാണിക്കുന്നു'
+                : 'Distinct daily trading profits and total cumulative performance metrics'}
             </p>
           </div>
         </div>
@@ -70,9 +86,14 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
         {/* Both Today and All-Time P&L Badges + Expand Toggle */}
         <div className="flex items-center gap-2 shrink-0">
           {/* Today Net P&L */}
-          <div className={`px-2.5 py-1 rounded-xl border flex items-center gap-1.5 ${
-            isTodayPositive ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400' : 'bg-rose-950/40 border-rose-800/60 text-rose-400'
-          }`} title={language === 'ml' ? 'ഇന്നത്തെ അറ്റ ലാഭം / നഷ്ടം' : "Today's Net Realized P&L"}>
+          <div
+            className={`px-2.5 py-1 rounded-xl border flex items-center gap-1.5 ${
+              isTodayPositive
+                ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-400'
+                : 'bg-rose-950/40 border-rose-800/60 text-rose-400'
+            }`}
+            title={language === 'ml' ? 'ഇന്നത്തെ അറ്റ ലാഭം / നഷ്ടം' : "Today's Net Realized P&L"}
+          >
             <span className="text-[9px] uppercase font-bold text-slate-400 font-sans">
               {language === 'ml' ? 'ഇന്ന്:' : 'Day:'}
             </span>
@@ -82,9 +103,18 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
           </div>
 
           {/* Total Cumulative Net P&L */}
-          <div className={`px-2.5 py-1 rounded-xl border flex items-center gap-1.5 ${
-            isAllTimePositive ? 'bg-indigo-950/40 border-indigo-700/60 text-cyan-300' : 'bg-rose-950/40 border-rose-800/60 text-rose-400'
-          }`} title={language === 'ml' ? 'ആകെ മൊത്തം അറ്റ ലാഭം / നഷ്ടം' : "Total Cumulative Net Realized P&L"}>
+          <div
+            className={`px-2.5 py-1 rounded-xl border flex items-center gap-1.5 ${
+              isAllTimePositive
+                ? 'bg-indigo-950/40 border-indigo-700/60 text-cyan-300'
+                : 'bg-rose-950/40 border-rose-800/60 text-rose-400'
+            }`}
+            title={
+              language === 'ml'
+                ? 'ആകെ മൊത്തം അറ്റ ലാഭം / നഷ്ടം'
+                : 'Total Cumulative Net Realized P&L'
+            }
+          >
             <span className="text-[9px] uppercase font-bold text-indigo-300 font-sans">
               {language === 'ml' ? 'ആകെ:' : 'Total:'}
             </span>
@@ -117,201 +147,57 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                 type="button"
                 onClick={() => setTimeView('COMPARE')}
                 className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                  timeView === 'COMPARE' 
-                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md' 
+                  timeView === 'COMPARE'
+                    ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Zap className="w-3.5 h-3.5 text-amber-300" />
-                <span>{language === 'ml' ? '⚡ രണ്ടും പ്രത്യേകം (സെപ്പറേറ്റ് താരതമ്യം)' : '⚡ Separate Comparison'}</span>
+                <span>
+                  {language === 'ml'
+                    ? '⚡ രണ്ടും പ്രത്യേകം (സെപ്പറേറ്റ് താരതമ്യം)'
+                    : '⚡ Separate Comparison'}
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => setTimeView('TODAY')}
                 className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                  timeView === 'TODAY' 
-                    ? 'bg-emerald-600 text-white shadow-md' 
+                  timeView === 'TODAY'
+                    ? 'bg-emerald-600 text-white shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Calendar className="w-3.5 h-3.5" />
-                <span>{language === 'ml' ? '📅 ഇന്നത്തെ ട്രേഡുകൾ (Today)' : "📅 Today's Trades"}</span>
+                <span>
+                  {language === 'ml' ? '📅 ഇന്നത്തെ ട്രേഡുകൾ (Today)' : "📅 Today's Trades"}
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => setTimeView('ALL_TIME')}
                 className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                  timeView === 'ALL_TIME' 
-                    ? 'bg-indigo-600 text-white shadow-md' 
+                  timeView === 'ALL_TIME'
+                    ? 'bg-indigo-600 text-white shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <Globe className="w-3.5 h-3.5" />
-                <span>{language === 'ml' ? '🌐 ആകെ ഹിസ്റ്ററി (All-Time)' : '🌐 All-Time History'}</span>
+                <span>
+                  {language === 'ml' ? '🌐 ആകെ ഹിസ്റ്ററി (All-Time)' : '🌐 All-Time History'}
+                </span>
               </button>
             </div>
           </div>
 
-          {/* DUAL COMPARISON VIEW (When COMPARE is active) */}
           {timeView === 'COMPARE' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              
-              {/* SECTION 1: TODAY'S TRADING SUMMARY */}
-              <div className="p-4 rounded-xl border border-emerald-900/50 bg-gradient-to-br from-emerald-950/20 via-slate-900 to-slate-950 space-y-3 shadow-lg">
-                <div className="flex items-center justify-between pb-2 border-b border-emerald-900/40">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
-                      <Calendar className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-black text-emerald-300 tracking-tight uppercase">
-                        {language === 'ml' ? '📅 ഇന്നത്തെ ട്രേഡിംഗ് സംഗ്രഹം (Today)' : "📅 Today's Trading Performance"}
-                      </h4>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {todayIst} • {todayTrades.length} {language === 'ml' ? 'ട്രേഡുകൾ' : 'Trades'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {language === 'ml' ? 'ഇന്നത്തെ അറ്റ ലാഭം' : 'Today Net P&L'}
-                    </span>
-                    <span className={`text-base sm:text-lg font-black font-mono ${isTodayPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isTodayPositive ? '+' : ''}₹{todayMetrics.totalNetRealizedPnL.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 4 Mini Cards for Today */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-emerald-400 block">
-                      {language === 'ml' ? 'ഇന്നത്തെ ലാഭം (Gross)' : 'Today Gross Win'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-emerald-300 mt-0.5 block">
-                      +₹{todayMetrics.grossProfit.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {todayMetrics.winningTrades} {language === 'ml' ? 'വിജയം' : 'Wins'} ({todayMetrics.winRatePercent}%)
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-rose-400 block">
-                      {language === 'ml' ? 'ഇന്നത്തെ നഷ്ടം (Gross)' : 'Today Gross Loss'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-rose-400 mt-0.5 block">
-                      -₹{todayMetrics.grossLoss.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {todayMetrics.losingTrades} {language === 'ml' ? 'നഷ്ടം' : 'Losses'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-amber-300 block">
-                      {language === 'ml' ? 'ഇന്നത്തെ ബ്രോക്കറേജ്' : 'Today Brokerage & Taxes'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-amber-300 mt-0.5 block">
-                      ₹{todayMetrics.totalBrokerageCharges.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {language === 'ml' ? 'നികുതികൾ ഉൾപ്പെടെ' : 'All Govt & Broker fees'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-cyan-300 block">
-                      {language === 'ml' ? 'വിജയ നിരക്ക് (Win Rate)' : 'Today Win Rate'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-cyan-300 mt-0.5 block">
-                      {todayMetrics.winRatePercent}%
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {todayMetrics.winningTrades}W / {todayMetrics.losingTrades}L
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* SECTION 2: TOTAL ALL-TIME CUMULATIVE SUMMARY */}
-              <div className="p-4 rounded-xl border border-indigo-900/50 bg-gradient-to-br from-indigo-950/20 via-slate-900 to-slate-950 space-y-3 shadow-lg">
-                <div className="flex items-center justify-between pb-2 border-b border-indigo-900/40">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-black text-indigo-300 tracking-tight uppercase">
-                        {language === 'ml' ? '🌐 ആകെ ട്രേഡിംഗ് ഹിസ്റ്ററി (All-Time)' : '🌐 Total Cumulative Performance'}
-                      </h4>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {language === 'ml' ? 'എല്ലാ ദിവസങ്ങളിലെയും ആകെ' : 'All Trading Days'} • {allTimeMetrics.totalTrades} {language === 'ml' ? 'ട്രേഡുകൾ' : 'Trades'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                      {language === 'ml' ? 'ആകെ അറ്റ ലാഭം' : 'Total Net P&L'}
-                    </span>
-                    <span className={`text-base sm:text-lg font-black font-mono ${isAllTimePositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {isAllTimePositive ? '+' : ''}₹{allTimeMetrics.totalNetRealizedPnL.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* 4 Mini Cards for All-Time */}
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-emerald-400 block">
-                      {language === 'ml' ? 'ആകെ ലാഭം (Total Gross)' : 'Total Gross Win'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-emerald-300 mt-0.5 block">
-                      +₹{allTimeMetrics.grossProfit.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {allTimeMetrics.winningTrades} {language === 'ml' ? 'വിജയം' : 'Wins'} ({allTimeMetrics.winRatePercent}%)
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-rose-400 block">
-                      {language === 'ml' ? 'ആകെ നഷ്ടം (Total Gross)' : 'Total Gross Loss'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-rose-400 mt-0.5 block">
-                      -₹{allTimeMetrics.grossLoss.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {allTimeMetrics.losingTrades} {language === 'ml' ? 'നഷ്ടം' : 'Losses'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-amber-300 block">
-                      {language === 'ml' ? 'ആകെ ബ്രോക്കറേജ് & ടാക്സ്' : 'Total Brokerage & Taxes'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-amber-300 mt-0.5 block">
-                      ₹{allTimeMetrics.totalBrokerageCharges.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {language === 'ml' ? 'മൊത്തം കിഴിവുകൾ' : 'Cumulative Charges'}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[9px] font-extrabold uppercase text-cyan-300 block">
-                      {language === 'ml' ? 'ആകെ വിജയ നിരക്ക്' : 'All-Time Win Rate'}
-                    </span>
-                    <span className="text-sm font-black font-mono text-cyan-300 mt-0.5 block">
-                      {allTimeMetrics.winRatePercent}%
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      {allTimeMetrics.winningTrades}W / {allTimeMetrics.losingTrades}L
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <CompareView
+              language={language}
+              todayIst={todayIst}
+              todayTrades={todayTrades}
+              todayMetrics={todayMetrics}
+              allTimeMetrics={allTimeMetrics}
+            />
           )}
 
           {/* SINGLE VIEW (TODAY or ALL_TIME) */}
@@ -321,8 +207,8 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
               {timeView === 'TODAY' && todayTrades.length === 0 && (
                 <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/60 text-center space-y-2">
                   <p className="text-xs sm:text-sm font-bold text-slate-300">
-                    {language === 'ml' 
-                      ? 'ഇന്ന് പുതിയ ട്രേഡുകൾ ഒന്നും നടന്നിട്ടില്ല (0 Trades Today)' 
+                    {language === 'ml'
+                      ? 'ഇന്ന് പുതിയ ട്രേഡുകൾ ഒന്നും നടന്നിട്ടില്ല (0 Trades Today)'
                       : 'No new trades executed today'}
                   </p>
                   <p className="text-[11px] text-slate-400">
@@ -335,7 +221,9 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                     onClick={() => setTimeView('ALL_TIME')}
                     className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-md shadow-indigo-600/30"
                   >
-                    {language === 'ml' ? '🌐 ആകെ ഹിസ്റ്ററി കാണുക (All-Time)' : '🌐 View All-Time History'}
+                    {language === 'ml'
+                      ? '🌐 ആകെ ഹിസ്റ്ററി കാണുക (All-Time)'
+                      : '🌐 View All-Time History'}
                   </button>
                 </div>
               )}
@@ -344,29 +232,40 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/50 flex flex-col justify-between shadow-sm">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/90">
-                    {timeView === 'TODAY' 
-                      ? (language === 'ml' ? 'ഇന്നത്തെ ലാഭം (Gross)' : "Today's Gross Profit") 
-                      : (language === 'ml' ? 'ആകെ ലാഭം (Total Gross)' : 'Total Gross Profit')}
+                    {timeView === 'TODAY'
+                      ? language === 'ml'
+                        ? 'ഇന്നത്തെ ലാഭം (Gross)'
+                        : "Today's Gross Profit"
+                      : language === 'ml'
+                        ? 'ആകെ ലാഭം (Total Gross)'
+                        : 'Total Gross Profit'}
                   </span>
                   <span className="text-lg sm:text-xl font-black font-mono text-emerald-400 mt-1">
                     +₹{activeMetrics.grossProfit.toFixed(2)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {activeMetrics.winningTrades} {language === 'ml' ? 'ലാഭ ട്രേഡുകൾ' : 'Winning Trades'} ({activeMetrics.winRatePercent}%)
+                    {activeMetrics.winningTrades}{' '}
+                    {language === 'ml' ? 'ലാഭ ട്രേഡുകൾ' : 'Winning Trades'} (
+                    {activeMetrics.winRatePercent}%)
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-800/50 flex flex-col justify-between shadow-sm">
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300/90">
-                    {timeView === 'TODAY' 
-                      ? (language === 'ml' ? 'ഇന്നത്തെ നഷ്ടം (Gross)' : "Today's Gross Loss") 
-                      : (language === 'ml' ? 'ആകെ നഷ്ടം (Total Gross)' : 'Total Gross Loss')}
+                    {timeView === 'TODAY'
+                      ? language === 'ml'
+                        ? 'ഇന്നത്തെ നഷ്ടം (Gross)'
+                        : "Today's Gross Loss"
+                      : language === 'ml'
+                        ? 'ആകെ നഷ്ടം (Total Gross)'
+                        : 'Total Gross Loss'}
                   </span>
                   <span className="text-lg sm:text-xl font-black font-mono text-rose-400 mt-1">
                     -₹{activeMetrics.grossLoss.toFixed(2)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {activeMetrics.losingTrades} {language === 'ml' ? 'നഷ്ട ട്രേഡുകൾ' : 'Losing Trades'}
+                    {activeMetrics.losingTrades}{' '}
+                    {language === 'ml' ? 'നഷ്ട ട്രേഡുകൾ' : 'Losing Trades'}
                   </span>
                 </div>
 
@@ -382,18 +281,23 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                   </span>
                 </div>
 
-                <div className={`p-3.5 rounded-xl border flex flex-col justify-between shadow-md transition-all ${
-                  activeMetrics.totalNetRealizedPnL >= 0
-                    ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-                    : 'bg-rose-950/40 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
-                }`}>
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-col justify-between shadow-md transition-all ${
+                    activeMetrics.totalNetRealizedPnL >= 0
+                      ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                      : 'bg-rose-950/40 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
+                  }`}
+                >
                   <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">
                     {language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L (After Charges)'}
                   </span>
-                  <span className={`text-lg sm:text-xl font-black font-mono mt-1 ${
-                    activeMetrics.totalNetRealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                  }`}>
-                    {activeMetrics.totalNetRealizedPnL >= 0 ? '+' : '-'}₹{Math.abs(activeMetrics.totalNetRealizedPnL).toFixed(2)}
+                  <span
+                    className={`text-lg sm:text-xl font-black font-mono mt-1 ${
+                      activeMetrics.totalNetRealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {activeMetrics.totalNetRealizedPnL >= 0 ? '+' : '-'}₹
+                    {Math.abs(activeMetrics.totalNetRealizedPnL).toFixed(2)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono mt-0.5">
                     {language === 'ml' ? 'എല്ലാ ചാർജുകളും കിഴിച്ച ശേഷം' : 'Realized net payoff'}
@@ -411,8 +315,8 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
               </div>
               <div>
                 <h4 className="font-black text-white text-xs sm:text-sm">
-                  {language === 'ml' 
-                    ? 'കുറഞ്ഞ മുതൽമുടക്കിൽ പരമാവധി ലാഭം ഉറപ്പാക്കുന്ന അൽഗോരിതം മുൻഗണന' 
+                  {language === 'ml'
+                    ? 'കുറഞ്ഞ മുതൽമുടക്കിൽ പരമാവധി ലാഭം ഉറപ്പാക്കുന്ന അൽഗോരിതം മുൻഗണന'
                     : 'Low Capital Investment & High ROI Mandate Execution'}
                 </h4>
                 <p className="text-[11px] text-slate-400">
@@ -425,19 +329,29 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
 
             <div className="flex items-center gap-3 shrink-0 flex-wrap">
               <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ml' ? 'ശരാശരി റിട്ടേൺ (ROI)' : 'Avg Return (ROI)'}</span>
+                <span className="text-[9px] text-slate-400 uppercase font-bold block">
+                  {language === 'ml' ? 'ശരാശരി റിട്ടേൺ (ROI)' : 'Avg Return (ROI)'}
+                </span>
                 <span className="text-xs font-mono font-black text-emerald-400">
-                  {allTimeMetrics.roiPercent > 0 ? `+${allTimeMetrics.roiPercent.toFixed(1)}%` : `${allTimeMetrics.roiPercent.toFixed(1)}%`}
+                  {allTimeMetrics.roiPercent > 0
+                    ? `+${allTimeMetrics.roiPercent.toFixed(1)}%`
+                    : `${allTimeMetrics.roiPercent.toFixed(1)}%`}
                 </span>
               </div>
               <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ml' ? 'റിസ്ക്-റിവാർഡ്' : 'Risk : Reward'}</span>
+                <span className="text-[9px] text-slate-400 uppercase font-bold block">
+                  {language === 'ml' ? 'റിസ്ക്-റിവാർഡ്' : 'Risk : Reward'}
+                </span>
                 <span className="text-xs font-mono font-black text-cyan-300">
-                  {allTimeMetrics.avgLoss > 0 ? `1 : ${(allTimeMetrics.avgWin / allTimeMetrics.avgLoss).toFixed(1)}` : '1 : 2.8+'}
+                  {allTimeMetrics.avgLoss > 0
+                    ? `1 : ${(allTimeMetrics.avgWin / allTimeMetrics.avgLoss).toFixed(1)}`
+                    : '1 : 2.8+'}
                 </span>
               </div>
               <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ml' ? 'മാക്സ് റിസ്ക് ക്യാപ്പ്' : 'Max Risk Cap'}</span>
+                <span className="text-[9px] text-slate-400 uppercase font-bold block">
+                  {language === 'ml' ? 'മാക്സ് റിസ്ക് ക്യാപ്പ്' : 'Max Risk Cap'}
+                </span>
                 <span className="text-xs font-mono font-black text-rose-400">-₹400 / 2.5%</span>
               </div>
             </div>
@@ -466,11 +380,11 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
               {/* Ratio bar & Counts */}
               <div className="pt-3 mt-2 border-t border-slate-800/80 space-y-1.5">
                 <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-                  <div 
+                  <div
                     className="bg-emerald-500 h-full transition-all duration-500"
                     style={{ width: `${activeMetrics.winRatePercent}%` }}
                   />
-                  <div 
+                  <div
                     className="bg-rose-500 h-full transition-all duration-500"
                     style={{ width: `${100 - activeMetrics.winRatePercent}%` }}
                   />
@@ -503,7 +417,9 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
 
                 <div className="flex items-baseline gap-2 my-1">
                   <span className="text-2xl sm:text-3xl font-black font-mono text-cyan-300 tracking-tight">
-                    {activeMetrics.validDurationCount > 0 ? formatDurationString(activeMetrics.avgDurationMs, language) : 'Intraday'}
+                    {activeMetrics.validDurationCount > 0
+                      ? formatDurationString(activeMetrics.avgDurationMs, language)
+                      : 'Intraday'}
                   </span>
                 </div>
               </div>
@@ -512,14 +428,18 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                 <span>
                   {language === 'ml' ? 'കുറഞ്ഞ സമയം' : 'Min'}:{' '}
                   <strong className="text-slate-200">
-                    {activeMetrics.minDurationMs > 0 ? formatDurationString(activeMetrics.minDurationMs, language) : '< 1m'}
+                    {activeMetrics.minDurationMs > 0
+                      ? formatDurationString(activeMetrics.minDurationMs, language)
+                      : '< 1m'}
                   </strong>
                 </span>
                 <span className="text-slate-600">|</span>
                 <span>
                   {language === 'ml' ? 'കൂടിയ സമയം' : 'Max'}:{' '}
                   <strong className="text-slate-200">
-                    {activeMetrics.maxDurationMs > 0 ? formatDurationString(activeMetrics.maxDurationMs, language) : 'EOD'}
+                    {activeMetrics.maxDurationMs > 0
+                      ? formatDurationString(activeMetrics.maxDurationMs, language)
+                      : 'EOD'}
                   </strong>
                 </span>
               </div>
@@ -551,7 +471,11 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                 {language === 'ml' ? 'പേഓഫ് നിരക്ക്' : 'Payoff Ratio (Avg W/L)'}
               </span>
               <span className="font-mono font-extrabold text-indigo-400 text-sm mt-0.5">
-                {activeMetrics.avgLoss > 0 ? `${(activeMetrics.avgWin / activeMetrics.avgLoss).toFixed(2)} : 1` : (activeMetrics.avgWin > 0 ? 'Pure Profit' : '1.00 : 1')}
+                {activeMetrics.avgLoss > 0
+                  ? `${(activeMetrics.avgWin / activeMetrics.avgLoss).toFixed(2)} : 1`
+                  : activeMetrics.avgWin > 0
+                    ? 'Pure Profit'
+                    : '1.00 : 1'}
               </span>
             </div>
 
