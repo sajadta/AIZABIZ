@@ -6,6 +6,13 @@ import type {
   ExecutionMode,
 } from '../../types';
 
+export interface LiveUpstoxCharges {
+  total: number;
+  brokerage: number;
+  source: string;
+  isLiveUpstox: boolean;
+}
+
 export interface OrderModalProps {
   isOpen: boolean;
   onClose: () => void;
