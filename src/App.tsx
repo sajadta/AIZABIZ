@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BotConfig, BotLog, TradingSignal } from './types';
 import { getStandardIndexLotSize } from './utils/quotes';
 import { deriveCurrentQuote } from './utils/currentQuote';
@@ -21,6 +21,7 @@ import { useMarketSessionClock } from './hooks/useMarketSessionClock';
 import { useAppUiState } from './hooks/useAppUiState';
 import { useAppShellActions } from './hooks/useAppShellActions';
 import { useTradingState } from './hooks/useTradingState';
+import { useAppChartFocus } from './hooks/useAppChartFocus';
 import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
 import { AppChrome } from './components/app/AppChrome';
 import { AppWorkspace } from './components/app/AppWorkspace';
@@ -246,42 +247,14 @@ export const App: React.FC = () => {
     fetchLivePositions,
   });
 
-  // Dedicated Option Premium & Instrument Chart Handler (Supports running positions, history, orders & holdings)
-  const handleViewChart = useCallback(
-    (sym: string, key?: string, context?: any) => {
-      setSelectedSymbol(sym);
-      setChartTradeContext(context || null);
-
-      const isOption =
-        /\b(CE|PE)\b/i.test(sym) ||
-        sym.toUpperCase().endsWith('CE') ||
-        sym.toUpperCase().endsWith('PE');
-      if (key && (key.startsWith('NSE_FO|') || key.startsWith('BSE_FO|') || isOption)) {
-        setSelectedInstrumentKey(key);
-      } else if (isOption) {
-        setSelectedInstrumentKey(key || `NSE_FO|${sym}`);
-      } else {
-        const matched = quotes.find((q) => q.symbol === sym);
-        if (matched?.instrumentKey) {
-          setSelectedInstrumentKey(matched.instrumentKey);
-        } else if (sym.toUpperCase().includes('BANKEX')) {
-          setSelectedInstrumentKey('BSE_INDEX|BANKEX');
-        } else if (sym.toUpperCase().includes('SENSEX')) {
-          setSelectedInstrumentKey('BSE_INDEX|SENSEX');
-        } else if (sym.toUpperCase().includes('BANK')) {
-          setSelectedInstrumentKey('NSE_INDEX|Nifty Bank');
-        } else if (sym.toUpperCase().includes('FIN')) {
-          setSelectedInstrumentKey('NSE_INDEX|Nifty Fin Service');
-        } else if (sym.toUpperCase().includes('NIFTY')) {
-          setSelectedInstrumentKey('NSE_INDEX|Nifty 50');
-        } else {
-          setSelectedInstrumentKey(key || sym);
-        }
-      }
-      setActiveTab('CHART');
-    },
-    [quotes],
-  );
+  // Dedicated Option Premium & Instrument Chart Handler (see useAppChartFocus)
+  const handleViewChart = useAppChartFocus({
+    quotes,
+    setSelectedSymbol,
+    setSelectedInstrumentKey,
+    setChartTradeContext,
+    setActiveTab,
+  });
 
   // Accurate PnL Calculation: Separate Today's Trading P&L vs Total Cumulative P&L
   const {
