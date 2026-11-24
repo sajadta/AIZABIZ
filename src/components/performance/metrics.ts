@@ -2,6 +2,8 @@
 import type { Position, Language } from '../../types';
 import { calculateTradeCharges } from '../../utils/indicators';
 
+export type PerformanceMetrics = ReturnType<typeof computeMetrics>;
+
 export function computeMetrics(trades: Position[]) {
   const totalTrades = trades.length;
   if (totalTrades === 0) {
@@ -61,13 +63,14 @@ export function computeMetrics(trades: Position[]) {
 
     const isOpt = Boolean(
       trade.isOption ||
-        /\b(CE|PE)\b/i.test(trade.symbol || '') ||
-        String(trade.instrumentKey || '').includes('FO')
+      /\b(CE|PE)\b/i.test(trade.symbol || '') ||
+      String(trade.instrumentKey || '').includes('FO'),
     );
     const tradeCharges =
       Number((trade as any).brokerageCharges) > 0
         ? Number((trade as any).brokerageCharges)
-        : calculateTradeCharges(buyP, qty, isOpt, sellP, trade.instrumentKey || trade.symbol).roundTripCharges;
+        : calculateTradeCharges(buyP, qty, isOpt, sellP, trade.instrumentKey || trade.symbol)
+            .roundTripCharges;
     totalBrokerageCharges += tradeCharges;
 
     if (pnl > 0) {
@@ -81,13 +84,13 @@ export function computeMetrics(trades: Position[]) {
     }
 
     // Calculate trade duration
-    const startTime = trade.openedAt 
-      ? new Date(trade.openedAt).getTime() 
-      : (trade as any).openTime 
-      ? new Date((trade as any).openTime).getTime() 
-      : (trade as any).timestamp 
-      ? new Date((trade as any).timestamp).getTime() 
-      : 0;
+    const startTime = trade.openedAt
+      ? new Date(trade.openedAt).getTime()
+      : (trade as any).openTime
+        ? new Date((trade as any).openTime).getTime()
+        : (trade as any).timestamp
+          ? new Date((trade as any).timestamp).getTime()
+          : 0;
 
     const endTime = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
 
@@ -108,7 +111,8 @@ export function computeMetrics(trades: Position[]) {
   }
 
   const winRatePercent = Math.round((winningTrades / totalTrades) * 100);
-  const avgDurationMs = validDurationCount > 0 ? Math.round(totalDurationMs / validDurationCount) : 0;
+  const avgDurationMs =
+    validDurationCount > 0 ? Math.round(totalDurationMs / validDurationCount) : 0;
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.9 : 0;
   const avgWin = winningTrades > 0 ? grossProfit / winningTrades : 0;
   const avgLoss = losingTrades > 0 ? grossLoss / losingTrades : 0;
@@ -162,8 +166,17 @@ export function formatDurationString(ms: number, language: Language) {
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = seconds % 60;
 
-  if (days > 0) return language === 'ml' ? `${days}ദി ${hours > 0 ? `${hours}മ` : ''}` : `${days}d ${hours > 0 ? `${hours}h` : ''}`;
-  if (hours > 0) return language === 'ml' ? `${hours}മ ${minutes > 0 ? `${minutes}മി` : ''}` : `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`;
-  if (minutes > 0) return language === 'ml' ? `${minutes}മി ${remainingSeconds > 0 ? `${remainingSeconds}സെ` : ''}` : `${minutes}m ${remainingSeconds > 0 ? `${remainingSeconds}s` : ''}`;
+  if (days > 0)
+    return language === 'ml'
+      ? `${days}ദി ${hours > 0 ? `${hours}മ` : ''}`
+      : `${days}d ${hours > 0 ? `${hours}h` : ''}`;
+  if (hours > 0)
+    return language === 'ml'
+      ? `${hours}മ ${minutes > 0 ? `${minutes}മി` : ''}`
+      : `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`;
+  if (minutes > 0)
+    return language === 'ml'
+      ? `${minutes}മി ${remainingSeconds > 0 ? `${remainingSeconds}സെ` : ''}`
+      : `${minutes}m ${remainingSeconds > 0 ? `${remainingSeconds}s` : ''}`;
   return language === 'ml' ? `${remainingSeconds}സെ` : `${remainingSeconds}s`;
 }

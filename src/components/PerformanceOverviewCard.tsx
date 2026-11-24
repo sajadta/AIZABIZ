@@ -1,20 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import {
-  Clock,
-  Scale,
-  BarChart3,
-  CheckCircle2,
-  XCircle,
-  ChevronDown,
-  ChevronUp,
-  Calendar,
-  Globe,
-  Zap,
-  Coins,
-} from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronUp, Calendar, Globe, Zap } from 'lucide-react';
 import { Position, Language } from '../types';
-import { computeMetrics, getTradeSessionDate, formatDurationString } from './performance/metrics';
+import { computeMetrics, getTradeSessionDate } from './performance/metrics';
 import { CompareView } from './performance/CompareView';
+import { PerformanceSummaryCards } from './performance/PerformanceSummaryCards';
+import { LowCapitalRoiCard } from './performance/LowCapitalRoiCard';
+import { PerformanceKpiCards } from './performance/PerformanceKpiCards';
+import { PerformanceInsightsBar } from './performance/PerformanceInsightsBar';
 
 interface PerformanceOverviewCardProps {
   tradeHistory: Position[];
@@ -227,266 +219,19 @@ export const PerformanceOverviewCard: React.FC<PerformanceOverviewCardProps> = (
                 </div>
               )}
 
-              {/* 4-Card Summary Bar for Selected View */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-800/50 flex flex-col justify-between shadow-sm">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300/90">
-                    {timeView === 'TODAY'
-                      ? language === 'ml'
-                        ? 'ഇന്നത്തെ ലാഭം (Gross)'
-                        : "Today's Gross Profit"
-                      : language === 'ml'
-                        ? 'ആകെ ലാഭം (Total Gross)'
-                        : 'Total Gross Profit'}
-                  </span>
-                  <span className="text-lg sm:text-xl font-black font-mono text-emerald-400 mt-1">
-                    +₹{activeMetrics.grossProfit.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {activeMetrics.winningTrades}{' '}
-                    {language === 'ml' ? 'ലാഭ ട്രേഡുകൾ' : 'Winning Trades'} (
-                    {activeMetrics.winRatePercent}%)
-                  </span>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-rose-950/30 border border-rose-800/50 flex flex-col justify-between shadow-sm">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-300/90">
-                    {timeView === 'TODAY'
-                      ? language === 'ml'
-                        ? 'ഇന്നത്തെ നഷ്ടം (Gross)'
-                        : "Today's Gross Loss"
-                      : language === 'ml'
-                        ? 'ആകെ നഷ്ടം (Total Gross)'
-                        : 'Total Gross Loss'}
-                  </span>
-                  <span className="text-lg sm:text-xl font-black font-mono text-rose-400 mt-1">
-                    -₹{activeMetrics.grossLoss.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {activeMetrics.losingTrades}{' '}
-                    {language === 'ml' ? 'നഷ്ട ട്രേഡുകൾ' : 'Losing Trades'}
-                  </span>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-800/50 flex flex-col justify-between shadow-sm">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300/90">
-                    {language === 'ml' ? 'ബ്രോക്കറേജ് & ടാക്സ്' : 'Brokerage & Taxes'}
-                  </span>
-                  <span className="text-lg sm:text-xl font-black font-mono text-amber-400 mt-1">
-                    ₹{activeMetrics.totalBrokerageCharges.toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {language === 'ml' ? 'Upstox ഫീസ് + GST + STT' : 'Round-trip charges'}
-                  </span>
-                </div>
-
-                <div
-                  className={`p-3.5 rounded-xl border flex flex-col justify-between shadow-md transition-all ${
-                    activeMetrics.totalNetRealizedPnL >= 0
-                      ? 'bg-emerald-950/40 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-                      : 'bg-rose-950/40 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
-                  }`}
-                >
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">
-                    {language === 'ml' ? 'അറ്റ ലാഭം (Net P&L)' : 'Net P&L (After Charges)'}
-                  </span>
-                  <span
-                    className={`text-lg sm:text-xl font-black font-mono mt-1 ${
-                      activeMetrics.totalNetRealizedPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {activeMetrics.totalNetRealizedPnL >= 0 ? '+' : '-'}₹
-                    {Math.abs(activeMetrics.totalNetRealizedPnL).toFixed(2)}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono mt-0.5">
-                    {language === 'ml' ? 'എല്ലാ ചാർജുകളും കിഴിച്ച ശേഷം' : 'Realized net payoff'}
-                  </span>
-                </div>
-              </div>
+              <PerformanceSummaryCards
+                language={language}
+                timeView={timeView}
+                activeMetrics={activeMetrics}
+              />
             </>
           )}
 
-          {/* Low Capital & High ROI Strategy Analytics Card */}
-          <div className="p-4 rounded-xl border border-cyan-900/40 bg-gradient-to-r from-cyan-950/20 via-slate-900 to-indigo-950/20 flex flex-col md:flex-row items-center justify-between gap-3 text-xs shadow-md">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">
-                <Coins className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="font-black text-white text-xs sm:text-sm">
-                  {language === 'ml'
-                    ? 'കുറഞ്ഞ മുതൽമുടക്കിൽ പരമാവധി ലാഭം ഉറപ്പാക്കുന്ന അൽഗോരിതം മുൻഗണന'
-                    : 'Low Capital Investment & High ROI Mandate Execution'}
-                </h4>
-                <p className="text-[11px] text-slate-400">
-                  {language === 'ml'
-                    ? '₹2,500 - ₹8,500 കുറഞ്ഞ മുതൽമുടക്കുള്ള സ്ട്രൈക്കുകൾക്ക് അൽഗോരിതം മുൻഗണന നൽകുന്നു; 20% - 40% വരെ ഉയർന്ന റിട്ടേൺ (ROI) നൽകുന്ന ട്രേഡുകൾ മാത്രം തിരഞ്ഞെടുക്കുന്നു.'
-                    : 'Strikes requiring ₹2,500 - ₹8,500 are prioritized, maximizing % ROI while keeping max stop-loss risk strictly capped under ₹400.'}
-                </p>
-              </div>
-            </div>
+          <LowCapitalRoiCard language={language} allTimeMetrics={allTimeMetrics} />
 
-            <div className="flex items-center gap-3 shrink-0 flex-wrap">
-              <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">
-                  {language === 'ml' ? 'ശരാശരി റിട്ടേൺ (ROI)' : 'Avg Return (ROI)'}
-                </span>
-                <span className="text-xs font-mono font-black text-emerald-400">
-                  {allTimeMetrics.roiPercent > 0
-                    ? `+${allTimeMetrics.roiPercent.toFixed(1)}%`
-                    : `${allTimeMetrics.roiPercent.toFixed(1)}%`}
-                </span>
-              </div>
-              <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">
-                  {language === 'ml' ? 'റിസ്ക്-റിവാർഡ്' : 'Risk : Reward'}
-                </span>
-                <span className="text-xs font-mono font-black text-cyan-300">
-                  {allTimeMetrics.avgLoss > 0
-                    ? `1 : ${(allTimeMetrics.avgWin / allTimeMetrics.avgLoss).toFixed(1)}`
-                    : '1 : 2.8+'}
-                </span>
-              </div>
-              <div className="px-3 py-1.5 rounded-lg bg-black/60 border border-slate-800 text-center">
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">
-                  {language === 'ml' ? 'മാക്സ് റിസ്ക് ക്യാപ്പ്' : 'Max Risk Cap'}
-                </span>
-                <span className="text-xs font-mono font-black text-rose-400">-₹400 / 2.5%</span>
-              </div>
-            </div>
-          </div>
+          <PerformanceKpiCards language={language} activeMetrics={activeMetrics} />
 
-          {/* 2 Efficiency KPI Cards (Win/Loss Ratio & Duration) without repeating Net P&L */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            <div className="p-4 rounded-xl border border-slate-800 bg-gradient-to-br from-indigo-950/20 via-slate-900 to-slate-900 flex flex-col justify-between shadow-md">
-              <div>
-                <div className="flex items-center justify-between text-slate-400 mb-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider">
-                    {language === 'ml' ? 'വിൻ / ലോസ് അനുപാതം' : 'Win / Loss Ratio'}
-                  </span>
-                  <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
-                    <Scale className="w-4 h-4" />
-                  </div>
-                </div>
-
-                <div className="flex items-baseline gap-2 my-1">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-white tracking-tight">
-                    {activeMetrics.winLossRatio}
-                  </span>
-                </div>
-              </div>
-
-              {/* Ratio bar & Counts */}
-              <div className="pt-3 mt-2 border-t border-slate-800/80 space-y-1.5">
-                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-                  <div
-                    className="bg-emerald-500 h-full transition-all duration-500"
-                    style={{ width: `${activeMetrics.winRatePercent}%` }}
-                  />
-                  <div
-                    className="bg-rose-500 h-full transition-all duration-500"
-                    style={{ width: `${100 - activeMetrics.winRatePercent}%` }}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    {activeMetrics.winningTrades} {language === 'ml' ? 'വിജയം' : 'Wins'}
-                  </span>
-                  <span className="text-rose-400 font-mono font-bold flex items-center gap-1">
-                    <XCircle className="w-3 h-3" />
-                    {activeMetrics.losingTrades} {language === 'ml' ? 'നഷ്ടം' : 'Losses'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* KPI 3: Average Duration */}
-            <div className="p-4 rounded-xl border border-slate-800 bg-gradient-to-br from-cyan-950/20 via-slate-900 to-slate-900 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-slate-400 mb-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wider">
-                    {language === 'ml' ? 'ശരാശരി ട്രേഡ് സമയം' : 'Avg Trade Duration'}
-                  </span>
-                  <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                </div>
-
-                <div className="flex items-baseline gap-2 my-1">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-cyan-300 tracking-tight">
-                    {activeMetrics.validDurationCount > 0
-                      ? formatDurationString(activeMetrics.avgDurationMs, language)
-                      : 'Intraday'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="pt-3 mt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span>
-                  {language === 'ml' ? 'കുറഞ്ഞ സമയം' : 'Min'}:{' '}
-                  <strong className="text-slate-200">
-                    {activeMetrics.minDurationMs > 0
-                      ? formatDurationString(activeMetrics.minDurationMs, language)
-                      : '< 1m'}
-                  </strong>
-                </span>
-                <span className="text-slate-600">|</span>
-                <span>
-                  {language === 'ml' ? 'കൂടിയ സമയം' : 'Max'}:{' '}
-                  <strong className="text-slate-200">
-                    {activeMetrics.maxDurationMs > 0
-                      ? formatDurationString(activeMetrics.maxDurationMs, language)
-                      : 'EOD'}
-                  </strong>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Auxiliary Performance Insights Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                {language === 'ml' ? 'ശരാശരി ലാഭം' : 'Average Win'}
-              </span>
-              <span className="font-mono font-extrabold text-emerald-400 text-sm mt-0.5">
-                +₹{activeMetrics.avgWin.toFixed(2)}
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                {language === 'ml' ? 'ശരാശരി നഷ്ടം' : 'Average Loss'}
-              </span>
-              <span className="font-mono font-extrabold text-rose-400 text-sm mt-0.5">
-                -₹{activeMetrics.avgLoss.toFixed(2)}
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                {language === 'ml' ? 'പേഓഫ് നിരക്ക്' : 'Payoff Ratio (Avg W/L)'}
-              </span>
-              <span className="font-mono font-extrabold text-indigo-400 text-sm mt-0.5">
-                {activeMetrics.avgLoss > 0
-                  ? `${(activeMetrics.avgWin / activeMetrics.avgLoss).toFixed(2)} : 1`
-                  : activeMetrics.avgWin > 0
-                    ? 'Pure Profit'
-                    : '1.00 : 1'}
-              </span>
-            </div>
-
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60 flex flex-col justify-between">
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                {language === 'ml' ? 'പ്രോഫിറ്റ് ഫാക്ടർ' : 'Profit Factor'}
-              </span>
-              <span className="font-mono font-extrabold text-cyan-300 text-sm mt-0.5">
-                {activeMetrics.profitFactor > 0 ? activeMetrics.profitFactor.toFixed(2) : '1.00'}
-              </span>
-            </div>
-          </div>
+          <PerformanceInsightsBar language={language} activeMetrics={activeMetrics} />
         </>
       )}
     </div>
