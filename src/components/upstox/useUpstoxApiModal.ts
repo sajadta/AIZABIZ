@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { UpstoxApiConfig, Language } from '../../types';
 import { translations } from '../../translations';
-import { safeStorage } from '../../utils/storage';
+import { useUpstoxProxyState } from './useUpstoxProxyState';
+import { useUpstoxTokenActions } from './useUpstoxTokenActions';
 
 const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
 const DEFAULT_API_SECRET = 'jl5s7qy9r0';
@@ -14,7 +15,7 @@ const getFallbackRedirectUri = (): string => {
   return 'http://localhost:3000/api/market/callback';
 };
 
-export type UpstoxStatusMsg = { type: 'success' | 'error' | 'info'; text: string } | null;
+export type { UpstoxStatusMsg } from './upstoxModalTypes';
 
 export interface UseUpstoxApiModalParams {
   isOpen: boolean;
@@ -79,76 +80,43 @@ export function useUpstoxApiModal({
   const [loading, setLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(false);
-  const [v3Loading, setV3Loading] = useState(false);
-  const [proxyUrlInput, setProxyUrlInput] = useState<string>('socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080');
-  const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(Boolean(config.isFixedProxyActive));
-  const [isTestingProxy, setIsTestingProxy] = useState<boolean>(false);
-  const [showProxyConfig, setShowProxyConfig] = useState<boolean>(false);
-  const [containerIp, setContainerIp] = useState<string>(
-    config.serverSecondaryIp && config.serverSecondaryIp !== '34.180.11.27'
-      ? config.serverSecondaryIp
-      : 'Detecting...',
-  );
-  const [proxyError, setProxyError] = useState<string>(config.proxyError || '');
   const [liveHoldingsCount, setLiveHoldingsCount] = useState<number | null>(
     typeof config.holdingsCount === 'number' ? config.holdingsCount : null,
   );
 
-  useEffect(() => {
-    if (!isTestingProxy && typeof config.isFixedProxyActive === 'boolean') {
-      setIsFixedProxyActive(config.isFixedProxyActive);
-      if (config.isFixedProxyActive) {
-        setProxyError('');
-      } else if (typeof config.proxyError === 'string') {
-        setProxyError(config.proxyError);
-      }
-    }
-  }, [config.isFixedProxyActive, config.proxyError, isTestingProxy]);
   const [statusMsg, setStatusMsg] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
   } | null>(null);
 
-  const handleSaveProxy = async (remove = false) => {
-    setIsTestingProxy(true);
-    setStatusMsg(null);
-    try {
-      const targetVal = remove ? '' : proxyUrlInput;
-      const res = await fetch('/api/market/proxy-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proxyUrl: targetVal }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsFixedProxyActive(Boolean(data.isFixedProxy));
-        setProxyError('');
-        if (remove) setProxyUrlInput('');
-        setStatusMsg({
-          type: 'success',
-          text: data.message || `✅ Proxy Updated! Static IP: ${data.serverOutboundIp}`,
-        });
-      } else {
-        setIsFixedProxyActive(false);
-        setProxyError(data.error || 'Failed to connect to proxy');
-        setStatusMsg({
-          type: 'error',
-          text:
-            (data.error || 'Failed to connect to proxy') +
-            (data.suggestedFix ? ` — ${data.suggestedFix}` : ''),
-        });
-      }
-    } catch (e: any) {
-      setIsFixedProxyActive(false);
-      setProxyError(e?.message || 'Network error');
-      setStatusMsg({
-        type: 'error',
-        text: 'Proxy test network error: ' + (e?.message || 'Failed'),
-      });
-    } finally {
-      setIsTestingProxy(false);
-    }
-  };
+  const {
+    proxyUrlInput,
+    setProxyUrlInput,
+    isFixedProxyActive,
+    setIsFixedProxyActive,
+    isTestingProxy,
+    showProxyConfig,
+    setShowProxyConfig,
+    containerIp,
+    setContainerIp,
+    proxyError,
+    setProxyError,
+    handleSaveProxy,
+  } = useUpstoxProxyState(config, setStatusMsg);
+
+  const { v3Loading, handleClearToken, handleRequestTokenV3, handleSaveRedirectUri } =
+    useUpstoxTokenActions({
+      language,
+      apiKey,
+      apiSecret,
+      redirectUri,
+      defaultApiKey: DEFAULT_API_KEY,
+      defaultApiSecret: DEFAULT_API_SECRET,
+      getFallbackRedirectUri,
+      setAccessToken,
+      setStatusMsg,
+      onSaveConfig,
+    });
 
   useEffect(() => {
     if (isOpen) {
@@ -223,9 +191,7 @@ export function useUpstoxApiModal({
           setLiveHoldingsCount(data.holdingsCount);
         }
         const resolvedFixedProxy =
-          pData && pData.success
-            ? Boolean(pData.isProxyActive)
-            : Boolean(data.isFixedProxyActive);
+          pData && pData.success ? Boolean(pData.isProxyActive) : Boolean(data.isFixedProxyActive);
 
         if (data.isConnected && data.accessToken) {
           setAccessToken(data.accessToken);
@@ -241,7 +207,8 @@ export function useUpstoxApiModal({
             utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
             payin: data.payin || 0,
             payout: data.payout || 0,
-            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
+            totalBalance:
+              data.totalBalance ?? (data.availableMargin || 0) + Math.max(0, data.usedMargin || 0),
             holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
             tokenGeneratedAt: data.tokenGeneratedAt || undefined,
             tokenExpiresAt: data.tokenExpiresAt || undefined,
@@ -329,7 +296,8 @@ export function useUpstoxApiModal({
             utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
             payin: data.payin || 0,
             payout: data.payout || 0,
-            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
+            totalBalance:
+              data.totalBalance ?? (data.availableMargin || 0) + Math.max(0, data.usedMargin || 0),
             holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
             tokenGeneratedAt: data.tokenGeneratedAt || undefined,
             actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
@@ -438,7 +406,8 @@ export function useUpstoxApiModal({
           utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
           payin: data.payin || 0,
           payout: data.payout || 0,
-          totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
+          totalBalance:
+            data.totalBalance ?? (data.availableMargin || 0) + Math.max(0, data.usedMargin || 0),
           holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
           tokenGeneratedAt: data.tokenGeneratedAt || undefined,
           actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
@@ -836,80 +805,6 @@ export function useUpstoxApiModal({
   };
 
   // Clear Daily Token
-  const handleClearToken = async () => {
-    try {
-      await fetch('/api/market/clear-token', { method: 'POST' });
-      setAccessToken('');
-      safeStorage.removeItem('upstox_daily_token');
-      safeStorage.removeItem('upstox_token_date');
-      await onSaveConfig({ accessToken: '', isConnected: false });
-      setStatusMsg({
-        type: 'info',
-        text:
-          language === 'ml'
-            ? 'ഇന്നത്തെ ടോക്കൺ നീക്കം ചെയ്തു. പേപ്പർ ട്രേഡിംഗ് മോഡിലേക്ക് മാറി.'
-            : 'Daily token cleared. Switched to Paper Trading Mode.',
-      });
-    } catch {
-      /* ignored */
-    }
-  };
-
-  // Upstox V3 1-Click App / WhatsApp Approve Token Request
-  const handleRequestTokenV3 = async () => {
-    setV3Loading(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch('/api/market/request-token-v3', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey: (apiKey || DEFAULT_API_KEY).trim(),
-          apiSecret: apiSecret || DEFAULT_API_SECRET,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg({
-          type: 'success',
-          text:
-            data.message ||
-            (language === 'ml'
-              ? '📲 Upstox ആപ്പിലേക്കും WhatsApp-ലേക്കും Approve റിക്വസ്റ്റ് അയച്ചു!'
-              : '📲 Sent 1-Click Approve request to Upstox Mobile App & WhatsApp!'),
-        });
-      } else {
-        setStatusMsg({
-          type: 'error',
-          text: data.error || 'Upstox V3 Token Request failed',
-        });
-      }
-    } catch (e: any) {
-      setStatusMsg({
-        type: 'error',
-        text: e?.message || 'Failed to send V3 Token Request',
-      });
-    } finally {
-      setV3Loading(false);
-    }
-  };
-
-  // Save Callback Redirect URI to match Upstox Developer Console
-  const handleSaveRedirectUri = async () => {
-    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
-    try {
-      await onSaveConfig({ redirectUri: cleanUri });
-      setStatusMsg({
-        type: 'success',
-        text:
-          language === 'ml'
-            ? `✅ Redirect URI സേവ് ചെയ്തു: ${cleanUri}`
-            : `✅ Redirect URI saved: ${cleanUri}`,
-      });
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Failed to save Redirect URI' });
-    }
-  };
 
   return {
     t,
