@@ -13,7 +13,6 @@ import {
   Coins,
 } from 'lucide-react';
 import { Position, Language } from '../types';
-import { calculateTradeCharges } from '../utils/indicators';
 import { computeMetrics, getTradeSessionDate, formatDurationString } from './performance/metrics';
 import { CompareView } from './performance/CompareView';
 
