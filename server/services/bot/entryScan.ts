@@ -25,20 +25,13 @@ import {
   calculateAffordableLotsWithBrokerage,
 } from '../../../src/utils/indicators';
 import { resilientFetchJson } from '../../lib/http';
-import {
-  getDynamicLotSize,
-  lotSizeCache,
-} from '../../lib/instruments';
+import { getDynamicLotSize, lotSizeCache } from '../../lib/instruments';
 import {
   getCapitalTierOptionConstraints,
   evaluateOptionDipMomentum,
 } from '../../lib/optionTradeRules';
-import {
-  getTodayIstDateString,
-} from '../../lib/upstoxHistory';
-import {
-  parseUpstoxFundsData,
-} from '.././upstoxTransport';
+import { getTodayIstDateString } from '../../lib/upstoxHistory';
+import { parseUpstoxFundsData } from '.././upstoxTransport';
 import { getPaperInitialCapital } from '.././persistence';
 
 import { loadIntradayCandles } from './entryScan/intradayCandles';
@@ -54,6 +47,7 @@ import { computeEffectiveCapital } from './entryScan/capitalSizing';
 import { resolveScanIndices } from './entryScan/scanIndices';
 import { rankAlphaCandidates } from './entryScan/alphaMatrix';
 import { computeAlphaScore } from './entryScan/alphaScore';
+import { scoreStrikeCandidate } from './entryScan/strikeScoring';
 import { applyLiveTick, mapUpstoxCandles } from './entryScan/candles';
 import { executeTopCandidates } from './entryScan/executeCandidates';
 import {
@@ -778,128 +772,41 @@ export async function runEntryScan(ctx: {
                             )
                           : 0;
 
-                      let score = 0;
-                      if (fitsCapital) {
-                        score += 350;
-                        if (absDelta >= 0.46 && absDelta <= 0.65) {
-                          score += 220; // Institutional Golden Sweet Spot
-                        } else if (absDelta >= 0.42) {
-                          score += 130;
-                        } else if (tierCfg.tier !== 'STANDARD' && absDelta >= tierCfg.minDelta) {
-                          // Reward closest-to-ATM highest-Delta liquid strikes that fit Compact/Micro balance
-                          score += Math.round(absDelta * 400);
-                        } else {
-                          score -= 250; // Heavily penalize deep OTM contracts when standard capital exists
-                        }
-                        if (
-                          tierCfg.tier === 'STANDARD' &&
-                          totalRequiredWithBrokerage >= 2500 &&
-                          totalRequiredWithBrokerage <= 8500
-                        ) {
-                          score += 150;
-                        } else if (tierCfg.tier !== 'STANDARD') {
-                          score += 120; // Rewards exact capital fit on compact/micro balance
-                        }
-                      } else if (botConfig.mode === 'UPSTOX_LIVE' && effectiveCapital <= 0) {
-                        if (
-                          totalRequiredWithBrokerage >= 1800 &&
-                          totalRequiredWithBrokerage <= 8500 &&
-                          absDelta >= 0.42
-                        ) {
-                          score += 120;
-                        }
-                      } else {
-                        // Track the cheapest quality strike (passes minLtp, minDelta, & brokerage drag cap) skipped strictly due to insufficient capital
-                        if (
-                          effectiveCapital > 0 &&
-                          entryRequiredCashForStrike > effectiveCapital &&
-                          ltp >= tierCfg.minLtp &&
-                          absDelta >= tierCfg.minDelta &&
-                          strikeBrokerageDragPct <= tierCfg.maxBrokerageDragPct &&
-                          (!cheapestSkippedStrikeForCap ||
-                            totalRequiredWithBrokerage <
-                              cheapestSkippedStrikeForCap.totalRequiredWithBrokerage)
-                        ) {
-                          cheapestSkippedStrikeForCap = {
-                            strikePrice: Number(row.strike_price),
-                            optType,
-                            ltp,
-                            lotSize: lotSz,
-                            delta,
-                            gamma,
-                            theta,
-                            oneLotCost,
-                            estimatedBrokerage,
-                            totalRequiredWithBrokerage,
-                            expectedNetProfit,
-                            roiPotentialPct,
-                          };
-                        }
-                        // Strictly skip strikes that exceed the user's available capital!
-                        const skipNeeded =
-                          botConfig.mode === 'UPSTOX_LIVE'
-                            ? entryRequiredCashForStrike
-                            : totalRequiredWithBrokerage;
-                        if (effectiveCapital > 0 && skipNeeded > effectiveCapital) {
-                          continue;
-                        }
-                        score -= 500;
-                      }
-
-                      // ROI Potential Scoring: Prioritize maximum percentage return on capital deployed!
-                      if (roiPotentialPct >= 25) {
-                        score += 170; // Massive bonus for trades delivering > 25% return on capital
-                      } else if (roiPotentialPct >= 18) {
-                        score += 110;
-                      } else if (roiPotentialPct >= 12) {
-                        score += 60;
-                      } else if (roiPotentialPct < 7) {
-                        score -= 100; // Penalize low ROI trades
-                      }
-
-                      const tierMinProfitForScore = tierCfg.getMinReqNetProfit(
+                      const scoring = scoreStrikeCandidate({
+                        mode: botConfig.mode,
+                        tierCfg,
+                        effectiveCapital,
+                        entryRequiredCashForStrike,
+                        totalRequiredWithBrokerage,
+                        fitsCapital,
+                        ltp,
+                        absDelta,
+                        strikeBrokerageDragPct,
+                        roiPotentialPct,
                         estimatedBrokerage,
-                        botConfig.minOptionProfitAmount,
-                      );
-                      if (expectedNetProfit >= 1200) {
-                        score += 110;
-                      } else if (expectedNetProfit >= 700) {
-                        score += 75;
-                      } else if (expectedNetProfit >= tierMinProfitForScore) {
-                        score += 45;
-                      } else {
-                        score -= 150;
-                      }
-
-                      // Anti-Brokerage-Bleed Quality Filter: block deep-OTM contracts where ~₹72 brokerage exceeds maxBrokerageDragPct
-                      if (
-                        ltp < tierCfg.minLtp ||
-                        absDelta < tierCfg.minDelta ||
-                        strikeBrokerageDragPct > tierCfg.maxBrokerageDragPct
-                      ) {
-                        continue;
-                      }
-                      if (absDelta >= 0.46 && absDelta <= 0.65) {
-                        score += 150;
-                      } else if (absDelta >= 0.42) {
-                        score += 60;
-                      }
-
-                      if (bidAskSpreadPct <= 0.8) score += 40;
-                      else if (bidAskSpreadPct <= 1.5) score += 20;
-                      if (iv > 8 && iv <= 32) score += 20;
-                      else if (iv > 42) score -= 30;
-
-                      if (volume > 15000 || oi > 60000) score += 25;
-                      if (closePrice > 0 && ltp > closePrice) score += 30;
-
-                      const distRatio =
-                        Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1);
-                      if (!isSmallCapitalAccount) {
-                        score -= distRatio * 1600; // Heavily penalize distance from spot so true ATM / 1-step ITM wins for large accounts
-                      } else {
-                        score -= distRatio * 150; // Gentle distance penalty so affordable liquid strikes win for small/micro accounts
-                      }
+                        expectedNetProfit,
+                        configuredMinProfit: botConfig.minOptionProfitAmount,
+                        bidAskSpreadPct,
+                        iv,
+                        volume,
+                        oi,
+                        closePrice,
+                        distRatio: Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1),
+                        isSmallCapitalAccount,
+                        strike: {
+                          strikePrice: Number(row.strike_price),
+                          optType,
+                          lotSize: lotSz,
+                          delta,
+                          gamma,
+                          theta,
+                          oneLotCost,
+                        },
+                        cheapestSkippedStrikeForCap,
+                      });
+                      cheapestSkippedStrikeForCap = scoring.cheapestSkippedStrikeForCap;
+                      if (scoring.skip) continue;
+                      const score = scoring.score;
 
                       scoredCandidates.push({
                         score,
