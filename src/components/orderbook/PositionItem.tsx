@@ -1,7 +1,7 @@
 import React from 'react';
 import { Briefcase, TrendingUp, TrendingDown, Clock, BarChart2, Zap, Target } from 'lucide-react';
 import type { Position, Language } from '../../types';
-import { calculateTradeCharges } from '../../utils/indicators';
+import { usePositionCharges } from './usePositionCharges';
 export const PositionItem: React.FC<{
   pos: Position;
   onSquareOff: (id: string) => void;
@@ -13,88 +13,17 @@ export const PositionItem: React.FC<{
   const buyPx = Math.max(0, Number(pos.buyPrice || 0));
   const curPx = Number(pos.currentLTP || buyPx);
   const qty = Math.max(1, Number(pos.quantity || 1));
-  // Immediate, reliable local charges calculation (zero network delay or failure risk)
-  const defaultCharges = React.useMemo(() => {
-    const breakdown = calculateTradeCharges(
-      buyPx,
-      qty,
-      isOpt,
-      curPx,
-      pos.instrumentKey || pos.symbol,
-    );
-    return {
-      total: breakdown.roundTripCharges,
-      entryPaid: breakdown.buyCharges,
-      exitEst: breakdown.sellCharges,
-      details: {
-        brokerage: breakdown.buyBrokerage + breakdown.sellBrokerage,
-        stt: breakdown.stt,
-        gst: breakdown.gst,
-        stampDuty: breakdown.stampDuty,
-        transactionCharge: breakdown.exchangeTxnCharge,
-        sebiCharge: breakdown.sebiCharge,
-      },
-    };
-  }, [buyPx, qty, isOpt, curPx, pos.instrumentKey, pos.symbol]);
-  const [apiCharges, setApiCharges] = React.useState<{
-    total: number;
-    details: any;
-    isLiveUpstox?: boolean;
-  } | null>(null);
-  const [showTaxBreakdown, setShowTaxBreakdown] = React.useState(false);
-  const estCharges = apiCharges?.total ?? defaultCharges.total;
-  const chargeDetails = apiCharges?.details ?? defaultCharges.details;
-  React.useEffect(() => {
-    let isMounted = true;
-    const fetchCharges = async () => {
-      try {
-        if (!pos.buyPrice || !pos.quantity) return;
-        const isBseInst = /SENSEX|BANKEX|BSE/i.test(pos.symbol || '');
-        const instToken =
-          pos.instrumentKey ||
-          (pos.isOption
-            ? (isBseInst ? 'BSE_FO|' : 'NSE_FO|') + pos.symbol
-            : 'NSE_EQ|' + pos.symbol);
-        const prod = pos.productType || 'D';
-        const currentPx = pos.currentLTP || pos.buyPrice;
-        // Fetch Live Round-Trip Brokerage & Taxes directly from Upstox API via server cache
-        const r = await fetch(
-          `/api/market/brokerage?instrumentToken=${encodeURIComponent(instToken)}&quantity=${pos.quantity}&product=${prod}&buyPrice=${pos.buyPrice}&sellPrice=${currentPx}&roundTrip=true`,
-        );
-        if (r.ok) {
-          const d = await r.json();
-          const charges = d?.data?.charges;
-          if (isMounted && charges && Number(charges.total) > 0) {
-            setApiCharges({
-              total: Number(charges.total),
-              details: {
-                brokerage: Number(charges.brokerage || 60),
-                stt: Number(charges.taxes?.stt || 0),
-                gst: Number(charges.taxes?.gst || 0),
-                stampDuty: Number(charges.taxes?.stamp_duty ?? charges.taxes?.stampDuty ?? 0),
-                transactionCharge: Number(
-                  charges.other_charges?.transaction ?? charges.taxes?.transactionCharge ?? 0,
-                ),
-                sebiCharge: Number(
-                  charges.other_charges?.sebi_turnover ?? charges.taxes?.sebiCharge ?? 0,
-                ),
-              },
-              isLiveUpstox: Boolean(d?.isLiveUpstox || d?.data?.source === 'UPSTOX_LIVE_API'),
-            });
-            return;
-          }
-        }
-      } catch {
-        // Fallback already safely active from defaultCharges
-      }
-    };
-    fetchCharges();
-    return () => {
-      isMounted = false;
-    };
-  }, [pos.symbol, pos.instrumentKey, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
+  const {
+    defaultTotal,
+    entryPaid,
+    estCharges,
+    chargeDetails,
+    isLiveUpstox,
+    showTaxBreakdown,
+    toggleTaxBreakdown,
+  } = usePositionCharges(pos);
   const gross = pos.pnl || 0;
-  const net = estCharges !== null ? gross - estCharges : gross;
+  const net = gross - estCharges;
   const target50Px = Number((buyPx * 1.5).toFixed(2));
   const is50PctHit = buyPx > 0 && curPx >= target50Px;
   const progressTo50 =
@@ -223,7 +152,7 @@ export const PositionItem: React.FC<{
             <span
               className={`text-base font-black font-mono ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'} drop-shadow-[0_0_12px_rgba(52,211,153,0.3)] flex items-center gap-1`}
             >
-              {apiCharges?.isLiveUpstox && (
+              {isLiveUpstox && (
                 <span
                   className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
                   title="Upstox Live API Verified"
@@ -284,9 +213,9 @@ export const PositionItem: React.FC<{
         <div className="flex items-center gap-2">
           <span
             className="text-[10px] font-bold text-cyan-400 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40 flex items-center gap-1"
-            title={`Entry Fee Paid: ₹${defaultCharges.entryPaid.toFixed(2)} | Est. Exit Fee: ₹${Math.max(0, estCharges - defaultCharges.entryPaid).toFixed(2)}`}
+            title={`Entry Fee Paid: ₹${entryPaid.toFixed(2)} | Est. Exit Fee: ₹${Math.max(0, estCharges - entryPaid).toFixed(2)}`}
           >
-            {apiCharges?.isLiveUpstox && (
+            {isLiveUpstox && (
               <span
                 className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
                 title="Upstox Live API"
@@ -294,25 +223,25 @@ export const PositionItem: React.FC<{
             )}
             {language === 'ml' ? 'എക്സിറ്റ് RT ചാർജ്' : 'Est. RT Fee'}: ₹{estCharges.toFixed(2)}
             <span className="text-slate-400 font-normal">
-              ({language === 'ml' ? 'വാങ്ങിയ ഫീ' : 'Paid'}: ₹{defaultCharges.entryPaid.toFixed(2)})
+              ({language === 'ml' ? 'വാങ്ങിയ ഫീ' : 'Paid'}: ₹{entryPaid.toFixed(2)})
             </span>
           </span>
           {showTaxBreakdown ? (
             <button
-              onClick={() => setShowTaxBreakdown(false)}
+              onClick={toggleTaxBreakdown}
               className="text-cyan-500 hover:text-cyan-400 uppercase tracking-tighter text-[9px] font-black flex items-center gap-1"
             >
-              {apiCharges?.isLiveUpstox && (
+              {isLiveUpstox && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}
               {language === 'ml' ? 'മറയ്ക്കുക' : 'Hide'}
             </button>
           ) : (
             <button
-              onClick={() => setShowTaxBreakdown(true)}
+              onClick={toggleTaxBreakdown}
               className="text-slate-400 hover:text-cyan-400 uppercase tracking-tighter text-[9px] font-black flex items-center gap-1"
             >
-              {apiCharges?.isLiveUpstox && (
+              {isLiveUpstox && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}
               {language === 'ml' ? 'വിശദാംശങ്ങൾ' : 'View Details'}
@@ -330,8 +259,7 @@ export const PositionItem: React.FC<{
                 : 'Upstox Live Official Brokerage (Round-Trip)'}
             </span>
             <span className="text-slate-400">
-              Entry Paid: ₹{defaultCharges.entryPaid.toFixed(2)} • Est. RT Total: ₹
-              {estCharges.toFixed(2)}
+              Entry Paid: ₹{entryPaid.toFixed(2)} • Est. RT Total: ₹{estCharges.toFixed(2)}
             </span>
           </div>
           {Object.entries(chargeDetails).map(([key, val]: [string, any]) => (
