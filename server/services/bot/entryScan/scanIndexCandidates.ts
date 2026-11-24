@@ -1,13 +1,6 @@
 // Per-index candidate scanning: candle loading, signal generation, strike
 // selection and candidate accumulation for the multi-index alpha comparison.
-import {
-  botConfig,
-  botLogs,
-  botSignals,
-  paperTradeHistory,
-  globalLiveQuotes,
-  recentClosedStrikes,
-} from '../../../state';
+import { botConfig, botLogs, botSignals, globalLiveQuotes } from '../../../state';
 import {
   analyzeTradingSignals,
   enrichCandlesWithIndicators,
@@ -18,20 +11,13 @@ import { resilientFetchJson } from '../../../lib/http';
 import { getDynamicLotSize, lotSizeCache } from '../../../lib/instruments';
 import {} from '../../../lib/optionTradeRules';
 import { loadIntradayCandles } from './intradayCandles';
-import { getTradeNetPnL } from './sessionCircuit';
+import { isStrikeChurnBlocked } from './strikeAntiChurn';
 import { getFiveYearRegime } from './fiveYearRegime';
 import { computeInstitutionalFlow } from './institutionalFlow';
 import { computeAlphaScore } from './alphaScore';
 import { applyLiveTick, mapUpstoxCandles } from './candles';
 import { selectOptionStrike } from './selectOptionStrike';
 import { applyCrossIndexVeto } from './crossIndexVeto';
-import {
-  strikeDailyEntryCount,
-  STRIKE_LOCKOUT_MS,
-  STRIKE_LOSS_LOCKOUT_MS,
-  MAX_STRIKE_ENTRIES_DEFAULT,
-  MAX_STRIKE_ENTRIES_TRENDING,
-} from '../antiChurn';
 
 let lastCapitalShortfallLogMs = 0;
 
@@ -315,58 +301,8 @@ export async function scanIndexCandidates(params: ScanIndexCandidatesParams): Pr
             signal.instrumentKey || signal.underlyingInstrumentKey || 'NSE_FO|' + optionSymbol;
 
           // PERSISTENT ANTI-CHURN & SMART BIG-PROFIT RE-ENTRY GUARD
-          const sameStrikeLiveTrades = activeSessionTrades.filter(
-            (h: any) =>
-              h &&
-              (h.symbol === optionSymbol ||
-                (optInstrumentKey && h.instrumentKey === optInstrumentKey)),
-          );
-          const allTradeHist = Array.isArray(paperTradeHistory) ? paperTradeHistory : [];
-          const sameStrikeLocalClosed = allTradeHist.find(
-            (h: any) =>
-              h &&
-              (h.symbol === optionSymbol ||
-                (optInstrumentKey && h.instrumentKey === optInstrumentKey)),
-          );
-          const sameStrikeRecent = optInstrumentKey ? recentClosedStrikes[optInstrumentKey] : null;
-          const latestSameStrikeTs = Math.max(
-            sameStrikeRecent?.exitTime || 0,
-            sameStrikeLiveTrades[0]?.closeTime
-              ? new Date(sameStrikeLiveTrades[0].closeTime).getTime()
-              : 0,
-            sameStrikeLocalClosed
-              ? new Date(
-                  sameStrikeLocalClosed.closeTime || sameStrikeLocalClosed.timestamp || 0,
-                ).getTime()
-              : 0,
-          );
-          const sameStrikeLostLast = sameStrikeRecent
-            ? typeof sameStrikeRecent.netRealizedPnL === 'number'
-              ? sameStrikeRecent.netRealizedPnL < 0
-              : sameStrikeRecent.sellPrice < (sameStrikeRecent.buyPrice || 0)
-            : sameStrikeLiveTrades[0]
-              ? getTradeNetPnL(sameStrikeLiveTrades[0]) < 0
-              : sameStrikeLocalClosed
-                ? getTradeNetPnL(sameStrikeLocalClosed) < 0
-                : false;
-          const totalEntriesForStrike = Math.max(
-            optInstrumentKey ? strikeDailyEntryCount[optInstrumentKey] || 0 : 0,
-            sameStrikeLiveTrades.length,
-          );
-          if (
-            totalEntriesForStrike >=
-            (sameStrikeLostLast ? MAX_STRIKE_ENTRIES_DEFAULT : MAX_STRIKE_ENTRIES_TRENDING)
-          ) {
+          if (isStrikeChurnBlocked({ optionSymbol, optInstrumentKey, activeSessionTrades })) {
             continue;
-          }
-          if (latestSameStrikeTs > 0) {
-            const timeSinceExit = Date.now() - latestSameStrikeTs;
-            const requiredStrikeCooldown = sameStrikeLostLast
-              ? STRIKE_LOSS_LOCKOUT_MS
-              : STRIKE_LOCKOUT_MS;
-            if (timeSinceExit < requiredStrikeCooldown) {
-              continue;
-            }
           }
           const lotSize = await getDynamicLotSize(optionSymbol, token, optInstrumentKey);
           const lotCalc = calculateAffordableLotsWithBrokerage(
