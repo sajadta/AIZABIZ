@@ -62,6 +62,8 @@ import {
 import { getFiveYearRegime } from './entryScan/fiveYearRegime';
 import { computeInstitutionalFlow } from './entryScan/institutionalFlow';
 import { computeChainOiMetrics } from './entryScan/chainMetrics';
+import { computeEffectiveCapital } from './entryScan/capitalSizing';
+import { resolveScanIndices } from './entryScan/scanIndices';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -169,67 +171,19 @@ export async function runEntryScan(ctx: {
       }
     }
 
-    // Strict Capital Separation:
-    // - In UPSTOX_LIVE mode: ONLY use actual cash in Upstox account (liveAvailableMargin). NEVER use dummy/paper cash!
-    // Corporate Autonomous Dynamic Capital Sizing:
-    // - 0 = Auto Dynamic: Evaluates real available margin in UPSTOX_LIVE mode or virtual funds in PAPER_TRADING mode.
-    // - If user specifies a manual cap in Advanced Overrides (> 0), it respects that ceiling.
+    // Strict capital separation: UPSTOX_LIVE uses only real Upstox cash, PAPER uses virtual funds.
+    // A manual override (> 0) caps either source.
     const configuredCap = Number((botConfig as any).maxCapitalPerTrade || 0);
-    const activeExposure =
-      botConfig.mode === 'PAPER_TRADING'
-        ? paperPositions
-            .filter((p: any) => !p.mode || p.mode === 'PAPER_TRADING')
-            .reduce((sum: number, p: any) => sum + p.buyPrice * p.quantity, 0)
-        : 0;
-    const paperPnL = paperTradeHistory
-      .filter((t: any) => !t.mode || t.mode === 'PAPER_TRADING')
-      .reduce((sum: number, t: any) => sum + (t.netRealizedPnL || t.realizedPnL || 0), 0);
-    const paperBalance = Math.max(0, getPaperInitialCapital() + paperPnL - activeExposure);
+    const effectiveCapital = computeEffectiveCapital({
+      mode: botConfig.mode,
+      configuredCap,
+      liveAvailableMargin,
+      initialCapital: getPaperInitialCapital(),
+      openPaperPositions: paperPositions,
+      paperTradeHistory,
+    });
 
-    const effectiveCapital =
-      botConfig.mode === 'UPSTOX_LIVE'
-        ? configuredCap > 0
-          ? Math.min(liveAvailableMargin, configuredCap)
-          : liveAvailableMargin
-        : configuredCap > 0
-          ? Math.min(paperBalance, configuredCap)
-          : paperBalance;
-
-    // Prioritize High-Liquidity Institutional Indices (Nifty 50, BankNifty, Sensex, FinNifty, Midcap Nifty, Bankex)
-    // FULL_AUTO_MULTI_INDEX: Corporate Quant Scanner monitors all indices equally and picks whichever index gives highest net profit!
-    const chosenPriority = (botConfig as any).selectedIndexPriority || 'FULL_AUTO_MULTI_INDEX';
-    let scanIndices = [
-      { key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' },
-      { key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' },
-      { key: 'BSE_INDEX|SENSEX', symbol: 'SENSEX' },
-      { key: 'NSE_INDEX|Nifty Fin Service', symbol: 'NIFTY FIN SERVICE' },
-      { key: 'NSE_INDEX|NIFTY MID SELECT', symbol: 'MIDCPNIFTY' },
-      { key: 'BSE_INDEX|BANKEX', symbol: 'BANKEX' },
-    ];
-
-    if (chosenPriority === 'NIFTY_50_ONLY') {
-      scanIndices = [{ key: 'NSE_INDEX|Nifty 50', symbol: 'NIFTY 50' }];
-    } else if (chosenPriority === 'BANKNIFTY_ONLY') {
-      scanIndices = [{ key: 'NSE_INDEX|Nifty Bank', symbol: 'NIFTY BANK' }];
-    } else if (chosenPriority === 'SENSEX_ONLY') {
-      scanIndices = [{ key: 'BSE_INDEX|SENSEX', symbol: 'SENSEX' }];
-    } else if (chosenPriority === 'FINNIFTY_ONLY') {
-      scanIndices = [{ key: 'NSE_INDEX|Nifty Fin Service', symbol: 'NIFTY FIN SERVICE' }];
-    } else if (chosenPriority === 'MIDCPNIFTY_ONLY') {
-      scanIndices = [{ key: 'NSE_INDEX|NIFTY MID SELECT', symbol: 'MIDCPNIFTY' }];
-    } else if (chosenPriority === 'BANKEX_ONLY') {
-      scanIndices = [{ key: 'BSE_INDEX|BANKEX', symbol: 'BANKEX' }];
-    } else if (
-      (botConfig as any).selectedInstrumentKey &&
-      chosenPriority !== 'FULL_AUTO_MULTI_INDEX' &&
-      chosenPriority !== 'ALL_NIFTY_PRIORITY' &&
-      chosenPriority !== 'ALL_EQUAL'
-    ) {
-      const matching = scanIndices.find((x) => x.key === (botConfig as any).selectedInstrumentKey);
-      if (matching) {
-        scanIndices = [matching];
-      }
-    }
+    const scanIndices = resolveScanIndices(botConfig);
 
     // PASS 1: Collect verified real option candidates across all scanned indices to compare institutional alpha
     const marketAlphaCandidates: any[] = [];
