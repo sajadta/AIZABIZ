@@ -25,6 +25,7 @@ import { placeUpstoxOrderIpv4 } from '.././upstoxTransport';
 import { computeOptionStopLossPlan } from './positionMonitor/stopLoss';
 import { handleShortOptionExit, isShortOptionPosition } from './positionMonitor/shortOptionExit';
 import { detectUnderlyingReversal, isCallOptionSymbol } from './positionMonitor/underlyingReversal';
+import { evaluateOptionTrend } from './positionMonitor/optionTrend';
 import { sendTelegramNotification } from '.././notifications';
 import { savePostgresDb, getPaperInitialCapital } from '.././persistence';
 import { shouldMonitorEquityPosition } from '../../lib/portfolioNormalize';
@@ -92,7 +93,6 @@ export async function monitorActivePositions(ctx: {
       let isOption1mTrendIntact = true;
       let isOptionClimaxReversal = false;
       let isOption1mBreakingDown = false;
-      let prev1mCandleLow = 0;
       let optCandlesActive: any[] = [];
 
       if (token && pos.instrumentKey) {
@@ -204,71 +204,16 @@ export async function monitorActivePositions(ctx: {
                   ),
             );
 
-        let avgOptionAtr = Math.max(0.35, pos.buyPrice * 0.025);
-        if (optCandlesActive.length >= 3) {
-          const recentRanges = optCandlesActive
-            .slice(0, 5)
-            .map((c: any) => Math.max(0.05, Number(c[2] || 0) - Number(c[3] || 0)));
-          avgOptionAtr = Number(
-            (
-              recentRanges.reduce((a: number, b: number) => a + b, 0) /
-              Math.max(1, recentRanges.length)
-            ).toFixed(2),
-          );
-          const c0 = optCandlesActive[0]; // current 1m candle
-          const c1 = optCandlesActive[1]; // previous closed 1m candle
-          const c2 = optCandlesActive[2]; // 2m ago closed candle
-          prev1mCandleLow = Number(c1[3] || 0);
-          const prev2mCandleLow = Number(c2[3] || 0);
-          const c1Open = Number(c1[1] || ltp);
-          const c1Close = Number(c1[4] || ltp);
-          const c0High = Math.max(Number(c0[2] || ltp), ltp);
-          const c0Low = Math.min(Number(c0[3] || ltp), ltp);
-          const c0Open = Number(c0[1] || ltp);
-          const c0UpperWick = c0High - Math.max(c0Open, ltp);
-          const c0Range = Math.max(0.05, c0High - c0Low);
-
-          // Option 1m trend is INTACT as long as live price holds above the previous closed 1m candle's low (Higher-Low structure)
-          if (prev1mCandleLow > 0 && ltp < prev1mCandleLow && ltp < c0Open) {
-            isOption1mTrendIntact = false;
-          }
-          // True structural breakdown if it breaks below both the last 2 closed 1-minute candle lows
-          if (
-            prev1mCandleLow > 0 &&
-            prev2mCandleLow > 0 &&
-            ltp < Math.min(prev1mCandleLow, prev2mCandleLow)
-          ) {
-            isOption1mTrendIntact = false;
-          }
-          // Option 1m candle is actively breaking down ONLY if current LTP is genuinely below buyPrice AND broke below both c1 and c2 lows
-          if (
-            ltp < pos.buyPrice * 0.988 &&
-            c1Close < c1Open &&
-            ltp < c0Open &&
-            prev1mCandleLow > 0 &&
-            prev2mCandleLow > 0 &&
-            ltp < Math.min(prev1mCandleLow, prev2mCandleLow)
-          ) {
-            isOption1mBreakingDown = true;
-          }
-          // Universal Climax Shooting-Star / Upper Wick Rejection:
-          // A climax rejection occurs whenever:
-          // 1) The trade is in profit (ltp >= pos.buyPrice * 1.035 or ltp >= forecastedMaxPrice * 0.93), AND
-          // 2) The 1m candle has a significant upper wick (>= 35% of total candle range), showing institutional rejection near the top,
-          // 3) Price is failing or turning red (ltp < c0Open || ltp <= c0High - c0UpperWick * 0.40).
-          const isShootingStarPattern =
-            c0Range >= 0.2 &&
-            c0UpperWick / c0Range >= 0.35 &&
-            (ltp < c0Open || ltp <= c0High - c0UpperWick * 0.4);
-
-          if (
-            (ltp >= pos.buyPrice * 1.035 ||
-              (forecastedMaxPrice > 0 && ltp >= forecastedMaxPrice * 0.93)) &&
-            isShootingStarPattern
-          ) {
-            isOptionClimaxReversal = true;
-          }
-        }
+        const optionTrend = evaluateOptionTrend({
+          candles: optCandlesActive,
+          ltp,
+          buyPrice: pos.buyPrice,
+          forecastedMaxPrice,
+        });
+        const avgOptionAtr = optionTrend.avgOptionAtr;
+        isOption1mTrendIntact = optionTrend.isTrendIntact;
+        isOption1mBreakingDown = optionTrend.isBreakingDown;
+        isOptionClimaxReversal = optionTrend.isClimaxReversal;
 
         const pnlPercent = pos.buyPrice > 0 ? ((ltp - pos.buyPrice) / pos.buyPrice) * 100 : 0;
         let shouldSell = false;
