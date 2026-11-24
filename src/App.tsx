@@ -25,6 +25,8 @@ import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { useLiveQuotes } from './hooks/useLiveQuotes';
 import { useChartCandles } from './hooks/useChartCandles';
 import { useLivePositionMarks } from './hooks/useLivePositionMarks';
+import { useServerWakeup } from './hooks/useServerWakeup';
+import { usePersistedCollections } from './hooks/usePersistedCollections';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -105,21 +107,7 @@ export const App: React.FC = () => {
     return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
   });
 
-  useEffect(() => {
-    if (orders.length > 0) {
-      safeStorage.setJson('aizabiz_persisted_orders_v3', orders);
-    } else {
-      safeStorage.removeItem('aizabiz_persisted_orders_v3');
-    }
-  }, [orders]);
-
-  useEffect(() => {
-    if (tradeHistory.length > 0) {
-      safeStorage.setJson('aizabiz_persisted_trade_history_v3', tradeHistory);
-    } else {
-      safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
-    }
-  }, [tradeHistory]);
+  usePersistedCollections(orders, tradeHistory);
 
   // Option Chain
   const [optionChainData, setOptionChainData] = useState<OptionChainData | null>(null);
@@ -181,20 +169,7 @@ export const App: React.FC = () => {
   const lastLivePositionsAtRef = useRef<number>(0);
 
   // 0. Server Wakeup Heartbeat
-  useEffect(() => {
-    const ctrl = new AbortController();
-    const triggerWakeup = () => {
-      fetch(`/api/wakeup?t=${Date.now()}`, { cache: 'no-store', signal: ctrl.signal }).catch(() => {
-        /* ignore */
-      });
-    };
-    triggerWakeup();
-    const wakeupInterval = setInterval(triggerWakeup, 4 * 60 * 1000); // Every 4 minutes
-    return () => {
-      ctrl.abort();
-      clearInterval(wakeupInterval);
-    };
-  }, []);
+  useServerWakeup();
 
   // Load configuration from API on mount & auto-restore saved Upstox daily token
   useAppBootstrap({ setMode, setBotConfig, setApiConfig, setTradeHistory });
