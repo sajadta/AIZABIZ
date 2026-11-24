@@ -1,30 +1,6 @@
 // Shared fixtures for the server rule tests.
 
-export function calculateOptionStopLoss(
-  buyPrice: number,
-  quantity: number,
-  stopLossPercent: number,
-) {
-  const effectiveSlPct = Math.max(10.0, Math.min(18.0, Number(stopLossPercent || 14.0)));
-  let optionSlPoints = Math.max(6.0, Number((buyPrice * (effectiveSlPct / 100)).toFixed(2)));
-  if (buyPrice < 24) {
-    optionSlPoints = Math.min(optionSlPoints, Number((buyPrice * 0.25).toFixed(2)));
-  }
-  const dynamicMaxRupeeLossCap = Math.max(
-    380,
-    Math.min(650, Math.round(optionSlPoints * quantity)),
-  );
-  if (optionSlPoints * quantity > dynamicMaxRupeeLossCap) {
-    optionSlPoints = Number((dynamicMaxRupeeLossCap / quantity).toFixed(2));
-  }
-  const stopLossPrice = Number(Math.max(0.1, buyPrice - optionSlPoints).toFixed(2));
-  return {
-    optionSlPoints,
-    dynamicMaxRupeeLossCap,
-    stopLossPrice,
-    maxRupeeLoss: Math.round(optionSlPoints * quantity),
-  };
-}
+export { computeOptionStopLossPlan as calculateOptionStopLoss } from '../services/bot/positionMonitor/stopLoss';
 
 export function canEnterTradeAfterExit(
   lastExitTimeMs: number,
