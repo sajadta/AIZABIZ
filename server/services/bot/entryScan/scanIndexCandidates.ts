@@ -18,6 +18,8 @@ import { computeAlphaScore } from './alphaScore';
 import { applyLiveTick, mapUpstoxCandles } from './candles';
 import { selectOptionStrike } from './selectOptionStrike';
 import { applyCrossIndexVeto } from './crossIndexVeto';
+import { buildIndexScanRow } from './indexScanRow';
+import { sizeOptionEntry } from './entrySizing';
 
 let lastCapitalShortfallLogMs = 0;
 
@@ -219,55 +221,18 @@ export async function scanIndexCandidates(params: ScanIndexCandidatesParams): Pr
           if (botLogs.length > 200) botLogs.length = 200;
         }
 
-        const expNetVal = Number(displayCandidate?.expectedNetProfit || 0);
-        const timeframe15m = signal?.mtfConfirmation?.timeframe15m ?? 'NEUTRAL';
-        const idxScanItem: any = {
-          key: idx.key,
-          symbol: idx.symbol,
-          displayName: idx.symbol,
-          exchange: idx.key.startsWith('BSE') ? 'BSE' : 'NSE',
-          spotLtp: liveLtp,
-          trend15m: timeframe15m,
-          trend5m: signal?.mtfConfirmation?.timeframe5m || 'NEUTRAL',
-          signalType: signal?.signalType || 'HOLD',
-          confidenceScore: signal?.confidenceScore || 50,
+        const idxScanItem: any = buildIndexScanRow({
+          idx,
+          liveLtp,
+          signal,
+          displayCandidate,
+          cheapestSkippedStrikeForCap,
+          isCapitalShortfallBlocked,
+          verifiedRealOptionStrike,
           corporateHeavyweightScore,
           corporateHeavyweightSummary,
-          bestOptionSymbol:
-            displayCandidate && (signal?.signalType !== 'HOLD' || isCapitalShortfallBlocked)
-              ? `${idx.symbol.split(' ')[0]} ${displayCandidate.strikePrice} ${displayCandidate.optType || ''}`.trim()
-              : undefined,
-          bestOptionLtp: displayCandidate?.ltp || 0,
-          lotSize: displayCandidate?.lotSize || lotSizeCache[idx.key]?.lotSize || 1,
-          bestStrike: displayCandidate?.strikePrice || 0,
-          delta: displayCandidate?.delta || 0,
-          gamma: displayCandidate?.gamma || 0,
-          expectedNetProfit: expNetVal,
-          totalRequiredCashWithBrokerage: displayCandidate?.totalRequiredWithBrokerage || 0,
-          roiPotentialPct: displayCandidate?.roiPotentialPct || 0,
-          alphaOpportunityScore: 0,
-          verifiedRealOptionStrike,
-          statusTextMl:
-            signal?.signalType === 'BUY'
-              ? `🔥 ശക്തമായ CE ബ്രേക്ക്ഔട്ട് (Exp Net: +₹${Math.round(expNetVal)})`
-              : signal?.signalType === 'SELL'
-                ? `⚡ ശക്തമായ PE ബ്രേക്ക്ഡൗൺ (Exp Net: +₹${Math.round(expNetVal)})`
-                : isCapitalShortfallBlocked
-                  ? `⚠️ ബാലൻസ് പോരാ: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType})-ന് ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString('en-IN')} വേണം (ലഭ്യം: ₹${effectiveCapital.toFixed(0)})`
-                  : timeframe15m !== 'NEUTRAL'
-                    ? `⏳ 15m ${timeframe15m} - മികച്ച ഓപ്ഷൻ പ്രീമിയം ബ്രേക്ക്ഔട്ടിനായി കാത്തിരിക്കുന്നു`
-                    : `⏳ ഇൻഡക്സ് കൺസോളിഡേഷനിലാണ് (Chop Zone) - റേഞ്ച് ബ്രേക്ക്ഔട്ട് വെയിറ്റ് ചെയ്യുന്നു`,
-          statusTextEn:
-            signal?.signalType === 'BUY'
-              ? `Bullish Breakout CE (Exp Net: +₹${Math.round(expNetVal)})`
-              : signal?.signalType === 'SELL'
-                ? `Bearish Breakdown PE (Exp Net: +₹${Math.round(expNetVal)})`
-                : isCapitalShortfallBlocked
-                  ? `Insufficient Funds: 1 Lot (${cheapestSkippedStrikeForCap.strikePrice} ${cheapestSkippedStrikeForCap.optType}) needs ₹${Math.round(cheapestSkippedStrikeForCap.totalRequiredWithBrokerage).toLocaleString('en-IN')} (Avail: ₹${effectiveCapital.toFixed(0)})`
-                  : timeframe15m !== 'NEUTRAL'
-                    ? `15m ${timeframe15m} - Waiting for high-momentum premium entry`
-                    : `Consolidation Chop - Waiting for institutional breakout`,
-        };
+          effectiveCapital,
+        });
         currentTickMultiIndexComparison.push(idxScanItem);
 
         const isUnderlyingAlreadyOpen = activePositions.some(
@@ -294,146 +259,25 @@ export async function scanIndexCandidates(params: ScanIndexCandidatesParams): Pr
               : signal.mtfConfirmation?.timeframe15m === 'BEARISH')) &&
           signal.confidenceScore >= Math.max(78, Number(botConfig.minConfidence || 78))
         ) {
-          const isBullish = signal.signalType === 'BUY';
           const optionSymbol = signal.symbol;
           const optionPrice = Number(signal.price || 0);
           const optInstrumentKey =
             signal.instrumentKey || signal.underlyingInstrumentKey || 'NSE_FO|' + optionSymbol;
-
-          // PERSISTENT ANTI-CHURN & SMART BIG-PROFIT RE-ENTRY GUARD
-          if (isStrikeChurnBlocked({ optionSymbol, optInstrumentKey, activeSessionTrades })) {
-            continue;
-          }
-          const lotSize = await getDynamicLotSize(optionSymbol, token, optInstrumentKey);
-          const lotCalc = calculateAffordableLotsWithBrokerage(
-            optionPrice,
-            lotSize,
-            effectiveCapital,
-            true,
-            5,
-          );
-          const oneLotEntryCheck = calculateTradeCharges(
-            optionPrice,
-            lotSize,
-            true,
-            signal.target1 || optionPrice * 1.25,
-          );
-          const oneLotEntryCashNeeded =
-            oneLotEntryCheck.tradeValue + oneLotEntryCheck.buyCharges + 3;
-          const canAffordOneLiveLot =
-            botConfig.mode === 'UPSTOX_LIVE' &&
-            effectiveCapital > 0 &&
-            oneLotEntryCashNeeded <= effectiveCapital;
-          let liveEntryMaxLots = lotCalc.affordableLots;
-          if (
-            botConfig.mode === 'UPSTOX_LIVE' &&
-            effectiveCapital > 0 &&
-            effectiveCapital <= 6500
-          ) {
-            for (let l = 1; l <= 3; l++) {
-              const lc = calculateTradeCharges(
-                optionPrice,
-                lotSize * l,
-                true,
-                signal.target1 || optionPrice * 1.25,
-              );
-              if (lc.tradeValue + lc.buyCharges + 3 <= effectiveCapital)
-                liveEntryMaxLots = Math.max(liveEntryMaxLots, l);
-              else break;
-            }
-          }
-          // CRITICAL CAPITAL GUARD: Never enter trade if account balance cannot afford even 1 lot!
-          if (
-            effectiveCapital <= 0 ||
-            (lotCalc.affordableLots < 1 && !canAffordOneLiveLot && liveEntryMaxLots < 1)
-          ) {
-            continue;
-          }
-          let affordableLots = Math.max(lotCalc.affordableLots, liveEntryMaxLots, 1);
-          if (effectiveCapital > 30000 && (botConfig as any).maxConcurrentTrades === 1) {
-            affordableLots = Math.min(affordableLots, 2);
-          } else if (effectiveCapital <= 6500) {
-            // Maximize profit for small capital accounts on cheap strikes across all 6 indices
-            affordableLots = Math.min(affordableLots, 3);
-          } else {
-            affordableLots = Math.min(affordableLots, 2);
-          }
-          const targetQuantity = affordableLots * lotSize;
-          const multiLotCharges = calculateTradeCharges(
-            optionPrice,
-            targetQuantity,
-            true,
-            signal.target1 || optionPrice * 1.25,
-          );
-          const totalTradeCost = multiLotCharges.tradeValue;
-          const totalTradeBrokerage = multiLotCharges.roundTripCharges;
-          const totalRequiredCashWithBrokerage = multiLotCharges.totalRequiredWithBrokerage;
-
-          // Accurate entry cash requirement: option cost + entry buy charges
-          const entryRequiredCash = totalTradeCost + multiLotCharges.buyCharges;
-          if (entryRequiredCash > effectiveCapital) {
-            continue;
-          }
-
-          const isOptionSellingEntry = botConfig.optionStrategyMode === 'OPTION_SELLING';
-          const execTransactionType = isOptionSellingEntry ? 'SELL' : 'BUY';
-          const execOrderType = botConfig.limitOrderSlippageGuard ? 'LIMIT' : 'MARKET';
-          const roundToTick = (val: number, tick = 0.05) =>
-            Number((Math.round(val / tick) * tick).toFixed(2));
-          const limitPriceWithSlippageGuard = isOptionSellingEntry
-            ? roundToTick(optionPrice * 0.995)
-            : roundToTick(optionPrice * 1.005);
-          const effectiveStopLoss = isOptionSellingEntry
-            ? Number((optionPrice * 1.28).toFixed(2))
-            : signal.stopLoss;
-          const effectiveTarget1 = isOptionSellingEntry
-            ? Number((optionPrice * 0.55).toFixed(2))
-            : signal.target1;
-
-          // Corporate quant multi-index alpha opportunity scoring
-          const {
-            expectedNetProfit: expNetProfit,
-            profitYield,
-            alphaOpportunityScore,
-          } = computeAlphaScore({
-            expectedNetProfit: bestCandidate?.expectedNetProfit,
-            effectiveTarget1,
-            optionPrice,
-            targetQuantity,
-            totalTradeBrokerage,
-            totalRequiredCash: totalRequiredCashWithBrokerage,
-            hasMtfConfirmation: Boolean(signal.mtfConfirmation?.status),
-            rvol: signal.indicators?.rvol,
-            confidenceScore: signal.confidenceScore,
-          });
-
-          marketAlphaCandidates.push({
+          const candidate = await sizeOptionEntry({
+            token,
             idx,
             signal,
             bestCandidate,
             optionSymbol,
             optionPrice,
             optInstrumentKey,
-            lotSize,
-            targetQuantity,
-            affordableLots,
-            totalTradeCost,
-            totalTradeBrokerage,
-            entryRequiredCash,
-            totalRequiredCashWithBrokerage,
-            effectiveStopLoss,
-            effectiveTarget1,
-            isBullish,
-            isOptionSellingEntry,
-            execTransactionType,
-            execOrderType,
-            limitPriceWithSlippageGuard,
-            alphaOpportunityScore,
-            expectedNetProfit: expNetProfit,
-            profitYield,
+            effectiveCapital,
+            activeSessionTrades,
           });
-          idxScanItem.alphaOpportunityScore = alphaOpportunityScore;
-          idxScanItem.expectedNetProfit = expNetProfit;
+          if (!candidate) continue;
+          marketAlphaCandidates.push(candidate);
+          idxScanItem.alphaOpportunityScore = candidate.alphaOpportunityScore;
+          idxScanItem.expectedNetProfit = candidate.expectedNetProfit;
         }
       }
     } catch (innerErr: any) {
