@@ -18,6 +18,7 @@ import {
 } from './types';
 import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
 import { safeStorage } from './utils/storage';
+import { useBackendBotSync } from './hooks/useBackendBotSync';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -1721,86 +1722,16 @@ export const App: React.FC = () => {
     });
   }, [quotes, soundEnabled]);
 
-  // 2. Real-Time Backend Algo Bot Sync Loop (Fetches authoritative logs, 7-Layer signals, active positions, orders & history from the 200ms server engine)
-  // NOTE: All automated trade entries and exits are strictly executed by the 200ms server engine (which enforces 09:18 AM - 15:08 PM IST market hours, real Upstox Option Chain verification, and Peak-Locked Stop-Loss).
-  useEffect(() => {
-    let isMounted = true;
-    let inFlightSync = false;
-    let activeCtrl: AbortController | null = null;
-    const syncBackendBotState = async () => {
-      if (!isMounted || inFlightSync) return;
-      inFlightSync = true;
-      const ctrl = new AbortController();
-      activeCtrl = ctrl;
-      const timeoutId = setTimeout(() => ctrl.abort(), 5000);
-      try {
-        const token = apiConfig.accessToken || safeStorage.getItem('upstox_daily_token') || '';
-        const headers: Record<string, string> = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const [logsRes, sigsRes] = await Promise.allSettled([
-          fetch('/api/bot/logs', { headers, signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/bot/signals', { headers, signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)),
-        ]);
-
-        if (!isMounted || ctrl.signal.aborted) return;
-
-        if (logsRes.status === 'fulfilled' && Array.isArray(logsRes.value)) {
-          const nextLogs = logsRes.value.map((l: any) => ({
-            id: l.id || String(Date.now()),
-            timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
-            message: l.message || '',
-            type: l.type || 'INFO',
-          }));
-          setBotLogs((prev) => {
-            if (prev.length === 0 && nextLogs.length === 0) return prev;
-            if (prev.length === nextLogs.length && prev[0]?.id === nextLogs[0]?.id) return prev;
-            return nextLogs;
-          });
-        }
-        if (
-          sigsRes.status === 'fulfilled' &&
-          Array.isArray(sigsRes.value) &&
-          sigsRes.value.length > 0
-        ) {
-          setSignals(sigsRes.value);
-          // Match the signal for the currently selected symbol (e.g. NIFTY 50), instead of taking index 0
-          const matchingSig = sigsRes.value.find(
-            (s: any) =>
-              s.symbol?.includes(selectedSymbol) ||
-              s.name?.includes(selectedSymbol) ||
-              (selectedSymbol.includes('NIFTY 50') &&
-                s.symbol?.includes('NIFTY') &&
-                !s.symbol?.includes('BANK') &&
-                !s.symbol?.includes('FIN')) ||
-              (selectedSymbol.includes('BANK') && s.symbol?.includes('BANK')) ||
-              (selectedSymbol.includes('SENSEX') && s.symbol?.includes('SENSEX')),
-          );
-          setActiveSignal(matchingSig || sigsRes.value[0]);
-        }
-      } catch {
-        // Ignored
-      } finally {
-        clearTimeout(timeoutId);
-        if (activeCtrl === ctrl) activeCtrl = null;
-        inFlightSync = false;
-      }
-
-      if (isMounted && Date.now() - lastLivePositionsAtRef.current > 1800) {
-        fetchLivePositions();
-      }
-    };
-
-    syncBackendBotState();
-    const botSyncInterval = setInterval(syncBackendBotState, 2500);
-    return () => {
-      isMounted = false;
-      activeCtrl?.abort();
-      clearInterval(botSyncInterval);
-    };
-  }, [apiConfig.accessToken, fetchLivePositions, selectedSymbol]);
+  // 2. Real-Time Backend Algo Bot Sync Loop (see useBackendBotSync)
+  useBackendBotSync({
+    accessToken: apiConfig.accessToken,
+    selectedSymbol,
+    lastLivePositionsAtRef,
+    fetchLivePositions,
+    setBotLogs,
+    setSignals,
+    setActiveSignal,
+  });
 
   // 3. Auto-load AI analysis when switching to AI tab
   useEffect(() => {
