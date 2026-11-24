@@ -9,6 +9,7 @@ import {
   detect0DteGammaExplosion,
 } from './institutionalQuant';
 import { buildMtfTrend } from './signals/mtfTrend';
+import { detectCandlePattern } from './signals/candlePatterns';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -266,104 +267,17 @@ export function analyzeTradingSignals(
   const move3m = currentLtp - prev3.close;
   const move5m = currentLtp - prev5.close;
 
-  // A. Multi-Candle Candlestick Pattern Recognition (Closed Candles prev2, prev + Live Breakout Confirmation on last)
-  const prevBody = Math.abs(prev.close - prev.open);
-  const prevRange = Math.max(0.01, prev.high - prev.low);
-  const prevUpperWick = prev.high - Math.max(prev.open, prev.close);
-  const prevLowerWick = Math.min(prev.open, prev.close) - prev.low;
-  const prev2Body = Math.abs(prev2.close - prev2.open);
-
-  const isClosedBullishEngulfing =
-    prev2.close < prev2.open &&
-    prev.close > prev.open &&
-    prev.close >= prev2.open &&
-    prev.open <= prev2.close &&
-    currentLtp >= prev.close;
-  const isClosedBearishEngulfing =
-    prev2.close > prev2.open &&
-    prev.close < prev.open &&
-    prev.close <= prev2.open &&
-    prev.open >= prev2.close &&
-    currentLtp <= prev.close;
-
-  const isClosedHammerSupport =
-    prevLowerWick >= prevBody * 1.8 && prevUpperWick <= prevRange * 0.25 && currentLtp > prev.high;
-  const isClosedShootingStarResistance =
-    prevUpperWick >= prevBody * 1.8 && prevLowerWick <= prevRange * 0.25 && currentLtp < prev.low;
-
-  const isMorningStarReversal =
-    prev3.close < prev3.open &&
-    prev2Body < Math.abs(prev3.close - prev3.open) * 0.45 &&
-    prev.close > prev.open &&
-    prev.close > (prev3.open + prev3.close) / 2 &&
-    currentLtp >= prev.close;
-  const isEveningStarReversal =
-    prev3.close > prev3.open &&
-    prev2Body < Math.abs(prev3.close - prev3.open) * 0.45 &&
-    prev.close < prev.open &&
-    prev.close < (prev3.open + prev3.close) / 2 &&
-    currentLtp <= prev.close;
-
-  const isInsideBarBullBreakout =
-    prev.high <= prev2.high && prev.low >= prev2.low && currentLtp > prev2.high;
-  const isInsideBarBearBreakdown =
-    prev.high <= prev2.high && prev.low >= prev2.low && currentLtp < prev2.low;
-
-  const isThreeSoldiersThrust =
-    prev2.close > prev2.open &&
-    prev.close > prev.open &&
-    prev.close > prev2.close &&
-    currentLtp >= prev.close;
-  const isThreeCrowsThrust =
-    prev2.close < prev2.open &&
-    prev.close < prev.open &&
-    prev.close < prev2.close &&
-    currentLtp <= prev.close;
-
-  let detectedPatternEn = 'Multi-Candle Structure Follow-Through';
-  let detectedPatternMl = 'മൾട്ടി-കാൻഡിൽ സ്ട്രക്ചർ കൺഫർമേഷൻ';
-
-  if (isClosedBullishEngulfing) {
-    detectedPatternEn = 'Bullish Engulfing + Follow-Through Breakout';
-    detectedPatternMl = 'ബുള്ളിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഔട്ട് കൺഫർമേഷൻ';
-    bullishPoints += 16;
-  } else if (isMorningStarReversal) {
-    detectedPatternEn = 'Morning Star 3-Candle Institutional Reversal';
-    detectedPatternMl = 'മോണിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ';
-    bullishPoints += 18;
-  } else if (isClosedHammerSupport) {
-    detectedPatternEn = 'Hammer Pin-Bar Liquidity Sweep & Breakout';
-    detectedPatternMl = 'ഹാമർ പിൻ-ബാർ സപ്പോർട്ട് ബൗൺസ്';
-    bullishPoints += 15;
-  } else if (isInsideBarBullBreakout) {
-    detectedPatternEn = 'Inside-Bar Volatility Expansion Breakout';
-    detectedPatternMl = 'ഇൻസൈഡ്-ബാർ വോളിയം ബ്രേക്ക്ഔട്ട്';
-    bullishPoints += 15;
-  } else if (isThreeSoldiersThrust) {
-    detectedPatternEn = '3-Bar Institutional Momentum Thrust';
-    detectedPatternMl = '3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ മൊമെന്റം ബ്രേക്ക്ഔട്ട്';
-    bullishPoints += 14;
-  } else if (isClosedBearishEngulfing) {
-    detectedPatternEn = 'Bearish Engulfing + Breakdown Confirmation';
-    detectedPatternMl = 'ബെയറിഷ് എൻഗൾഫിങ് + ബ്രേക്ക്ഡൗൺ കൺഫർമേഷൻ';
-    bearishPoints += 16;
-  } else if (isEveningStarReversal) {
-    detectedPatternEn = 'Evening Star 3-Candle Institutional Reversal';
-    detectedPatternMl = 'ഈവനിംഗ് സ്റ്റാർ 3-കാൻഡിൽ റിവേഴ്സൽ';
-    bearishPoints += 18;
-  } else if (isClosedShootingStarResistance) {
-    detectedPatternEn = 'Shooting Star Supply Rejection Breakdown';
-    detectedPatternMl = 'ഷൂട്ടിംഗ് സ്റ്റാർ റെസിസ്റ്റൻസ് റിജക്ഷൻ';
-    bearishPoints += 15;
-  } else if (isInsideBarBearBreakdown) {
-    detectedPatternEn = 'Inside-Bar Downside Expansion Breakdown';
-    detectedPatternMl = 'ഇൻസൈഡ്-ബാർ ഡൗൺസൈഡ് ബ്രേക്ക്ഡൗൺ';
-    bearishPoints += 15;
-  } else if (isThreeCrowsThrust) {
-    detectedPatternEn = '3-Bar Institutional Bearish Thrust';
-    detectedPatternMl = '3-ബാർ ഇൻസ്റ്റിറ്റ്യൂഷണൽ ബെയറിഷ് ബ്രേക്ക്ഡൗൺ';
-    bearishPoints += 14;
-  }
+  const candlePattern = detectCandlePattern(prev, prev2, prev3, currentLtp);
+  let detectedPatternEn = candlePattern.patternEn;
+  let detectedPatternMl = candlePattern.patternMl;
+  const {
+    isBullishEngulfing: isClosedBullishEngulfing,
+    isBearishEngulfing: isClosedBearishEngulfing,
+    isHammerSupport: isClosedHammerSupport,
+    isShootingStarResistance: isClosedShootingStarResistance,
+  } = candlePattern;
+  bullishPoints += candlePattern.bullishPoints;
+  bearishPoints += candlePattern.bearishPoints;
 
   const tf5m = buildMtfTrend(candles, currentLtp, 5);
   const tf15m = buildMtfTrend(candles, currentLtp, 15);
