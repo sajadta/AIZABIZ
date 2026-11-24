@@ -13,6 +13,7 @@ import { detectCandlePattern } from './signals/candlePatterns';
 import { buildIndicatorReadings } from './signals/readings';
 import { evaluateVolumeRegime } from './signals/volumeRegime';
 import { applyOptionLayer } from './signals/optionLayer';
+import { buildTargetForecast } from './signals/targetForecast';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -896,43 +897,27 @@ export function analyzeTradingSignals(
     ? calculateTradeCharges(optEntry, fallbackLotSz, true, optT1)
     : undefined;
 
-  // Calculate Realistic Target Price & Time-to-Target Forecast ("എപ്പോൾ, എത്ര രൂപ വരെ ലാഭത്തിലാകും?")
-  const clearRunwayPoints = Number(
-    (isBullish
-      ? Math.max(atr14 * 1.8, nearestResistance - currentLtp)
-      : Math.max(atr14 * 1.8, currentLtp - nearestSupport)
-    ).toFixed(2),
-  );
-  const absDeltaForForecast = Math.abs(optionMetrics?.delta ?? 0.52);
-  const gammaForForecast = Math.abs(optionMetrics?.gamma ?? 0.0015);
-  const estOptionGainPts = Number(
-    Math.max(
-      optT1 - optEntry,
-      clearRunwayPoints * absDeltaForForecast +
-        0.5 * gammaForForecast * Math.pow(Math.min(clearRunwayPoints, atr14 * 3), 2),
-    ).toFixed(2),
-  );
-  const estimatedMaxOptionPrice = Number((optEntry + estOptionGainPts).toFixed(2));
-  const estMinsLow = Math.max(2, Math.round(clearRunwayPoints / Math.max(1, atr14 * 1.1)));
-  const estMinsHigh = Math.min(
-    25,
-    Math.max(estMinsLow + 3, Math.round(clearRunwayPoints / Math.max(1, atr14 * 0.55))),
-  );
-  const estimatedMinutesToTarget = `${estMinsLow}–${estMinsHigh} mins`;
-  const effectiveLotsForEst = Math.max(1, optionMetrics?.affordableLots || 1);
-  const effectiveQtyForEst = effectiveLotsForEst * fallbackLotSz;
-  const estBrokTotal =
-    (optionMetrics?.estimatedBrokerage || fallbackCharges?.roundTripCharges || 60) *
-    effectiveLotsForEst;
-  const minNetProfitEst = Math.max(
-    optEntry < 10 ? 45 : 180,
-    Math.round((optT1 - optEntry) * effectiveQtyForEst - estBrokTotal),
-  );
-  const maxNetProfitEst = Math.max(
-    minNetProfitEst + 150,
-    Math.round(estOptionGainPts * effectiveQtyForEst - estBrokTotal),
-  );
-  const estimatedNetProfitRange = `+₹${minNetProfitEst.toLocaleString('en-IN')} to +₹${maxNetProfitEst.toLocaleString('en-IN')} Net`;
+  const forecast = buildTargetForecast({
+    isBullish,
+    atr14,
+    nearestResistance,
+    nearestSupport,
+    optEntry,
+    optT1,
+    currentLtp,
+    delta: Math.abs(optionMetrics?.delta ?? 0.52),
+    gamma: Math.abs(optionMetrics?.gamma ?? 0.0015),
+    affordableLots: optionMetrics?.affordableLots,
+    estimatedBrokerage: optionMetrics?.estimatedBrokerage,
+    roundTripCharges: fallbackCharges?.roundTripCharges,
+    lotSize: fallbackLotSz,
+  });
+  const {
+    clearRunwayPoints,
+    estimatedMaxOptionPrice,
+    estimatedMinutesToTarget,
+    estimatedNetProfitRange,
+  } = forecast;
 
   return {
     id: `sig_${symbol}_${Date.now()}`,
