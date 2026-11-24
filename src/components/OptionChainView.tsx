@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Layers,
   RefreshCw,
-  LineChart,
   Target,
   ArrowRight,
   ArrowLeft,
@@ -10,7 +9,7 @@ import {
 } from 'lucide-react';
 import { OptionChainData, Language, StockQuote } from '../types';
 import { OptionChainRow } from './optionchain/OptionChainRow';
-import { formatCompactNumber } from './optionchain/formatCompactNumber';
+import { IndexSelectorRibbon } from './optionchain/IndexSelectorRibbon';
 
 interface OptionChainViewProps {
   quotes?: StockQuote[];
@@ -29,15 +28,6 @@ interface OptionChainViewProps {
   selectedSymbol?: string;
   onSelectSymbol?: (symbol: string, instrumentKey?: string) => void;
 }
-
-const MAJOR_INDICES = [
-  { symbol: 'NIFTY 50', key: 'NSE_INDEX|Nifty 50', name: 'NIFTY 50' },
-  { symbol: 'BANKNIFTY', key: 'NSE_INDEX|Nifty Bank', name: 'BANKNIFTY' },
-  { symbol: 'SENSEX', key: 'BSE_INDEX|SENSEX', name: 'SENSEX' },
-  { symbol: 'FINNIFTY', key: 'NSE_INDEX|Nifty Fin Service', name: 'FINNIFTY' },
-  { symbol: 'MIDCPNIFTY', key: 'NSE_INDEX|NIFTY MID SELECT', name: 'MIDCPNIFTY' },
-  { symbol: 'BANKEX', key: 'BSE_INDEX|BANKEX', name: 'BANKEX' },
-];
 
 export const OptionChainView: React.FC<OptionChainViewProps> = ({
   data,
@@ -175,47 +165,12 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden bg-[#070a12] rounded-xl border border-slate-800/80">
-      {/* 1. QUICK INDEX SELECTOR RIBBON */}
-      <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-slate-800 bg-[#090d18] overflow-x-auto scrollbar-none shrink-0">
-        <span className="text-[10px] text-slate-400 font-bold shrink-0 uppercase tracking-wider flex items-center gap-1">
-          <Layers className="w-3 h-3 text-cyan-400" />
-          <span>{language === 'ml' ? 'സൂചിക:' : 'Index:'}</span>
-        </span>
-        {MAJOR_INDICES.map((idx) => {
-          const normalizeSym = (s?: string) => {
-            const str = String(s || '')
-              .toUpperCase()
-              .replace(/[^A-Z0-9]/g, '');
-            if (str.includes('BANKNIFTY') || str.includes('NIFTYBANK')) return 'BANKNIFTY';
-            if (str.includes('FINNIFTY') || str.includes('FINSERVICE')) return 'FINNIFTY';
-            if (str.includes('MIDCP') || str.includes('MIDSELECT')) return 'MIDCPNIFTY';
-            if (str.includes('BANKEX')) return 'BANKEX';
-            if (str.includes('SENSEX')) return 'SENSEX';
-            if (str.includes('NIFTY') || str.includes('NIFTY50')) return 'NIFTY 50';
-            return str;
-          };
-          const activeNorm = normalizeSym(selectedSymbol || data.underlyingSymbol);
-          const idxNorm = normalizeSym(idx.symbol);
-          const isActive = activeNorm === idxNorm;
-          return (
-            <button
-              key={idx.symbol}
-              onClick={() => {
-                if (onSelectSymbol) {
-                  onSelectSymbol(idx.symbol, idx.key);
-                }
-              }}
-              className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all ${
-                isActive
-                  ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-950 font-black ring-1 ring-cyan-300'
-                  : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
-              }`}
-            >
-              {idx.name}
-            </button>
-          );
-        })}
-      </div>
+      <IndexSelectorRibbon
+        language={language}
+        selectedSymbol={selectedSymbol}
+        underlyingSymbol={data.underlyingSymbol}
+        onSelectSymbol={onSelectSymbol}
+      />
 
       {/* 2. STATS & CONTROLS HEADER */}
       <div className="p-2 sm:p-3 border-b border-slate-800/80 bg-[#080c16] shrink-0 space-y-2">
