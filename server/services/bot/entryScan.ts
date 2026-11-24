@@ -65,6 +65,7 @@ import { computeChainOiMetrics } from './entryScan/chainMetrics';
 import { computeEffectiveCapital } from './entryScan/capitalSizing';
 import { resolveScanIndices } from './entryScan/scanIndices';
 import { rankAlphaCandidates } from './entryScan/alphaMatrix';
+import { computeAlphaScore } from './entryScan/alphaScore';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -1741,29 +1742,22 @@ export async function runEntryScan(ctx: {
               ? Number((optionPrice * 0.55).toFixed(2))
               : signal.target1;
 
-            // CORPORATE QUANT MULTI-INDEX ALPHA OPPORTUNITY SCORING:
-            // Evaluates Net Profit Expectancy, Capital Efficiency, Greek Delta Momentum, and MTF Confluence
-            const expNetProfit = Number(
-              bestCandidate?.expectedNetProfit ||
-                Math.max(
-                  350,
-                  (effectiveTarget1 - optionPrice) * targetQuantity - totalTradeBrokerage,
-                ),
-            );
-            const totalReqCash = Math.max(100, totalRequiredCashWithBrokerage);
-            const profitYield = expNetProfit / totalReqCash; // Expected Net ROI
-            const mtfStatusBonus = signal.mtfConfirmation?.status ? 1.35 : 1.0;
-            const rvolMultiplier = Math.min(
-              2.0,
-              Math.max(0.8, Number(signal.indicators?.rvol || 1.15)),
-            );
-            const confidence = Number(signal.confidenceScore || 85);
-            const alphaOpportunityScore = Number(
-              (
-                expNetProfit * (confidence / 100) * mtfStatusBonus * rvolMultiplier +
-                profitYield * 120
-              ).toFixed(2),
-            );
+            // Corporate quant multi-index alpha opportunity scoring
+            const {
+              expectedNetProfit: expNetProfit,
+              profitYield,
+              alphaOpportunityScore,
+            } = computeAlphaScore({
+              expectedNetProfit: bestCandidate?.expectedNetProfit,
+              effectiveTarget1,
+              optionPrice,
+              targetQuantity,
+              totalTradeBrokerage,
+              totalRequiredCash: totalRequiredCashWithBrokerage,
+              hasMtfConfirmation: Boolean(signal.mtfConfirmation?.status),
+              rvol: signal.indicators?.rvol,
+              confidenceScore: signal.confidenceScore,
+            });
 
             marketAlphaCandidates.push({
               idx,
