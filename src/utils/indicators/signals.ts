@@ -10,6 +10,7 @@ import {
 } from './institutionalQuant';
 import { buildMtfTrend } from './signals/mtfTrend';
 import { detectCandlePattern } from './signals/candlePatterns';
+import { buildIndicatorReadings } from './signals/readings';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -56,61 +57,21 @@ export function analyzeTradingSignals(
   );
 
   // Evaluate individual indicator signals
-  const readings: IndicatorReadings = {
-    supertrend: {
-      signal: supertrendDir,
-      value: supertrendVal,
-    },
-    emaCross: {
-      signal:
-        ema9 > ema21 && ema21 >= ema50 * 0.999
-          ? 'BULLISH'
-          : ema9 < ema21 && ema21 <= ema50 * 1.001
-            ? 'BEARISH'
-            : ema9 > ema21
-              ? 'BULLISH'
-              : ema9 < ema21
-                ? 'BEARISH'
-                : 'NEUTRAL',
-      ema9,
-      ema21,
-      ema50,
-    },
-    rsi: {
-      value: rsi,
-      condition:
-        rsi > 70
-          ? 'OVERBOUGHT'
-          : rsi < 30
-            ? 'OVERSOLD'
-            : rsi > 53
-              ? 'BULLISH'
-              : rsi < 47
-                ? 'BEARISH'
-                : 'NEUTRAL',
-    },
-    macd: {
-      macd: last.macd ?? 0,
-      signal: last.macdSignal ?? 0,
-      hist: macdHist,
-      cross:
-        macdHist > 0 && prevMacdHist <= 0
-          ? 'BULLISH'
-          : macdHist < 0 && prevMacdHist >= 0
-            ? 'BEARISH'
-            : macdHist > 0
-              ? 'BULLISH'
-              : 'BEARISH',
-    },
-    vwap: {
-      value: vwapPrice,
-      position: currentLtp >= vwapPrice ? 'ABOVE' : 'BELOW',
-    },
-    adx: {
-      value: adxValue,
-      condition: adxValue >= 24 ? 'STRONG_TREND' : adxValue >= 16 ? 'TRENDING' : 'SIDEWAYS_CHOP',
-    },
-  };
+  const readings: IndicatorReadings = buildIndicatorReadings({
+    currentLtp,
+    ema9,
+    ema21,
+    ema50,
+    rsi,
+    supertrendDir,
+    supertrendVal,
+    macdLine: last.macd,
+    macdSignal: last.macdSignal,
+    macdHist,
+    prevMacdHist,
+    adxValue,
+    vwapPrice,
+  });
 
   let bullishPoints = 0;
   let bearishPoints = 0;
