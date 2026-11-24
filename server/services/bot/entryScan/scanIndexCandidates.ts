@@ -24,6 +24,7 @@ import { computeInstitutionalFlow } from './institutionalFlow';
 import { computeAlphaScore } from './alphaScore';
 import { applyLiveTick, mapUpstoxCandles } from './candles';
 import { selectOptionStrike } from './selectOptionStrike';
+import { applyCrossIndexVeto } from './crossIndexVeto';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -162,36 +163,12 @@ export async function scanIndexCandidates(params: ScanIndexCandidatesParams): Pr
           },
         );
 
-        // CRITICAL CROSS-INDEX SECTOR VETO:
-        // BANKEX is BSE counterpart of NSE NIFTY BANK (identical constituent stocks: HDFCBANK, ICICIBANK, SBIN, AXISBANK, KOTAKBANK).
-        // If BankNifty is Bearish / Red on the day, NEVER buy a BANKEX CE!
-        // If BankNifty is Bullish / Green on the day, NEVER buy a BANKEX PE!
-        if (idx.symbol === 'BANKEX' && signal && signal.signalType !== 'HOLD') {
-          const bankNiftyLtp = Number(bankQ?.last_price || 0);
-          const bankNiftyOpen = Number(bankQ?.ohlc?.open || bankNiftyLtp);
-          const bankNiftyChg = Number(bankQ?.net_change ?? bankNiftyLtp - bankNiftyOpen);
-          const isBankNiftyDown =
-            bankNiftyLtp > 0 && (bankNiftyChg < 0 || bankNiftyLtp < bankNiftyOpen);
-          const isBankNiftyUp =
-            bankNiftyLtp > 0 && bankNiftyChg > 0 && bankNiftyLtp > bankNiftyOpen;
-          if (
-            signal.signalType === 'BUY' &&
-            (isBankNiftyDown || corporateHeavyweightScore <= -10)
-          ) {
-            signal.signalType = 'HOLD';
-            signal.confidenceScore = 40;
-            signal.reason =
-              'Cross-Index Veto: BankNifty / Banking heavyweights are Bearish; BANKEX CE strictly blocked.';
-          } else if (
-            signal.signalType === 'SELL' &&
-            (isBankNiftyUp || corporateHeavyweightScore >= 10)
-          ) {
-            signal.signalType = 'HOLD';
-            signal.confidenceScore = 40;
-            signal.reason =
-              'Cross-Index Veto: BankNifty / Banking heavyweights are Bullish; BANKEX PE strictly blocked.';
-          }
-        }
+        applyCrossIndexVeto({
+          symbol: idx.symbol,
+          signal,
+          bankQuote: bankQ,
+          corporateHeavyweightScore,
+        });
 
         verifiedRealOptionStrike = false;
         topOptionCandidateForIndex = null;
