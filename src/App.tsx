@@ -17,6 +17,7 @@ import {
   OrderTransactionType,
 } from './types';
 import { deduplicateQuotes, getStandardIndexLotSize } from './utils/quotes';
+import { deriveCurrentQuote } from './utils/currentQuote';
 import { safeStorage } from './utils/storage';
 import { useBackendBotSync } from './hooks/useBackendBotSync';
 import { useTradingActions } from './hooks/useTradingActions';
@@ -35,6 +36,7 @@ import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
 import { usePositionAlerts } from './hooks/usePositionAlerts';
 import { useMarketSessionClock } from './hooks/useMarketSessionClock';
+import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
 import { Header } from './components/Header';
 import { TickerBar } from './components/TickerBar';
 import { Watchlist } from './components/Watchlist';
@@ -195,169 +197,19 @@ export const App: React.FC = () => {
     setCandles,
   });
 
-  // Keep chartTradeContext dynamically synchronized with live positions & latest candles
-  useEffect(() => {
-    if (!chartTradeContext) return;
-    const active = positions.find(
-      (p) => p.id === chartTradeContext.id || p.symbol === chartTradeContext.symbol,
-    );
-    const lastCandleClose = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
-    if (active) {
-      const liveLtp =
-        lastCandleClose > 0 && Math.abs(lastCandleClose - active.buyPrice) < active.buyPrice * 5
-          ? lastCandleClose
-          : Number(active.currentLTP || active.buyPrice);
-      const livePnl = Number(((liveLtp - active.buyPrice) * active.quantity).toFixed(2));
-      setChartTradeContext((prev: any) => {
-        if (!prev) return prev;
-        if (
-          prev.currentLTP === liveLtp &&
-          prev.pnl === livePnl &&
-          prev.stopLoss === active.stopLoss
-        )
-          return prev;
-        return {
-          ...prev,
-          ...active,
-          currentLTP: liveLtp,
-          pnl: livePnl,
-        };
-      });
-    } else if (lastCandleClose > 0) {
-      setChartTradeContext((prev: any) => {
-        if (!prev || prev.currentLTP === lastCandleClose) return prev;
-        const livePnl = Number(
-          ((lastCandleClose - prev.buyPrice) * (prev.quantity || 1)).toFixed(2),
-        );
-        return {
-          ...prev,
-          currentLTP: lastCandleClose,
-          pnl: livePnl,
-        };
-      });
-    }
-  }, [positions, candles, chartTradeContext?.symbol]);
+  useChartTradeContextSync({ positions, candles, chartTradeContext, setChartTradeContext });
 
   // Sync selected symbol's current live tick into latest candle (only if price belongs to the same instrument scale!)
-  const currentQuote =
-    quotes.find(
-      (q) =>
-        q.symbol === selectedSymbol ||
-        q.instrumentKey === selectedInstrumentKey ||
-        (selectedSymbol.includes('BANK') && q.symbol.includes('BANK') && q.segment === 'INDEX'),
-    ) ||
-    (() => {
-      // If viewing an option contract from chartTradeContext, synthesize quote from trade context
-      if (
-        chartTradeContext &&
-        (chartTradeContext.symbol === selectedSymbol ||
-          selectedSymbol.includes(chartTradeContext.symbol))
-      ) {
-        const lastCandlePrice =
-          candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
-        const ltp =
-          lastCandlePrice > 0
-            ? lastCandlePrice
-            : Number(chartTradeContext.currentLTP || chartTradeContext.buyPrice || 0);
-        const buy = Number(chartTradeContext.buyPrice || ltp);
-        const diff = ltp - buy;
-        const diffPct = buy > 0 ? (diff / buy) * 100 : 0;
-        return {
-          symbol: selectedSymbol,
-          name: selectedSymbol,
-          exchange: 'NSE',
-          segment: 'OPTIONS',
-          instrumentKey: chartTradeContext.instrumentKey || selectedInstrumentKey,
-          ltp,
-          change: Number(diff.toFixed(2)),
-          changePercent: Number(diffPct.toFixed(2)),
-          volume: 0,
-          open: buy,
-          high: Math.max(buy, ltp),
-          low: Math.min(buy, ltp),
-          close: buy,
-        } as StockQuote;
-      }
-      // If an open position matches selectedSymbol, use its live position price
-      const matchPos = positions.find(
-        (p) => p.symbol === selectedSymbol || selectedSymbol.includes(p.symbol),
-      );
-      if (matchPos) {
-        const ltp = Number(matchPos.currentLTP || matchPos.buyPrice || 0);
-        const buy = Number(matchPos.buyPrice || ltp);
-        const diff = ltp - buy;
-        const diffPct = buy > 0 ? (diff / buy) * 100 : 0;
-        return {
-          symbol: selectedSymbol,
-          name: selectedSymbol,
-          exchange: 'NSE',
-          segment: 'OPTIONS',
-          instrumentKey: matchPos.instrumentKey || selectedInstrumentKey,
-          ltp,
-          change: Number(diff.toFixed(2)),
-          changePercent: Number(diffPct.toFixed(2)),
-          volume: 0,
-          open: buy,
-          high: Math.max(buy, ltp),
-          low: Math.min(buy, ltp),
-          close: buy,
-        } as StockQuote;
-      }
-      // Fallback: derive quote from display candles for this symbol rather than picking an unrelated stock!
-      const lastCandle = candles[candles.length - 1];
-      const firstCandle = candles[0];
-      const candleLtp = lastCandle?.close || 0;
-      const candleOpen = firstCandle?.open || candleLtp;
-      const diff = candleLtp - candleOpen;
-      const diffPct = candleOpen > 0 ? (diff / candleOpen) * 100 : 0;
-      if (candleLtp > 0) {
-        return {
-          symbol: selectedSymbol,
-          name: selectedSymbol,
-          exchange: 'NSE',
-          segment: 'EQUITY',
-          instrumentKey: selectedInstrumentKey,
-          ltp: candleLtp,
-          change: Number(diff.toFixed(2)),
-          changePercent: Number(diffPct.toFixed(2)),
-          volume: lastCandle?.volume || 0,
-          open: candleOpen,
-          high: candleLtp,
-          low: candleLtp,
-          close: candleOpen,
-        } as StockQuote;
-      }
-      return quotes[0];
-    })();
+  const currentQuote = deriveCurrentQuote({
+    quotes,
+    selectedSymbol,
+    selectedInstrumentKey,
+    chartTradeContext,
+    positions,
+    candles,
+  });
 
-  useEffect(() => {
-    if (!currentQuote || !currentQuote.ltp || currentQuote.ltp <= 0) return;
-    setCandles((prev) => {
-      if (prev.length === 0) return prev;
-      const last = prev[prev.length - 1];
-      if (!last || !last.close || last.close <= 0) return prev;
-      // Guard against cross-symbol contamination (e.g., merging a ₹54,450 NIFTY BANK quote into ₹22,700 NIFTY 50 candles)
-      const priceDiffRatio = Math.abs(currentQuote.ltp - last.close) / last.close;
-      if (priceDiffRatio > 0.15) {
-        return prev;
-      }
-      if (
-        last.close === currentQuote.ltp &&
-        currentQuote.ltp <= last.high &&
-        currentQuote.ltp >= last.low
-      ) {
-        return prev;
-      }
-      const updatedLast: CandleData = {
-        ...last,
-        close: currentQuote.ltp,
-        high: Math.max(last.high, currentQuote.ltp),
-        low: Math.min(last.low, currentQuote.ltp),
-      };
-      const copy = [...prev.slice(0, -1), updatedLast];
-      return enrichCandlesWithIndicators(copy);
-    });
-  }, [currentQuote?.ltp]);
+  useCandleTickSync({ currentQuote, setCandles });
 
   // Fetch or Compute Gemini AI Market Analysis (see useGeminiAnalysis)
   const { handleFetchGeminiAnalysis } = useGeminiAnalysis({
