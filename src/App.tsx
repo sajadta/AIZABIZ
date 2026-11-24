@@ -36,10 +36,11 @@ import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
 import { usePositionAlerts } from './hooks/usePositionAlerts';
 import { useMarketSessionClock } from './hooks/useMarketSessionClock';
+import { useAppUiState } from './hooks/useAppUiState';
 import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
 import { Header } from './components/Header';
 import { TickerBar } from './components/TickerBar';
-import { Watchlist } from './components/Watchlist';
+import { AppWorkspace } from './components/app/AppWorkspace';
 import { AppTopSections } from './components/app/AppTopSections';
 import { AppInspectionBanner } from './components/app/AppInspectionBanner';
 import { AppIpWhitelistNotice } from './components/app/AppIpWhitelistNotice';
@@ -61,38 +62,62 @@ import { INITIAL_WATCHLIST_SYMBOLS } from './data/initialWatchlist';
 import { DEFAULT_BOT_CONFIG } from './data/defaultBotConfig';
 
 export const App: React.FC = () => {
-  // Navigation tabs
-  const [activeTab, setActiveTab] = useState<
-    'WATCHLIST' | 'CHART' | 'BOT' | 'OPTIONS' | 'ORDERS' | 'HOLDINGS' | 'HEATMAP' | 'AI' | 'INVEST'
-  >('CHART');
-
-  // App configurations
-  const [language, setLanguage] = useState<Language>('ml');
-  const [mode, setMode] = useState<ExecutionMode>(() => {
-    const savedMode = safeStorage.getItem('aizabiz_preferred_trading_mode');
-    if (savedMode === 'PAPER_TRADING' || savedMode === 'UPSTOX_LIVE') {
-      return savedMode;
-    }
-    return 'PAPER_TRADING';
-  });
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [isWsConnected, setIsWsConnected] = useState(false);
-  const [lightingBanner, setLightingBanner] = useState<LightingAlertBannerState | null>(null);
+  const {
+    activeTab,
+    setActiveTab,
+    language,
+    setLanguage,
+    mode,
+    setMode,
+    soundEnabled,
+    setSoundEnabled,
+    isWsConnected,
+    setIsWsConnected,
+    lightingBanner,
+    setLightingBanner,
+    selectedSymbol,
+    setSelectedSymbol,
+    selectedInstrumentKey,
+    setSelectedInstrumentKey,
+    chartTradeContext,
+    setChartTradeContext,
+    ipCopiedNotice,
+    setIpCopiedNotice,
+    dismissedIpWarning,
+    setDismissedIpWarning,
+    chartInterval,
+    setChartInterval,
+    aiLoading,
+    setAiLoading,
+    priceAlerts,
+    setPriceAlerts,
+    isOrderModalOpen,
+    setIsOrderModalOpen,
+    orderModalData,
+    setOrderModalData,
+    isApiModalOpen,
+    setIsApiModalOpen,
+    isAlertsModalOpen,
+    setIsAlertsModalOpen,
+    isAndroidModalOpen,
+    setIsAndroidModalOpen,
+    isOnboardingOpen,
+    setIsOnboardingOpen,
+    isResetConfirmOpen,
+    setIsResetConfirmOpen,
+    isEquityExitConfirmOpen,
+    setIsEquityExitConfirmOpen,
+    isTerminalLocked,
+    setIsTerminalLocked,
+  } = useAppUiState();
   const marketSession = useMarketSessionClock({ soundEnabled, setLightingBanner });
 
   // Quotes and Selection
   const [quotes, setQuotes] = useState<StockQuote[]>(INITIAL_WATCHLIST_SYMBOLS);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');
-  const [selectedInstrumentKey, setSelectedInstrumentKey] = useState<string>('NSE_INDEX|Nifty 50');
-  const [chartTradeContext, setChartTradeContext] = useState<any>(null);
-  const [ipCopiedNotice, setIpCopiedNotice] = useState(false);
-  const [dismissedIpWarning, setDismissedIpWarning] = useState(false);
 
   // Chart data (100% Real Live Candles)
   const [candles, setCandles] = useState<CandleData[]>([]);
-  const [chartInterval, setChartInterval] = useState<string>('5m');
   const [activeSignal, setActiveSignal] = useState<TradingSignal | null>(null);
-  const [aiLoading, setAiLoading] = useState<boolean>(false);
 
   // Bot state
   const [botConfig, setBotConfig] = useState<BotConfig>(DEFAULT_BOT_CONFIG);
@@ -139,35 +164,6 @@ export const App: React.FC = () => {
     payin: 0,
     payout: 0,
     totalBalance: 0,
-  });
-
-  // Price Alerts
-  const [priceAlerts, setPriceAlerts] = useState<PriceAlert[]>([]);
-
-  // Modals
-  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
-  const [orderModalData, setOrderModalData] = useState<{
-    symbol: string;
-    price: number;
-    type: OrderTransactionType;
-    quantity?: number;
-    lotSize?: number;
-    heldQuantity?: number;
-    productType?: 'INTRADAY' | 'DELIVERY';
-    instrumentKey?: string;
-  }>({
-    symbol: 'NIFTY 50',
-    price: 0,
-    type: 'BUY',
-  });
-  const [isApiModalOpen, setIsApiModalOpen] = useState(false);
-  const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
-  const [isAndroidModalOpen, setIsAndroidModalOpen] = useState(false);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
-  const [isEquityExitConfirmOpen, setIsEquityExitConfirmOpen] = useState(false);
-  const [isTerminalLocked, setIsTerminalLocked] = useState(() => {
-    return safeStorage.getItem('aizabiz_master_unlocked') !== 'true';
   });
 
   const lastSseQuoteAtRef = useRef<number>(0);
@@ -505,91 +501,66 @@ export const App: React.FC = () => {
       />
 
       {/* 3. MAIN WORKSPACE */}
-      <div className="flex flex-1 w-full max-w-full min-w-0 min-h-0 overflow-hidden">
-        <div className="hidden lg:flex w-72 border-r border-slate-800/80 bg-slate-950/40 p-3 flex-col shrink-0 min-h-0">
-          <Watchlist
-            quotes={quotes}
-            selectedSymbol={selectedSymbol}
-            onSelectSymbol={(sym, key) => {
-              setSelectedSymbol(sym);
-              if (key) setSelectedInstrumentKey(key);
-            }}
-            language={language}
-            onOpenOrderModal={(type, sym, prc) => {
-              setOrderModalData({ symbol: sym, price: prc, type });
-              setIsOrderModalOpen(true);
-            }}
-            priceAlerts={priceAlerts}
-            onAddAlert={handleAddAlert}
-            onRemoveAlert={handleRemoveAlert}
-          />
-        </div>
-
-        <div className="flex-1 flex flex-col w-full max-w-full min-w-0 min-h-0 overflow-hidden p-1 sm:p-3">
-          <AppDesktopNav
-            t={t}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            botConfig={botConfig}
-            currentQuote={currentQuote}
-            holdings={holdings}
-            positions={positions}
-            selectedSymbol={selectedSymbol}
-            language={language}
-            setIsOrderModalOpen={setIsOrderModalOpen}
-            setOrderModalData={setOrderModalData}
-          />
-
-          {/* View Container */}
-          <AppTabContent
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            quotes={quotes}
-            selectedSymbol={selectedSymbol}
-            setSelectedSymbol={setSelectedSymbol}
-            setSelectedInstrumentKey={setSelectedInstrumentKey}
-            language={language}
-            setOrderModalData={setOrderModalData}
-            setIsOrderModalOpen={setIsOrderModalOpen}
-            priceAlerts={priceAlerts}
-            handleAddAlert={handleAddAlert}
-            handleRemoveAlert={handleRemoveAlert}
-            currentQuote={currentQuote}
-            chartTradeContext={chartTradeContext}
-            setChartTradeContext={setChartTradeContext}
-            candles={candles}
-            chartInterval={chartInterval}
-            setChartInterval={setChartInterval}
-            activeSignal={activeSignal}
-            optionChainData={optionChainData}
-            getStandardIndexLotSize={getStandardIndexLotSize}
-            handleFetchGeminiAnalysis={handleFetchGeminiAnalysis}
-            aiLoading={aiLoading}
-            botConfig={botConfig}
-            setBotConfig={setBotConfig}
-            setMode={setMode}
-            botLogs={botLogs}
-            signals={signals}
-            handleExecuteSignal={handleExecuteSignal}
-            handleViewChart={handleViewChart}
-            handleSquareOffPosition={handleSquareOffPosition}
-            handleSquareOffAll={handleSquareOffAll}
-            onSquareOffEquityOnly={handleSquareOffEquityOnly}
-            positions={positions}
-            holdings={holdings}
-            totalNetMtm={totalNetMtm}
-            fetchHoldings={fetchHoldings}
-            apiConfig={apiConfig}
-            setIsApiModalOpen={setIsApiModalOpen}
-            handleSyncHistoryBrokerage={handleSyncHistoryBrokerage}
-            optionChainLoading={optionChainLoading}
-            fetchOptionChain={fetchOptionChain}
-            modeOrders={modeOrders}
-            modeTradeHistory={modeTradeHistory}
-            geminiAnalysis={geminiAnalysis}
-          />
-        </div>
-      </div>
+      <AppWorkspace
+        quotes={quotes}
+        selectedSymbol={selectedSymbol}
+        setSelectedSymbol={setSelectedSymbol}
+        setSelectedInstrumentKey={setSelectedInstrumentKey}
+        language={language}
+        setOrderModalData={setOrderModalData}
+        setIsOrderModalOpen={setIsOrderModalOpen}
+        priceAlerts={priceAlerts}
+        handleAddAlert={handleAddAlert}
+        handleRemoveAlert={handleRemoveAlert}
+        desktopNav={{
+          t,
+          activeTab,
+          setActiveTab,
+          botConfig,
+          currentQuote,
+          holdings,
+          positions,
+          selectedSymbol,
+          language,
+        }}
+        tabContent={{
+          activeTab,
+          setActiveTab,
+          currentQuote,
+          chartTradeContext,
+          setChartTradeContext,
+          candles,
+          chartInterval,
+          setChartInterval,
+          activeSignal,
+          optionChainData,
+          getStandardIndexLotSize,
+          handleFetchGeminiAnalysis,
+          aiLoading,
+          botConfig,
+          setBotConfig,
+          setMode,
+          botLogs,
+          signals,
+          handleExecuteSignal,
+          handleViewChart,
+          handleSquareOffPosition,
+          handleSquareOffAll,
+          onSquareOffEquityOnly: handleSquareOffEquityOnly,
+          positions,
+          holdings,
+          totalNetMtm,
+          fetchHoldings,
+          apiConfig,
+          setIsApiModalOpen,
+          handleSyncHistoryBrokerage,
+          optionChainLoading,
+          fetchOptionChain,
+          modeOrders,
+          modeTradeHistory,
+          geminiAnalysis,
+        }}
+      />
 
       <AppMobileNav
         activeTab={activeTab}
