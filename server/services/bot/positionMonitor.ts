@@ -24,6 +24,7 @@ import { invalidateCachedLiveDayOrders } from '../../lib/upstoxHistory';
 import { placeUpstoxOrderIpv4 } from '.././upstoxTransport';
 import { computeOptionStopLossPlan } from './positionMonitor/stopLoss';
 import { handleShortOptionExit, isShortOptionPosition } from './positionMonitor/shortOptionExit';
+import { detectUnderlyingReversal, isCallOptionSymbol } from './positionMonitor/underlyingReversal';
 import { sendTelegramNotification } from '.././notifications';
 import { savePostgresDb, getPaperInitialCapital } from '.././persistence';
 import { shouldMonitorEquityPosition } from '../../lib/portfolioNormalize';
@@ -359,45 +360,9 @@ export async function monitorActivePositions(ctx: {
         }
 
         // LIVE UNDERLYING INDEX PARAMETER RADAR (Checks live signal & indicators for the underlying index of this option!)
-        const isCallOption = /\bCE\b/i.test(pos.symbol || '');
-        let isUnderlyingParametersReversing = false;
-        let underlyingReversalDetails = '';
-        if (latestUnderlyingSig && latestUnderlyingSig.indicators) {
-          const ind = latestUnderlyingSig.indicators;
-          const corpScoreLive =
-            latestUnderlyingSig.institutionalQuantAnalysis?.corporateHeavyweightScore ?? 0;
-          if (isCallOption) {
-            // We hold a CALL (CE): Are underlying index parameters turning Bearish?
-            const emaTurnedBear = ind.emaCross?.ema9 < ind.emaCross?.ema21;
-            const stTurnedSell = ind.supertrend?.signal === 'SELL';
-            const macdTurnedBear = ind.macd?.hist < 0;
-            const oppSignal = latestUnderlyingSig.signalType === 'SELL';
-            if (
-              oppSignal ||
-              (emaTurnedBear && macdTurnedBear) ||
-              (stTurnedSell && emaTurnedBear) ||
-              (emaTurnedBear && corpScoreLive <= -25)
-            ) {
-              isUnderlyingParametersReversing = true;
-              underlyingReversalDetails = `Underlying Index Parameters Reversed against CE (EMA9 < EMA21, MACD ${ind.macd?.hist?.toFixed(2)}, Heavyweights ${corpScoreLive})`;
-            }
-          } else {
-            // We hold a PUT (PE): Are underlying index parameters turning Bullish?
-            const emaTurnedBull = ind.emaCross?.ema9 > ind.emaCross?.ema21;
-            const stTurnedBuy = ind.supertrend?.signal === 'BUY';
-            const macdTurnedBull = ind.macd?.hist > 0;
-            const oppSignal = latestUnderlyingSig.signalType === 'BUY';
-            if (
-              oppSignal ||
-              (emaTurnedBull && macdTurnedBull) ||
-              (stTurnedBuy && emaTurnedBull) ||
-              (emaTurnedBull && corpScoreLive >= 25)
-            ) {
-              isUnderlyingParametersReversing = true;
-              underlyingReversalDetails = `Underlying Index Parameters Reversed against PE (EMA9 > EMA21, MACD +${ind.macd?.hist?.toFixed(2)}, Heavyweights +${corpScoreLive})`;
-            }
-          }
-        }
+        const isCallOption = isCallOptionSymbol(pos.symbol);
+        const { isUnderlyingParametersReversing, underlyingReversalDetails } =
+          detectUnderlyingReversal(latestUnderlyingSig, isCallOption);
 
         // 1. PEAK-LOCKED AUTO-MOVING STOP-LOSS & AUTO-EXPANDING TARGET ENGINE
         // Exact implementation of User's Rule:
