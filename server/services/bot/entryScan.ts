@@ -66,6 +66,7 @@ import { computeEffectiveCapital } from './entryScan/capitalSizing';
 import { resolveScanIndices } from './entryScan/scanIndices';
 import { rankAlphaCandidates } from './entryScan/alphaMatrix';
 import { computeAlphaScore } from './entryScan/alphaScore';
+import { applyLiveTick, mapUpstoxCandles } from './entryScan/candles';
 import {
   strikeDailyEntryCount,
   STRIKE_LOCKOUT_MS,
@@ -224,21 +225,7 @@ export async function runEntryScan(ctx: {
         const cData = await loadIntradayCandles(idx, token);
 
         if (cData?.status === 'success' && Array.isArray(cData.data?.candles)) {
-          const rawCandles = cData.data.candles
-            .map((c: any) => ({
-              timestamp: new Date(c[0]).getTime(),
-              timeStr: new Date(c[0]).toLocaleTimeString('en-IN', {
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'Asia/Kolkata',
-              }),
-              open: c[1],
-              high: c[2],
-              low: c[3],
-              close: c[4],
-              volume: c[5],
-            }))
-            .reverse();
+          const rawCandles = mapUpstoxCandles(cData.data.candles);
 
           if (rawCandles.length === 0) continue;
 
@@ -267,12 +254,7 @@ export async function runEntryScan(ctx: {
               // Ignored
             }
           }
-          if (liveLtp > 0 && rawCandles.length > 0) {
-            const lastRaw = rawCandles[rawCandles.length - 1];
-            lastRaw.close = liveLtp;
-            if (liveLtp > lastRaw.high) lastRaw.high = liveLtp;
-            if (liveLtp < lastRaw.low) lastRaw.low = liveLtp;
-          }
+          applyLiveTick(rawCandles, liveLtp);
 
           const {
             corporateHeavyweightScore,
