@@ -30,3 +30,13 @@ bootstraps the server, logic lives under `server/`).
   (git push returns `403 Permission ... denied`, and `gh api` ref creation returns
   `Resource not accessible by integration`). Commit locally and push once credentials
   with write access are available.
+
+## Running the app for a preview
+- The Agent Canvas preview URL proxies to port 12000, so start the server with
+  `npx tsx server.ts --port 12000`. Plain `npm start` binds 3000 and the tunnel
+  shows "Bad Gateway".
+- `vite.config.ts` lists `server.allowedHosts`; add a new tunnel domain there if
+  Vite answers "Blocked request. This host is not allowed".
+- The container reports `navigator.language` as `en-US@posix`, which `Intl`
+  rejects. Never let a library default to it — pass an explicit locale
+  (e.g. lightweight-charts `localization.locale`).
