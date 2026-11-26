@@ -1,6 +1,15 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { ExecutionMode, Holding, OptionChainData, Order, Position } from '../types';
 import { safeStorage } from '../utils/storage';
+import {
+  filterLivePositions,
+  isSameList,
+  mapHoldingRow,
+  mapPaperHistory,
+  mapPaperOrder,
+  mapPaperPosition,
+  mergeLiveRows,
+} from '../utils/tradingDataMappers';
 
 interface UseTradingDataFetchersParams {
   accessToken?: string;
@@ -80,29 +89,7 @@ export const useTradingDataFetchers = ({
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setHoldings(
-            data.map((h: any) => ({
-              symbol: h.symbol,
-              companyName: h.companyName || h.symbol,
-              instrumentKey: h.instrumentKey,
-              isin: h.isin,
-              quantity: h.quantity,
-              avgPrice: h.buyPrice ?? h.avgPrice,
-              buyPrice: h.buyPrice ?? h.avgPrice,
-              currentLTP: h.currentLTP,
-              closePrice: h.closePrice,
-              isBuyPriceLocked: h.isBuyPriceLocked,
-              isUpstoxZeroPrice: h.isUpstoxZeroPrice,
-              investedValue: h.investedValue || (h.quantity || 0) * (h.buyPrice || 0),
-              currentValue: h.currentValue || (h.quantity || 0) * (h.currentLTP || 0),
-              pnl: h.pnl || (h.currentLTP - (h.buyPrice || h.avgPrice)) * h.quantity,
-              pnlPercent:
-                h.pnlPercent ||
-                (h.buyPrice > 0 ? ((h.currentLTP - h.buyPrice) / h.buyPrice) * 100 : 0),
-              fiftyPercentTarget: h.fiftyPercentTarget,
-              algoForecast: h.algoForecast,
-            })),
-          );
+          setHoldings(data.map(mapHoldingRow));
         }
       }
     } catch (e) {
@@ -154,17 +141,7 @@ export const useTradingDataFetchers = ({
           if (paperPosRes.status === 'fulfilled' && paperPosRes.value && paperPosRes.value.ok) {
             const pData = await paperPosRes.value.json();
             if (Array.isArray(pData)) {
-              paperPosList = pData.map((p: any) => ({
-                ...p,
-                mode: 'PAPER_TRADING',
-                productType: p.productType || 'INTRADAY',
-                pnl: Number((p.pnl || 0).toFixed(2)),
-                pnlPercent:
-                  p.buyPrice > 0
-                    ? Number((((p.currentLTP - p.buyPrice) / p.buyPrice) * 100).toFixed(2))
-                    : 0,
-                openedAt: p.openedAt || new Date().toLocaleTimeString(),
-              }));
+              paperPosList = pData.map(mapPaperPosition);
             }
           }
 
@@ -175,38 +152,14 @@ export const useTradingDataFetchers = ({
           if (paperOrdRes.status === 'fulfilled' && paperOrdRes.value && paperOrdRes.value.ok) {
             const oData = await paperOrdRes.value.json();
             if (Array.isArray(oData)) {
-              const parsedOrders: Order[] = oData.map((o: any) => ({
-                id: o.id || o.orderId,
-                orderId: o.orderId || o.id,
-                positionId: o.positionId,
-                symbol: o.symbol,
-                instrumentKey: o.instrumentKey || `NSE_FO|${o.symbol}`,
-                transactionType: o.transactionType || o.type || 'BUY',
-                orderType: o.orderType || 'MARKET',
-                productType: o.productType || 'INTRADAY',
-                quantity: o.quantity,
-                price: o.price,
-                executedPrice: o.executedPrice || o.price,
-                buyPrice: o.buyPrice,
-                sellPrice: o.sellPrice,
-                realizedPnL: o.realizedPnL,
-                brokerageCharges: o.brokerageCharges,
-                netRealizedPnL: o.netRealizedPnL,
-                status: o.status || 'COMPLETE',
-                timestamp: o.timestamp || new Date(o.time || Date.now()).toLocaleTimeString(),
-                mode: 'PAPER_TRADING',
-              }));
-              setOrders((prev) => {
-                if (prev.length === 0 && parsedOrders.length === 0) return prev;
-                if (
-                  prev.length === parsedOrders.length &&
-                  prev[0]?.id === parsedOrders[0]?.id &&
-                  prev[prev.length - 1]?.id === parsedOrders[parsedOrders.length - 1]?.id
-                ) {
-                  return prev;
-                }
-                return parsedOrders;
-              });
+              const parsedOrders: Order[] = oData.map(mapPaperOrder);
+              setOrders((prev) =>
+                prev.length === 0 && parsedOrders.length === 0
+                  ? prev
+                  : isSameList(prev, parsedOrders)
+                    ? prev
+                    : parsedOrders,
+              );
               if (parsedOrders.length === 0) {
                 safeStorage.removeItem('aizabiz_persisted_orders_v2');
                 safeStorage.removeItem('aizabiz_persisted_orders_v3');
@@ -216,24 +169,14 @@ export const useTradingDataFetchers = ({
           if (paperHistRes.status === 'fulfilled' && paperHistRes.value && paperHistRes.value.ok) {
             const hData = await paperHistRes.value.json();
             if (Array.isArray(hData)) {
-              const parsedHistory = hData
-                .map((t: any) => ({ ...t, mode: 'PAPER_TRADING' }))
-                .sort((a: any, b: any) => {
-                  const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
-                  const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
-                  return tB - tA;
-                });
-              setTradeHistory((prev) => {
-                if (prev.length === 0 && parsedHistory.length === 0) return prev;
-                if (
-                  prev.length === parsedHistory.length &&
-                  prev[0]?.id === parsedHistory[0]?.id &&
-                  prev[0]?.closeTime === parsedHistory[0]?.closeTime
-                ) {
-                  return prev;
-                }
-                return parsedHistory;
-              });
+              const parsedHistory = mapPaperHistory(hData);
+              setTradeHistory((prev) =>
+                prev.length === 0 && parsedHistory.length === 0
+                  ? prev
+                  : isSameList(prev, parsedHistory, 'closeTime')
+                    ? prev
+                    : parsedHistory,
+              );
               if (parsedHistory.length === 0) {
                 safeStorage.removeItem('aizabiz_persisted_trade_history_v2');
                 safeStorage.removeItem('aizabiz_persisted_trade_history_v3');
@@ -252,18 +195,7 @@ export const useTradingDataFetchers = ({
           if (livePosRes.status === 'fulfilled' && livePosRes.value && livePosRes.value.ok) {
             const data = await livePosRes.value.json();
             if (Array.isArray(data)) {
-              livePosList = data.filter(
-                (p: any) =>
-                  p &&
-                  Number(p.quantity || 0) > 0 &&
-                  !(
-                    p.productType === 'DELIVERY' &&
-                    p.type === 'SELL' &&
-                    !p.isOption &&
-                    !String(p.symbol || '').includes('CE') &&
-                    !String(p.symbol || '').includes('PE')
-                  ),
-              );
+              livePosList = filterLivePositions(data);
             }
           }
           setPositions((prev) =>
@@ -273,33 +205,13 @@ export const useTradingDataFetchers = ({
           if (liveOrdRes.status === 'fulfilled' && liveOrdRes.value && liveOrdRes.value.ok) {
             const liveOrdData = await liveOrdRes.value.json();
             if (Array.isArray(liveOrdData)) {
-              setOrders((prev) => {
-                const nonLive = prev.filter((o) => (o.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
-                if (liveOrdData.length === 0 && nonLive.length === prev.length) return prev;
-                const liveMapped = liveOrdData.map((o: any) => ({
-                  ...o,
-                  mode: 'UPSTOX_LIVE' as const,
-                }));
-                return [...liveMapped, ...nonLive];
-              });
+              setOrders((prev) => mergeLiveRows(prev, liveOrdData, false));
             }
           }
           if (liveHistRes.status === 'fulfilled' && liveHistRes.value && liveHistRes.value.ok) {
             const liveHistData = await liveHistRes.value.json();
             if (Array.isArray(liveHistData)) {
-              setTradeHistory((prev) => {
-                const nonLive = prev.filter((t) => (t.mode || 'PAPER_TRADING') !== 'UPSTOX_LIVE');
-                if (liveHistData.length === 0 && nonLive.length === prev.length) return prev;
-                const liveMapped = liveHistData.map((t: any) => ({
-                  ...t,
-                  mode: 'UPSTOX_LIVE' as const,
-                }));
-                return [...liveMapped, ...nonLive].sort((a, b) => {
-                  const tA = new Date(a.closeTime || a.openedAt || 0).getTime();
-                  const tB = new Date(b.closeTime || b.openedAt || 0).getTime();
-                  return tB - tA;
-                });
-              });
+              setTradeHistory((prev) => mergeLiveRows(prev, liveHistData));
             }
           }
         }
