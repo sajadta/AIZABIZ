@@ -1,0 +1,272 @@
+// Static-IP whitelist and proxy panel of the Upstox connection card: shows the
+// primary/secondary/container IPs, live status, troubleshooting and proxy drawer.
+import React from 'react';
+import { ShieldCheck } from 'lucide-react';
+import { translations } from '../../translations';
+import type { Language } from '../../types';
+import type { useUpstoxApiModal } from './useUpstoxApiModal';
+import { ProxyConfigDrawer } from './ProxyConfigDrawer';
+
+type Hook = ReturnType<typeof useUpstoxApiModal>;
+
+interface UpstoxStaticIpCardProps {
+  config: Hook['config'];
+  isFixedProxyActive: Hook['isFixedProxyActive'];
+  copyIpList: string;
+  liveContainerIp: string;
+  setStatusMsg: Hook['setStatusMsg'];
+  showProxyConfig: Hook['showProxyConfig'];
+  setShowProxyConfig: Hook['setShowProxyConfig'];
+  proxyUrlInput: Hook['proxyUrlInput'];
+  setProxyUrlInput: Hook['setProxyUrlInput'];
+  isTestingProxy: Hook['isTestingProxy'];
+  proxyError: Hook['proxyError'];
+  handleSaveProxy: Hook['handleSaveProxy'];
+  language: Language;
+}
+
+export const UpstoxStaticIpCard: React.FC<UpstoxStaticIpCardProps> = ({
+  config,
+  isFixedProxyActive,
+  copyIpList,
+  liveContainerIp,
+  setStatusMsg,
+  showProxyConfig,
+  setShowProxyConfig,
+  proxyUrlInput,
+  setProxyUrlInput,
+  isTestingProxy,
+  proxyError,
+  handleSaveProxy,
+  language,
+}) => {
+  const t = translations[language];
+  return (
+    <>
+      {/* Upstox SEBI Static IP Whitelist Card — Always Visible (Both Connected & Disconnected) */}
+      <div className="bg-slate-950/90 p-3 rounded-xl border border-emerald-500/40 space-y-2.5">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div>
+              <span className="text-xs text-emerald-300 font-extrabold flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>{isFixedProxyActive ? t.proxyActive : t.whitelistNotice}</span>
+              </span>
+              <p className="text-[10px] text-slate-400 font-sans mt-0.5">
+                {language === 'ml'
+                  ? 'Upstox Developer Console-ൽ ഈ IP-കൾ നൽകുക:'
+                  : 'Configure these IPs in Upstox Developer Dashboard:'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(copyIpList);
+                setStatusMsg({
+                  type: 'success',
+                  text:
+                    language === 'ml'
+                      ? `📋 IP-കൾ കോപ്പി ചെയ്തു (${copyIpList})! Upstox Developer Console-ൽ നൽകുക.`
+                      : `📋 Copied All IPs (${copyIpList})! Set in Upstox Developer Console.`,
+                });
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition active:scale-95 flex items-center gap-1"
+            >
+              <span>📋</span>
+              <span>{language === 'ml' ? 'IP-കൾ കോപ്പി ചെയ്യുക' : 'Copy All IPs'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowProxyConfig((prev) => !prev)}
+              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold border border-slate-700 transition"
+            >
+              {showProxyConfig ? '✕ Close' : '⚙️ Custom Proxy'}
+            </button>
+          </div>
+        </div>
+
+        {/* Primary, Secondary & Container IP 3-Column Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            className={`p-2.5 rounded-lg border flex items-center justify-between ${
+              isFixedProxyActive
+                ? 'bg-emerald-950/40 border-emerald-500/60 shadow-sm'
+                : 'bg-slate-900/90 border-slate-800'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] text-slate-400 block font-bold tracking-wider">
+                  1. SOCKS5 STATIC IP
+                </span>
+                {isFixedProxyActive ? (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                    🟢 LIVE ROUTE
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                    {language === 'ml' ? '⚪ സ്റ്റാൻഡ്‌ബൈ' : '⚪ STANDBY'}
+                  </span>
+                )}
+              </div>
+              <span className="text-xs font-mono font-black text-emerald-400">34.180.11.27</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText('34.180.11.27');
+                setStatusMsg({
+                  type: 'success',
+                  text:
+                    language === 'ml'
+                      ? `📋 SOCKS5 IP (34.180.11.27) കോപ്പി ചെയ്തു!`
+                      : `📋 Copied SOCKS5 IP (34.180.11.27)!`,
+                });
+              }}
+              className="px-2 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/50 text-[10px] font-bold transition active:scale-95"
+            >
+              {language === 'ml' ? 'കോപ്പി' : 'Copy'}
+            </button>
+          </div>
+
+          <div
+            className={`p-2.5 rounded-lg border flex items-center justify-between ${
+              !isFixedProxyActive
+                ? 'bg-cyan-950/40 border-cyan-500/60 shadow-sm'
+                : 'bg-slate-900/90 border-slate-800'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] text-emerald-400 block font-bold tracking-wider">
+                  2. DIRECT APP ROUTE (AI STUDIO)
+                </span>
+                {!isFixedProxyActive ? (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                    {language === 'ml' ? '🟢 സജീവം (LIVE)' : '🟢 LIVE ROUTE'}
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.2 rounded text-[8px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                    ⚪ BACKUP
+                  </span>
+                )}
+              </div>
+              <span className="text-xs font-mono font-black text-amber-300">{liveContainerIp}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(liveContainerIp);
+                setStatusMsg({
+                  type: 'success',
+                  text:
+                    language === 'ml'
+                      ? `📋 Current IP (${liveContainerIp}) കോപ്പി ചെയ്തു! ഇത് Upstox-ൽ Whitelist ചെയ്യുക.`
+                      : `📋 Copied Current IP (${liveContainerIp})! Whitelist this in Upstox if not using a proxy.`,
+                });
+              }}
+              className="px-2 py-1 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/50 text-[10px] font-bold transition active:scale-95"
+            >
+              {language === 'ml' ? 'കോപ്പി' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        {/* Reassuring Live Status or Offline Troubleshooting */}
+        {config.isConnected || isFixedProxyActive ? (
+          <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-2.5 text-[10px] space-y-1.5">
+            <div className="flex items-center justify-between flex-wrap text-emerald-300 font-bold gap-2">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                {isFixedProxyActive ? (
+                  <span>
+                    {language === 'ml'
+                      ? '🟢 SOCKS5 പ്രോക്സി റൂട്ട് സജീവം (Static IP Active):'
+                      : '🟢 SOCKS5 Static Proxy Route Active:'}
+                  </span>
+                ) : (
+                  <span>
+                    {language === 'ml'
+                      ? '🟢 നേരിട്ടുള്ള Upstox API റൂട്ട് സജീവം (Direct Upstox API Active):'
+                      : '🟢 Direct Upstox API Route Active:'}
+                  </span>
+                )}
+              </span>
+              <span className="text-[9px] font-mono text-emerald-300 px-2 py-0.5 rounded bg-emerald-900/40 border border-emerald-500/30">
+                IP: {isFixedProxyActive ? '34.180.11.27' : liveContainerIp}
+              </span>
+            </div>
+            <p className="text-slate-300 text-[10px] leading-relaxed">
+              {isFixedProxyActive
+                ? language === 'ml'
+                  ? 'SOCKS5 പ്രോക്സി (34.180.11.27:1080) തത്സമയം കണക്റ്റഡ് ആണ്. Upstox ഓർഡറുകളും API കോളുകളും ഈ ഫിക്സഡ് IP വഴി സുരക്ഷിതമായി റൂട്ട് ചെയ്യപ്പെടുന്നു.'
+                  : 'SOCKS5 proxy (34.180.11.27:1080) is actively verified. All Upstox orders and API requests route securely through this static IP.'
+                : language === 'ml'
+                  ? 'പ്രോക്സി സ്റ്റാൻഡ്‌ബൈ മോഡിലാണ്. Upstox ലൈവ് എഞ്ചിൻ നേരിട്ട് 100% സുരക്ഷിതമായി പ്രവർത്തിക്കുന്നു.'
+                  : 'Proxy is in standby. Upstox live engine communicates directly.'}
+            </p>
+          </div>
+        ) : (
+          <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-2.5 text-[10px] space-y-1.5">
+            <div className="flex items-center justify-between flex-wrap text-amber-300 font-bold gap-2">
+              <span>
+                {language === 'ml'
+                  ? '💡 SOCKS5 പ്രോക്സി ലഭ്യമല്ല — നേരിട്ടുള്ള IPv4 റൂട്ട് സജീവം:'
+                  : '💡 SOCKS5 Proxy unreachable — direct IPv4 fallback active:'}
+              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  disabled={isTestingProxy}
+                  onClick={() => handleSaveProxy(false)}
+                  className="px-2 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/40 text-[9px] font-bold"
+                >
+                  {isTestingProxy
+                    ? 'Testing...'
+                    : language === 'ml'
+                      ? 'വീണ്ടും ടെസ്റ്റ് ചെയ്യുക'
+                      : 'Retry Proxy'}
+                </button>
+                {proxyUrlInput && (
+                  <button
+                    type="button"
+                    disabled={isTestingProxy}
+                    onClick={() => handleSaveProxy(true)}
+                    className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-500/40 text-[9px] font-bold"
+                  >
+                    {language === 'ml' ? 'Direct IP ഉപയോഗിക്കുക' : 'Use Direct IP'}
+                  </button>
+                )}
+              </div>
+            </div>
+            {proxyError && (
+              <p className="text-amber-200/80 font-mono text-[9px]">Status: {proxyError}</p>
+            )}
+            <p className="text-slate-400 text-[9px]">
+              {language === 'ml'
+                ? 'നിലവിൽ തടസ്സമില്ലാതെ ട്രേഡിങ് നടക്കാൻ കണ്ടെയ്‌നർ IP: '
+                : 'Direct outbound container IP (whitelist in Upstox if bypassing proxy): '}
+              <b className="text-amber-300 font-mono">{liveContainerIp}</b>
+            </p>
+          </div>
+        )}
+
+        {showProxyConfig && (
+          <ProxyConfigDrawer
+            proxyUrlInput={proxyUrlInput}
+            setProxyUrlInput={setProxyUrlInput}
+            isTestingProxy={isTestingProxy}
+            proxyError={proxyError}
+            isFixedProxyActive={isFixedProxyActive}
+            handleSaveProxy={handleSaveProxy}
+            language={language}
+          />
+        )}
+      </div>
+    </>
+  );
+};
