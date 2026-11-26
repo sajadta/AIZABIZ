@@ -1,50 +1,17 @@
-import { computeOpenFifoPositionsFromOrders, type OpenFifoLotSummary } from "./upstoxHistory";
+import { computeOpenFifoPositionsFromOrders, type OpenFifoLotSummary } from './upstoxHistory';
 
-export function isOptionInstrument(symbol?: string, instrumentToken?: string): boolean {
-  const sym = String(symbol || "");
-  const tok = String(instrumentToken || "");
-  return /\b(CE|PE)\b/i.test(sym) || sym.includes("CE") || sym.includes("PE") || tok.includes("FO");
-}
+import { isDeliverySoldHoldingPosition, isOptionInstrument } from './portfolioGuards';
 
-/**
- * In Indian cash equity (NSE/BSE), short-selling on DELIVERY ("D") is impossible.
- * Upstox returns an entry in /v2/portfolio/short-term-positions with product === "D"
- * and negative net quantity (e.g. TRIDENT qty: -39, buy_price: 0) strictly to represent
- * "Holding sold today" from the user's Demat holdings.
- * Treating it as an active short trade causes phantom -₹900+ MTM loss, fake SL alerts,
- * and dangerous buy-back attempts on square-off.
- */
-export function isDeliverySoldHoldingPosition(rawPos: any): boolean {
-  if (!rawPos) return false;
-  const sym = String(rawPos.trading_symbol || rawPos.symbol || "");
-  const tok = String(rawPos.instrument_token || rawPos.instrumentKey || "");
-  if (isOptionInstrument(sym, tok)) return false;
-
-  const prodRaw = String(rawPos.product || rawPos.productType || "D").toUpperCase();
-  const isDelivery = prodRaw === "D" || prodRaw === "DELIVERY" || prodRaw === "CNC";
-  if (!isDelivery) return false;
-
-  // For raw Upstox positions, net qty is negative.
-  if (rawPos.quantity !== undefined || rawPos.net_quantity !== undefined) {
-    const netQty = Number(rawPos.quantity ?? rawPos.net_quantity ?? 0);
-    if (netQty < 0) return true;
-  }
-
-  // For already-mapped app Position objects: productType === "DELIVERY" & type === "SELL".
-  if (String(rawPos.type || "").toUpperCase() === "SELL" && isDelivery) {
-    return true;
-  }
-
-  return false;
-}
+export { isDeliverySoldHoldingPosition, isOptionInstrument } from './portfolioGuards';
+export { computeEffectiveHoldingQuantity } from './holdingQuantity';
 
 export interface NormalizedLivePosition {
   id: string;
   symbol: string;
   instrumentKey: string;
   product: string;
-  productType: "INTRADAY" | "DELIVERY";
-  type: "BUY" | "SELL";
+  productType: 'INTRADAY' | 'DELIVERY';
+  type: 'BUY' | 'SELL';
   quantity: number;
   buyPrice: number;
   sellPrice?: number;
@@ -52,7 +19,7 @@ export interface NormalizedLivePosition {
   pnl: number;
   pnlPercent: number;
   realizedPnL: number;
-  mode: "UPSTOX_LIVE";
+  mode: 'UPSTOX_LIVE';
   isOption: boolean;
   isBotManaged: boolean;
   isBtstHoldRecommended: boolean;
@@ -88,11 +55,11 @@ export function normalizeUpstoxShortTermPosition(
     return null;
   }
 
-  const symbol = String(rawPos.trading_symbol || rawPos.instrument_token || "UNKNOWN");
-  const instrumentKey = String(rawPos.instrument_token || rawPos.trading_symbol || "");
+  const symbol = String(rawPos.trading_symbol || rawPos.instrument_token || 'UNKNOWN');
+  const instrumentKey = String(rawPos.instrument_token || rawPos.trading_symbol || '');
   const isOpt = isOptionInstrument(symbol, instrumentKey);
-  const prodCode = String(rawPos.product || "D").toUpperCase();
-  const productType: "INTRADAY" | "DELIVERY" = prodCode === "I" ? "INTRADAY" : "DELIVERY";
+  const prodCode = String(rawPos.product || 'D').toUpperCase();
+  const productType: 'INTRADAY' | 'DELIVERY' = prodCode === 'I' ? 'INTRADAY' : 'DELIVERY';
   const isShort = netQty < 0;
   const absQty = Math.abs(netQty);
 
@@ -138,15 +105,15 @@ export function normalizeUpstoxShortTermPosition(
   if (hasExactOpenFifoCost && entryPrice > 0) {
     // Open position Unrealized P&L calculated purely from exact open FIFO lot cost
     // (realizedPnL from prior closed round-trips on the same strike is preserved separately).
-    computedPnl = isShort
-      ? (entryPrice - currentLTP) * absQty
-      : (currentLTP - entryPrice) * absQty;
-  } else if (rawBrokerPnl !== undefined && rawBrokerPnl !== null && Number.isFinite(Number(rawBrokerPnl))) {
+    computedPnl = isShort ? (entryPrice - currentLTP) * absQty : (currentLTP - entryPrice) * absQty;
+  } else if (
+    rawBrokerPnl !== undefined &&
+    rawBrokerPnl !== null &&
+    Number.isFinite(Number(rawBrokerPnl))
+  ) {
     computedPnl = Number(rawBrokerPnl);
   } else if (entryPrice > 0) {
-    computedPnl = isShort
-      ? (entryPrice - currentLTP) * absQty
-      : (currentLTP - entryPrice) * absQty;
+    computedPnl = isShort ? (entryPrice - currentLTP) * absQty : (currentLTP - entryPrice) * absQty;
   } else {
     computedPnl = Number(rawPos.unrealised ?? rawPos.realised ?? 0);
   }
@@ -166,7 +133,7 @@ export function normalizeUpstoxShortTermPosition(
     instrumentKey,
     product: prodCode,
     productType,
-    type: isShort ? "SELL" : "BUY",
+    type: isShort ? 'SELL' : 'BUY',
     quantity: absQty,
     buyPrice: entryPrice,
     ...(isShort && sellAvg > 0 ? { sellPrice: sellAvg } : {}),
@@ -174,13 +141,13 @@ export function normalizeUpstoxShortTermPosition(
     pnl: Number(computedPnl.toFixed(2)),
     pnlPercent,
     realizedPnL: Number(rawPos.realised ?? 0),
-    mode: "UPSTOX_LIVE",
+    mode: 'UPSTOX_LIVE',
     isOption: isOpt,
     isBotManaged: Boolean(openLotCost?.isBotManaged),
     isBtstHoldRecommended: false,
     openedAt: resolvedOpenedMs
-      ? new Date(resolvedOpenedMs).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })
-      : new Date().toLocaleTimeString("en-IN"),
+      ? new Date(resolvedOpenedMs).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
+      : new Date().toLocaleTimeString('en-IN'),
     ...(resolvedOpenedMs ? { openedAtMs: resolvedOpenedMs } : {}),
     ...(tracker
       ? {
@@ -208,9 +175,11 @@ export function findOpenFifoLotForRawPosition(
   openLotsByKey: Record<string, OpenFifoLotSummary>,
 ): OpenFifoLotSummary | null {
   if (!rawPos || !openLotsByKey) return null;
-  const prod: "I" | "D" = String(rawPos.product || "D").toUpperCase() === "I" ? "I" : "D";
-  const token = String(rawPos.instrument_token || rawPos.instrumentKey || "").trim();
-  const sym = String(rawPos.trading_symbol || rawPos.symbol || "").trim().toUpperCase();
+  const prod: 'I' | 'D' = String(rawPos.product || 'D').toUpperCase() === 'I' ? 'I' : 'D';
+  const token = String(rawPos.instrument_token || rawPos.instrumentKey || '').trim();
+  const sym = String(rawPos.trading_symbol || rawPos.symbol || '')
+    .trim()
+    .toUpperCase();
   return (
     (token ? openLotsByKey[`${token}|${prod}`] : undefined) ||
     (sym ? openLotsByKey[`${sym}|${prod}`] : undefined) ||
@@ -230,45 +199,13 @@ export function normalizeUpstoxShortTermPositionsWithOrders(
       : {};
   return rawList
     .map((item) => {
-      const token = String(item?.instrument_token || item?.trading_symbol || "");
-      const prod = String(item?.product || "D").toUpperCase() === "I" ? "I" : "D";
-      const tracker =
-        trackerMap?.[`${token}|${prod}`] ||
-        (token ? trackerMap?.[token] : undefined);
+      const token = String(item?.instrument_token || item?.trading_symbol || '');
+      const prod = String(item?.product || 'D').toUpperCase() === 'I' ? 'I' : 'D';
+      const tracker = trackerMap?.[`${token}|${prod}`] || (token ? trackerMap?.[token] : undefined);
       const lotCost = findOpenFifoLotForRawPosition(item, openLots);
       return normalizeUpstoxShortTermPosition(item, tracker, lotCost);
     })
     .filter((item): item is NormalizedLivePosition => item !== null);
-}
-
-/**
- * Matches Upstox Holdings UI quantity calculation:
- * When holdings have been sold today (cnc_used_quantity > 0), subtract sold units
- * from settled quantity so sold holdings show actual remaining shares (e.g. 0 or 14)
- * rather than double-counting t1_quantity + already-sold holdings.
- */
-export function computeEffectiveHoldingQuantity(rawHolding: any): {
-  remainingQty: number;
-  soldTodayQty: number;
-  rawTotalQty: number;
-} {
-  const baseQty = Math.max(0, Number(rawHolding?.quantity || 0));
-  const cncUsedQty = Math.max(0, Number(rawHolding?.cnc_used_quantity || 0));
-  const t1Qty = Math.max(0, Number(rawHolding?.t1_quantity || 0));
-  const colQty = Math.max(0, Number(rawHolding?.collateral_quantity || 0));
-
-  const remainingQty =
-    cncUsedQty > 0
-      ? Math.max(0, baseQty - cncUsedQty)
-      : baseQty + t1Qty > 0
-        ? baseQty + t1Qty
-        : colQty;
-
-  return {
-    remainingQty,
-    soldTodayQty: cncUsedQty,
-    rawTotalQty: baseQty + t1Qty,
-  };
 }
 
 /**
@@ -282,7 +219,7 @@ export function shouldMonitorEquityPosition(pos: any, tradeMode?: string): boole
   const isOpt = isOptionInstrument(pos.symbol, pos.instrumentKey) || Boolean(pos.isOption);
   if (isOpt) return false;
 
-  if (String(tradeMode || "").toUpperCase() === "OPTIONS_ONLY") {
+  if (String(tradeMode || '').toUpperCase() === 'OPTIONS_ONLY') {
     return false;
   }
   if (isDeliverySoldHoldingPosition(pos)) {
@@ -291,7 +228,7 @@ export function shouldMonitorEquityPosition(pos: any, tradeMode?: string): boole
   if (Number(pos.buyPrice || 0) <= 0 || Number(pos.quantity || 0) <= 0) {
     return false;
   }
-  if (pos.mode === "UPSTOX_LIVE" && pos.productType === "DELIVERY" && !pos.isBotManaged) {
+  if (pos.mode === 'UPSTOX_LIVE' && pos.productType === 'DELIVERY' && !pos.isBotManaged) {
     return false;
   }
   return true;
