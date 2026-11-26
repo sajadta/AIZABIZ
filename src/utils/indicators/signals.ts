@@ -1,7 +1,6 @@
 import type { CandleData, IndicatorReadings, StrategyKey, TradingSignal } from '../../types';
 import type { RealOptionMetrics } from './optionTypes';
 import { calculateATR } from './calculations';
-import { calculateTradeCharges } from './tradeMath';
 import { selectSessionCandles, computeSessionVwap } from './session';
 import {
   calculateVwapSigmaBands,
@@ -13,6 +12,12 @@ import { buildTargetForecast } from './signals/targetForecast';
 import { runConfluenceEngine } from './signals/confluenceEngine';
 import { buildOptionPremiumPlan } from './signals/optionPremiumPlan';
 import { decideSignalDirection } from './signals/signalDecision';
+import { resolveOptionContract } from './signals/optionContract';
+import {
+  buildMultiLegDetails,
+  buildRecommendedOptionStrike,
+  resolveFallbackLot,
+} from './signals/executionPlan';
 
 export function analyzeTradingSignals(
   symbol: string,
@@ -144,38 +149,24 @@ export function analyzeTradingSignals(
   const { signalType, confidence, stopLoss, target1, target2, target3 } = decision;
   let { rationale, rationaleMalayalam } = decision;
   const { indexPrefix, strikeStep, totalBullishConfidence, totalBearishConfidence } = decision;
-  const symUpper = symbol.toUpperCase();
 
   const riskDiff = Math.abs(currentLtp - stopLoss);
   const rewardDiff = Math.abs(target1 - currentLtp);
   const rrRatio = `1:${(rewardDiff / (riskDiff || 1)).toFixed(1)}`;
 
-  const isBullish =
-    signalType === 'BUY' ||
-    (signalType === 'HOLD' &&
-      (isStrongTechUptrend ||
-        (!isStrongTechDowntrend &&
-          totalBullishConfidence > totalBearishConfidence &&
-          corpScore >= -15)));
-  const optType: 'CE' | 'PE' =
-    optionMetrics && Number(optionMetrics.ltp) > 0 && optionMetrics.optionType
-      ? optionMetrics.optionType
-      : isBullish
-        ? 'CE'
-        : 'PE';
-  const defaultStrike = Math.round(currentLtp / strikeStep) * strikeStep;
-  const chosenStrike = optionMetrics?.strikePrice || defaultStrike;
-
-  let optSymbol = optionMetrics?.optionSymbol || '';
-  if (
-    !optSymbol &&
-    (symUpper.includes('NIFTY') ||
-      symUpper.includes('SENSEX') ||
-      symUpper.includes('BANKEX') ||
-      symUpper.includes('MIDCP'))
-  ) {
-    optSymbol = `${indexPrefix} ${chosenStrike} ${optType}`;
-  }
+  const { isBullish, optType, chosenStrike, optSymbol } = resolveOptionContract({
+    symbol,
+    signalType,
+    isStrongTechUptrend,
+    isStrongTechDowntrend,
+    totalBullishConfidence,
+    totalBearishConfidence,
+    corpScore,
+    optionMetrics,
+    currentLtp,
+    strikeStep,
+    indexPrefix,
+  });
 
   const premiumPlan = buildOptionPremiumPlan({
     optSymbol,
@@ -198,23 +189,13 @@ export function analyzeTradingSignals(
   rationale = premiumPlan.rationale;
   rationaleMalayalam = premiumPlan.rationaleMalayalam;
 
-  const defaultLotForFallback =
-    indexPrefix === 'BANKNIFTY' || indexPrefix === 'BANKEX'
-      ? 30
-      : indexPrefix === 'SENSEX'
-        ? 20
-        : indexPrefix === 'MIDCPNIFTY'
-          ? 120
-          : indexPrefix === 'FINNIFTY'
-            ? 60
-            : 65;
-  const fallbackLotSz =
-    optionMetrics?.lotSize && optionMetrics.lotSize > 1
-      ? optionMetrics.lotSize
-      : defaultLotForFallback;
-  const fallbackCharges = optSymbol
-    ? calculateTradeCharges(optEntry, fallbackLotSz, true, optT1)
-    : undefined;
+  const { fallbackLotSz, fallbackCharges } = resolveFallbackLot({
+    indexPrefix,
+    optionMetrics,
+    optEntry,
+    optT1,
+    optSymbol,
+  });
 
   const forecast = buildTargetForecast({
     isBullish,
@@ -299,52 +280,27 @@ export function analyzeTradingSignals(
           : marketRegimeMode === 'LOW_VIX_RANGE_GUARD'
             ? 'MULTI_LEG_STRANGLE'
             : 'OPTION_SELLING',
-      multiLegDetails: {
-        strategyType: adxValue < 16 ? 'SHORT_STRANGLE' : 'SHORT_STRADDLE',
-        callStrike: chosenStrike + (adxValue < 16 ? strikeStep * 2 : 0),
-        callLtp: Number((optEntry * 0.85).toFixed(2)),
-        putStrike: chosenStrike - (adxValue < 16 ? strikeStep * 2 : 0),
-        putLtp: Number((optEntry * 0.82).toFixed(2)),
-        combinedPremiumCollected: Number((optEntry * 1.67).toFixed(2)),
-        thetaDecayPerDayRupees: Math.round(
-          Math.abs(optionMetrics?.theta ?? 8) * 1.8 * fallbackLotSz,
-        ),
-        upperBreakeven: Math.round(chosenStrike + strikeStep * 2 + optEntry * 1.67),
-        lowerBreakeven: Math.round(chosenStrike - strikeStep * 2 - optEntry * 1.67),
-      },
+      multiLegDetails: buildMultiLegDetails({
+        adxValue,
+        chosenStrike,
+        strikeStep,
+        optEntry,
+        optionMetrics,
+        lotSize: fallbackLotSz,
+      }),
     },
-    recommendedOptionStrike: optSymbol
-      ? {
-          strikePrice: chosenStrike,
-          optionType: optType,
-          ltp: optEntry,
-          expiry: optionMetrics?.expiry || 'Current Weekly',
-          delta: Number((optionMetrics?.delta ?? (isBullish ? 0.54 : -0.54)).toFixed(2)),
-          lotSize: optionMetrics?.lotSize || fallbackLotSz,
-          iv: optionMetrics?.iv,
-          oi: optionMetrics?.oi,
-          volume: optionMetrics?.volume,
-          instrumentKey: optionMetrics?.instrumentKey,
-          requiredCapital: optionMetrics?.requiredCapital ?? fallbackCharges?.tradeValue,
-          estimatedBrokerage:
-            optionMetrics?.estimatedBrokerage ?? fallbackCharges?.roundTripCharges,
-          totalRequiredWithBrokerage:
-            optionMetrics?.totalRequiredWithBrokerage ??
-            fallbackCharges?.totalRequiredWithBrokerage,
-          expectedNetProfit:
-            optionMetrics?.expectedNetProfit ??
-            (fallbackCharges
-              ? Number(
-                  ((optT1 - optEntry) * fallbackLotSz - fallbackCharges.roundTripCharges).toFixed(
-                    2,
-                  ),
-                )
-              : undefined),
-          affordableLots: optionMetrics?.affordableLots,
-          availableCapital: optionMetrics?.availableCapital,
-          underlyingSpot: currentLtp,
-        }
-      : undefined,
+    recommendedOptionStrike: buildRecommendedOptionStrike({
+      optSymbol,
+      chosenStrike,
+      optType,
+      optEntry,
+      optT1,
+      isBullish,
+      fallbackLotSz,
+      fallbackCharges,
+      optionMetrics,
+      currentLtp,
+    }),
     timestamp: new Date().toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
