@@ -81,10 +81,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'charts-vendor': ['recharts', 'd3', 'lightweight-charts'],
-          'ui-vendor': ['lucide-react', 'motion'],
+        // Rolldown (Vite 8) only accepts the function form of manualChunks.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('react-dom') || /node_modules\/react\//.test(id)) return 'react-vendor';
+          if (/node_modules\/(recharts|d3|lightweight-charts)\//.test(id)) return 'charts-vendor';
+          if (/node_modules\/(lucide-react|motion)\//.test(id)) return 'ui-vendor';
         },
       },
     },
