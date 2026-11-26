@@ -103,7 +103,10 @@ export const useTradingDataFetchers = ({
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          const parsed = data.map((t: any) => ({ ...t, mode: t.mode || 'PAPER_TRADING' }));
+          const parsed = (data as Position[]).map((t) => ({
+            ...t,
+            mode: t.mode || 'PAPER_TRADING',
+          }));
           setTradeHistory(parsed);
           if (parsed.length === 0) {
             safeStorage.removeItem('aizabiz_persisted_trade_history_v2');

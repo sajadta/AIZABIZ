@@ -67,8 +67,8 @@ export function computeMetrics(trades: Position[]) {
       String(trade.instrumentKey || '').includes('FO'),
     );
     const tradeCharges =
-      Number((trade as any).brokerageCharges) > 0
-        ? Number((trade as any).brokerageCharges)
+      Number(trade.brokerageCharges) > 0
+        ? Number(trade.brokerageCharges)
         : calculateTradeCharges(buyP, qty, isOpt, sellP, trade.instrumentKey || trade.symbol)
             .roundTripCharges;
     totalBrokerageCharges += tradeCharges;
@@ -86,10 +86,10 @@ export function computeMetrics(trades: Position[]) {
     // Calculate trade duration
     const startTime = trade.openedAt
       ? new Date(trade.openedAt).getTime()
-      : (trade as any).openTime
-        ? new Date((trade as any).openTime).getTime()
-        : (trade as any).timestamp
-          ? new Date((trade as any).timestamp).getTime()
+      : trade.openTime
+        ? new Date(trade.openTime).getTime()
+        : trade.timestamp
+          ? new Date(trade.timestamp).getTime()
           : 0;
 
     const endTime = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;

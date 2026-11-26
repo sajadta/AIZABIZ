@@ -21,6 +21,9 @@ import { useAppChartFocus } from './hooks/useAppChartFocus';
 import { useAppDataSync } from './hooks/useAppDataSync';
 import { useAppMarketFeeds } from './hooks/useAppMarketFeeds';
 import { AppShell } from './components/app/AppShell';
+import { AppChrome } from './components/app/AppChrome';
+import { AppWorkspace } from './components/app/AppWorkspace';
+import { AppOverlays } from './components/app/AppOverlays';
 import { triggerAlertEvent } from './utils/soundAlerts';
 
 import { DEFAULT_BOT_CONFIG } from './data/defaultBotConfig';
@@ -283,94 +286,162 @@ export const App: React.FC = () => {
 
   const t = translations[language];
   return (
-    <AppShell
-      t={t}
-      isWsConnected={isWsConnected}
-      mode={mode}
-      language={language}
-      setLanguage={setLanguage}
-      soundEnabled={soundEnabled}
-      setSoundEnabled={setSoundEnabled}
-      apiConfig={apiConfig}
-      positions={positions}
-      handleSquareOffAll={handleSquareOffAll}
-      totalNetMtm={totalNetMtm}
-      todayProfit={todayProfit}
-      totalCumulativeProfit={totalCumulativeProfit}
-      paperAccountBalance={paperAccountBalance}
-      handleResetPaperAccount={handleResetPaperAccount}
-      botConfig={botConfig}
-      handleModeChange={handleModeChange}
-      setIsApiModalOpen={setIsApiModalOpen}
-      setIsAndroidModalOpen={setIsAndroidModalOpen}
-      setIsAlertsModalOpen={setIsAlertsModalOpen}
-      handleToggleBot={handleToggleBot}
-      lightingBanner={lightingBanner}
-      setLightingBanner={setLightingBanner}
-      triggerAlertEvent={triggerAlertEvent}
-      marketSession={marketSession}
-      quotes={quotes}
-      selectedSymbol={selectedSymbol}
-      setSelectedSymbol={setSelectedSymbol}
-      setSelectedInstrumentKey={setSelectedInstrumentKey}
-      handleIndexFocus={handleIndexFocus}
-      botLogs={botLogs}
-      dismissedIpWarning={dismissedIpWarning}
-      ipCopiedNotice={ipCopiedNotice}
-      setDismissedIpWarning={setDismissedIpWarning}
-      setIpCopiedNotice={setIpCopiedNotice}
-      setOrderModalData={setOrderModalData}
-      setIsOrderModalOpen={setIsOrderModalOpen}
-      priceAlerts={priceAlerts}
-      handleAddAlert={handleAddAlert}
-      handleRemoveAlert={handleRemoveAlert}
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      currentQuote={currentQuote}
-      holdings={holdings}
-      chartTradeContext={chartTradeContext}
-      setChartTradeContext={setChartTradeContext}
-      candles={candles}
-      chartInterval={chartInterval}
-      setChartInterval={setChartInterval}
-      activeSignal={activeSignal}
-      optionChainData={optionChainData}
-      getStandardIndexLotSize={getStandardIndexLotSize}
-      handleFetchGeminiAnalysis={handleFetchGeminiAnalysis}
-      aiLoading={aiLoading}
-      setBotConfig={setBotConfig}
-      setMode={setMode}
-      signals={signals}
-      handleExecuteSignal={handleExecuteSignal}
-      handleViewChart={handleViewChart}
-      handleSquareOffPosition={handleSquareOffPosition}
-      handleSquareOffEquityOnly={handleSquareOffEquityOnly}
-      fetchHoldings={fetchHoldings}
-      handleSyncHistoryBrokerage={handleSyncHistoryBrokerage}
-      optionChainLoading={optionChainLoading}
-      fetchOptionChain={fetchOptionChain}
-      modeOrders={modeOrders}
-      modeTradeHistory={modeTradeHistory}
-      geminiAnalysis={geminiAnalysis}
-      orderModalData={orderModalData}
-      handlePlaceOrder={handlePlaceOrder}
-      fetchLivePositions={fetchLivePositions}
-      setApiConfig={setApiConfig}
-      isApiModalOpen={isApiModalOpen}
-      isOrderModalOpen={isOrderModalOpen}
-      isAlertsModalOpen={isAlertsModalOpen}
-      isAndroidModalOpen={isAndroidModalOpen}
-      setIsOnboardingOpen={setIsOnboardingOpen}
-      isOnboardingOpen={isOnboardingOpen}
-      isTerminalLocked={isTerminalLocked}
-      setIsTerminalLocked={setIsTerminalLocked}
-      isResetConfirmOpen={isResetConfirmOpen}
-      setIsResetConfirmOpen={setIsResetConfirmOpen}
-      confirmResetPaperAccount={confirmResetPaperAccount}
-      isEquityExitConfirmOpen={isEquityExitConfirmOpen}
-      setIsEquityExitConfirmOpen={setIsEquityExitConfirmOpen}
-      confirmSquareOffEquityOnly={confirmSquareOffEquityOnly}
-    />
+    <AppShell>
+      <AppChrome
+        header={{
+          isWsConnected,
+          mode,
+          language,
+          setLanguage,
+          soundEnabled,
+          setSoundEnabled,
+          apiConfig,
+          activePositionsCount: positions.length,
+          onSquareOffAll: handleSquareOffAll,
+          totalPnL: totalNetMtm,
+          dailyProfit: todayProfit,
+          cumulativeProfit: totalCumulativeProfit,
+          virtualCapital: paperAccountBalance,
+          onResetPaperAccount: handleResetPaperAccount,
+          botEnabled: botConfig.enabled,
+        }}
+        onModeChange={handleModeChange}
+        onOpenApiSettings={() => setIsApiModalOpen(true)}
+        onOpenAndroidModal={() => setIsAndroidModalOpen(true)}
+        onOpenAlerts={() => setIsAlertsModalOpen(true)}
+        onToggleBot={handleToggleBot}
+        onOpenApiModal={() => setIsApiModalOpen(true)}
+        topSections={{
+          apiConfig,
+          language,
+          lightingBanner,
+          setLightingBanner,
+          triggerAlertEvent,
+          marketSession,
+        }}
+        tickerBar={{
+          quotes,
+          selectedSymbol,
+          onSelectSymbol: (sym: string, key?: string) => {
+            setSelectedSymbol(sym);
+            if (key) setSelectedInstrumentKey(key);
+            handleIndexFocus(sym);
+          },
+        }}
+        inspection={{ botLogs, language }}
+        ipNotice={{
+          botLogs,
+          dismissedIpWarning,
+          ipCopiedNotice,
+          language,
+          setDismissedIpWarning,
+          setIpCopiedNotice,
+          serverSecondaryIp: apiConfig.actualDetectedIp || apiConfig.serverSecondaryIp,
+        }}
+      />
+
+      {/* 3. MAIN WORKSPACE */}
+      <AppWorkspace
+        quotes={quotes}
+        selectedSymbol={selectedSymbol}
+        setSelectedSymbol={setSelectedSymbol}
+        setSelectedInstrumentKey={setSelectedInstrumentKey}
+        language={language}
+        setOrderModalData={setOrderModalData}
+        setIsOrderModalOpen={setIsOrderModalOpen}
+        priceAlerts={priceAlerts}
+        handleAddAlert={handleAddAlert}
+        handleRemoveAlert={handleRemoveAlert}
+        desktopNav={{
+          t,
+          activeTab,
+          setActiveTab,
+          botConfig,
+          currentQuote,
+          holdings,
+          positions,
+          selectedSymbol,
+          language,
+        }}
+        tabContent={{
+          activeTab,
+          setActiveTab,
+          currentQuote,
+          chartTradeContext,
+          setChartTradeContext,
+          candles,
+          chartInterval,
+          setChartInterval,
+          activeSignal,
+          optionChainData,
+          getStandardIndexLotSize,
+          handleFetchGeminiAnalysis,
+          aiLoading,
+          botConfig,
+          setBotConfig,
+          setMode,
+          botLogs,
+          signals,
+          handleExecuteSignal,
+          handleViewChart,
+          handleSquareOffPosition,
+          handleSquareOffAll,
+          onSquareOffEquityOnly: handleSquareOffEquityOnly,
+          positions,
+          holdings,
+          totalNetMtm,
+          fetchHoldings,
+          apiConfig,
+          setIsApiModalOpen,
+          handleSyncHistoryBrokerage,
+          optionChainLoading,
+          fetchOptionChain,
+          modeOrders,
+          modeTradeHistory,
+          geminiAnalysis,
+        }}
+      />
+
+      <AppOverlays
+        mobileNav={{ activeTab, setActiveTab, botConfig, positions, language }}
+        modals={{
+          isOrderModalOpen,
+          setIsOrderModalOpen,
+          orderModalData,
+          apiConfig,
+          botConfig,
+          mode,
+          handlePlaceOrder,
+          language,
+          isApiModalOpen,
+          setIsApiModalOpen,
+          fetchHoldings,
+          fetchLivePositions,
+          setApiConfig,
+          isAlertsModalOpen,
+          priceAlerts,
+          setIsAlertsModalOpen,
+          handleAddAlert,
+          handleRemoveAlert,
+          isAndroidModalOpen,
+          setIsAndroidModalOpen,
+          isOnboardingOpen,
+          setIsOnboardingOpen,
+          isTerminalLocked,
+          setIsTerminalLocked,
+          paperAccountBalance,
+        }}
+        confirmDialogs={{
+          language,
+          isResetConfirmOpen,
+          setIsResetConfirmOpen,
+          confirmResetPaperAccount,
+          isEquityExitConfirmOpen,
+          setIsEquityExitConfirmOpen,
+          confirmSquareOffEquityOnly,
+        }}
+      />
+    </AppShell>
   );
 };
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { UpstoxApiConfig } from '../../types';
 import type { UpstoxStatusMsg } from './upstoxModalTypes';
+import { errorMessage } from '../../utils/errors';
 
 export const DEFAULT_PROXY_URL = 'socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080';
 
@@ -61,12 +62,12 @@ export function useUpstoxProxyState(
             (data.suggestedFix ? ` — ${data.suggestedFix}` : ''),
         });
       }
-    } catch (e: any) {
+    } catch (e) {
       setIsFixedProxyActive(false);
-      setProxyError(e?.message || 'Network error');
+      setProxyError(errorMessage(e) || 'Network error');
       setStatusMsg({
         type: 'error',
-        text: 'Proxy test network error: ' + (e?.message || 'Failed'),
+        text: 'Proxy test network error: ' + (errorMessage(e) || 'Failed'),
       });
     } finally {
       setIsTestingProxy(false);

@@ -1,8 +1,10 @@
 // Level confluence: corporate-heavyweight flow, nearest support/resistance with
 // breakout-power detection and the 5-year macro regime overlay.
 
+import type { RealOptionMetrics } from '../optionTypes';
+
 export interface LevelConfluenceParams {
-  optionMetrics: any;
+  optionMetrics?: Partial<RealOptionMetrics> | null;
   swingHighs: number[];
   swingLows: number[];
   currentLtp: number;

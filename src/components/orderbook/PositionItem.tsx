@@ -260,7 +260,7 @@ export const PositionItem: React.FC<{
               Entry Paid: ₹{entryPaid.toFixed(2)} • Est. RT Total: ₹{estCharges.toFixed(2)}
             </span>
           </div>
-          {Object.entries(chargeDetails).map(([key, val]: [string, any]) => (
+          {Object.entries(chargeDetails).map(([key, val]) => (
             <div key={key} className="flex flex-col">
               <span className="text-slate-500 uppercase text-[8px]">
                 {key.replace(/([A-Z])/g, ' $1')}

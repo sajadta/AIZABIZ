@@ -1,6 +1,7 @@
 // Low-level helpers for the Upstox SMS-OTP connect flow: resilient API posting,
 // session-backup persistence and token storage.
 import type { Language } from '../../types';
+import { errorMessage } from '../../utils/errors';
 
 export const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
 export const DEFAULT_API_SECRET = 'jl5s7qy9r0';
@@ -13,9 +14,29 @@ export const getFallbackRedirectUri = (): string => {
   return 'http://localhost:3000/api/market/callback';
 };
 
-export type OtpPostResult = { ok: boolean; data: any };
+/** Opaque relay session blob handed back by the broker; stored and replayed verbatim. */
+export type OtpSessionBackup = Record<string, unknown>;
 
-export type OtpPoster = (endpoint: string, payload: any) => Promise<OtpPostResult>;
+/** Shape of the relay responses consumed by the OTP flow. */
+export interface OtpResponseData {
+  success?: boolean;
+  accessToken?: string;
+  userName?: string;
+  user_name?: string;
+  userClientCode?: string;
+  user_id?: string;
+  message?: string;
+  error?: string;
+  sessionBackup?: OtpSessionBackup;
+  [key: string]: unknown;
+}
+
+export type OtpPostResult = { ok: boolean; data: OtpResponseData };
+
+export type OtpPoster = (
+  endpoint: string,
+  payload: Record<string, unknown>,
+) => Promise<OtpPostResult>;
 
 /** Builds a POST helper that reports transport failures as a localized error object. */
 export const createOtpPoster = (language: Language): OtpPoster => {
@@ -32,13 +53,13 @@ export const createOtpPoster = (language: Language): OtpPoster => {
       }
       const errStr = data?.error || (res.ok ? 'Operation failed' : `Server error (${res.status})`);
       return { ok: false, data: data || { success: false, error: errStr } };
-    } catch (err: any) {
+    } catch (err) {
       return {
         ok: false,
         data: {
           success: false,
           error:
-            err.message ||
+            errorMessage(err) ||
             (language === 'ml'
               ? 'നെറ്റ്‌വർക്ക് കണക്ഷൻ തടസ്സപ്പെട്ടു. വീണ്ടും ശ്രമിക്കുക.'
               : 'Network connection error. Please retry.'),
@@ -50,7 +71,7 @@ export const createOtpPoster = (language: Language): OtpPoster => {
 
 const OTP_BACKUP_STORAGE_KEY = 'upstox_otp_session_backup';
 
-export const persistOtpSessionBackup = (backup: any): void => {
+export const persistOtpSessionBackup = (backup: OtpSessionBackup | null | undefined): void => {
   if (!backup) return;
   try {
     localStorage.setItem(OTP_BACKUP_STORAGE_KEY, JSON.stringify(backup));
@@ -59,10 +80,10 @@ export const persistOtpSessionBackup = (backup: any): void => {
   }
 };
 
-export const readOtpSessionBackup = (): any => {
+export const readOtpSessionBackup = (): OtpSessionBackup | null => {
   try {
     const raw = localStorage.getItem(OTP_BACKUP_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? (JSON.parse(raw) as OtpSessionBackup) : null;
   } catch {
     return null;
   }

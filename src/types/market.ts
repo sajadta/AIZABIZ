@@ -120,7 +120,8 @@ export interface TradingSignal {
   reason?: string;
   rationaleMalayalam: string;
   indicators: IndicatorReadings;
-  candlestickPattern?: string;
+  /** String label, or a structured pattern object from the backend scanner. */
+  candlestickPattern?: string | { name?: string; type?: string };
   candlestickPatternMalayalam?: string;
   mtfConfirmation?: {
     status: boolean;

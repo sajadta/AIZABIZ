@@ -175,7 +175,7 @@ export const useTradingActions = ({
           language,
         );
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error('Failed to square off equity only:', e);
     }
   }, [mode, language, soundEnabled, setPositions, setBotLogs, setIsEquityExitConfirmOpen]);

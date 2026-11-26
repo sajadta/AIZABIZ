@@ -155,8 +155,8 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                   String(t.instrumentKey || '').includes('FO'),
                 );
                 const chg =
-                  Number((t as any).brokerageCharges) > 0
-                    ? Number((t as any).brokerageCharges)
+                  Number(t.brokerageCharges) > 0
+                    ? Number(t.brokerageCharges)
                     : calculateTradeCharges(
                         Number(t.buyPrice || 0),
                         Math.max(1, Number(t.quantity || 1)),
@@ -164,7 +164,7 @@ export const TradeHistoryTab: React.FC<TradeHistoryTabProps> = ({
                         Number(t.sellPrice || t.currentLTP || t.buyPrice || 0),
                       ).roundTripCharges;
                 const net = gross - chg;
-                return `"${t.symbol}","${(t as any).type || 'BUY'}",${t.quantity},${t.buyPrice || 0},${t.sellPrice || 0},${gross.toFixed(2)},${net.toFixed(2)},"${t.closeTime ? new Date(t.closeTime).toLocaleString('en-IN') : ''}"`;
+                return `"${t.symbol}","${t.type || 'BUY'}",${t.quantity},${t.buyPrice || 0},${t.sellPrice || 0},${gross.toFixed(2)},${net.toFixed(2)},"${t.closeTime ? new Date(t.closeTime).toLocaleString('en-IN') : ''}"`;
               });
               const csvContent = 'data:text/csv;charset=utf-8,' + [headers, ...rows].join('\n');
               const encodedUri = encodeURI(csvContent);

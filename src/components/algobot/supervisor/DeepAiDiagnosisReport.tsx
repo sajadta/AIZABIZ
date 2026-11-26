@@ -1,9 +1,10 @@
 import React from 'react';
 import { Brain } from 'lucide-react';
 import type { Language } from '../../../types';
+import type { AiDeepReport } from '../types';
 
 interface DeepAiDiagnosisReportProps {
-  report: any;
+  report?: AiDeepReport | null;
   language: Language;
 }
 

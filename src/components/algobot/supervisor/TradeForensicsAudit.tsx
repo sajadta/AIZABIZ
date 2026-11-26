@@ -27,7 +27,7 @@ export const TradeForensicsAudit: React.FC<TradeForensicsAuditProps> = ({ audit,
       </p>
     ) : (
       <div className="space-y-2">
-        {audit.tradeDiagnostics.map((td: any, idx: number) => (
+        {audit.tradeDiagnostics.map((td, idx) => (
           <div
             key={td.id || idx}
             className={`p-2.5 rounded-xl border text-[11px] space-y-1 ${

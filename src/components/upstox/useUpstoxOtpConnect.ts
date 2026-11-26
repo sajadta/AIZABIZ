@@ -1,6 +1,6 @@
 // SMS-OTP connect flow: one-click OTP request plus OTP/auth-code verification handlers
 // used by the Upstox modal.
-import type { Language } from '../../types';
+import type { Language, UpstoxApiConfig } from '../../types';
 import {
   DEFAULT_API_KEY,
   DEFAULT_API_SECRET,
@@ -14,6 +14,8 @@ import {
   persistSavedMobile,
   readOtpSessionBackup,
 } from './upstoxOtpApi';
+import type { OtpSessionBackup } from './upstoxOtpApi';
+import { errorMessage } from '../../utils/errors';
 
 export interface UpstoxOtpConnectParams {
   language: Language;
@@ -22,15 +24,15 @@ export interface UpstoxOtpConnectParams {
   redirectUri: string;
   savedMobile: string;
   otpInput: string;
-  otpSessionBackup: any;
+  otpSessionBackup: OtpSessionBackup | null;
   setAccessToken: (token: string) => void;
   setOtpInput: (value: string) => void;
   setOtpRequested: (value: boolean) => void;
-  setOtpSessionBackup: (value: any) => void;
+  setOtpSessionBackup: (value: OtpSessionBackup | null) => void;
   setSavedMobile: (value: string) => void;
   setLoading: (value: boolean) => void;
   setStatusMsg: (msg: { type: 'success' | 'error' | 'info'; text: string } | null) => void;
-  onSaveConfig: (cfg: any) => Promise<void>;
+  onSaveConfig: (cfg: Partial<UpstoxApiConfig>) => Promise<void>;
   onRefreshPortfolio?: () => void;
 }
 
@@ -67,7 +69,7 @@ export function useUpstoxOtpConnect({
       pin: '',
     });
 
-  const storeSessionBackup = (backup: any) => {
+  const storeSessionBackup = (backup: OtpSessionBackup | null | undefined) => {
     if (!backup) return;
     setOtpSessionBackup(backup);
     persistOtpSessionBackup(backup);
@@ -118,10 +120,10 @@ export function useUpstoxOtpConnect({
       } else {
         throw new Error(otpData?.error || 'Failed to send SMS OTP');
       }
-    } catch (err: any) {
+    } catch (err) {
       setStatusMsg({
         type: 'error',
-        text: err.message || 'Connection failed',
+        text: errorMessage(err) || 'Connection failed',
       });
     } finally {
       setLoading(false);
@@ -245,10 +247,10 @@ export function useUpstoxOtpConnect({
             ? '📱 ആദ്യ തവണ മാത്രം നിങ്ങളുടെ 10-അക്ക Upstox മൊബൈൽ നമ്പർ താഴെയുള്ള ബോക്സിൽ നൽകി "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" അമർത്തുക. ആപ്പ് നമ്പർ സ്ഥിരമായി സേവ് ചെയ്ത് ഉടൻ ഫോണിലേക്ക് SMS OTP അയക്കും!'
             : '📱 For the first time only, enter your 10-digit Upstox mobile number in the box below and tap Save & Connect. It will be saved permanently and an SMS OTP will be sent immediately!',
       });
-    } catch (err: any) {
+    } catch (err) {
       setStatusMsg({
         type: 'error',
-        text: err.message || 'Connection failed',
+        text: errorMessage(err) || 'Connection failed',
       });
     } finally {
       setLoading(false);

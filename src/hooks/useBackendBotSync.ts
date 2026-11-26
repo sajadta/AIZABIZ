@@ -53,7 +53,7 @@ export const useBackendBotSync = ({
         if (!isMounted || ctrl.signal.aborted) return;
 
         if (logsRes.status === 'fulfilled' && Array.isArray(logsRes.value)) {
-          const nextLogs = logsRes.value.map((l: any) => ({
+          const nextLogs = (logsRes.value as Partial<BotLog>[]).map((l) => ({
             id: l.id || String(Date.now()),
             timestamp: l.timestamp || l.time || new Date().toLocaleTimeString(),
             message: l.message || '',
@@ -72,8 +72,8 @@ export const useBackendBotSync = ({
         ) {
           setSignals(sigsRes.value);
           // Match the signal for the currently selected symbol (e.g. NIFTY 50), instead of taking index 0
-          const matchingSig = sigsRes.value.find(
-            (s: any) =>
+          const matchingSig = (sigsRes.value as TradingSignal[]).find(
+            (s) =>
               s.symbol?.includes(selectedSymbol) ||
               s.name?.includes(selectedSymbol) ||
               (selectedSymbol.includes('NIFTY 50') &&

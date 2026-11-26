@@ -100,8 +100,8 @@ export const HoldingsCard: React.FC<HoldingsCardProps> = ({
             {qty <= 0 && (
               <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
                 {language === 'ml'
-                  ? `ഇന്ന് വിറ്റത് (Sold Today${(h as any).soldTodayQty ? `: ${(h as any).soldTodayQty}` : ''})`
-                  : `Sold Today${(h as any).soldTodayQty ? ` (${(h as any).soldTodayQty})` : ''}`}
+                  ? `ഇന്ന് വിറ്റത് (Sold Today${h.soldTodayQty ? `: ${h.soldTodayQty}` : ''})`
+                  : `Sold Today${h.soldTodayQty ? ` (${h.soldTodayQty})` : ''}`}
               </span>
             )}
             {qty > 0 && target50.isReached ? (

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { Language, UpstoxApiConfig } from '../../types';
+import { errorMessage } from '../../utils/errors';
 
 export interface UpstoxConnectionActionsParams {
   language: Language;
@@ -123,10 +124,10 @@ export function useUpstoxConnectionActions({
               : '❌ Upstox Token is NOT active. Click Save & Connect below to receive OTP.',
         });
       }
-    } catch (err: any) {
+    } catch (err) {
       setStatusMsg({
         type: 'error',
-        text: err.message || 'Failed to check connection status',
+        text: errorMessage(err) || 'Failed to check connection status',
       });
     } finally {
       setCheckingStatus(false);
@@ -193,10 +194,10 @@ export function useUpstoxConnectionActions({
       } else {
         throw new Error(data.error || 'Failed to verify token');
       }
-    } catch (err: any) {
+    } catch (err) {
       setStatusMsg({
         type: 'error',
-        text: err.message || 'Invalid or expired token. Please check and retry.',
+        text: errorMessage(err) || 'Invalid or expired token. Please check and retry.',
       });
     } finally {
       setValidating(false);

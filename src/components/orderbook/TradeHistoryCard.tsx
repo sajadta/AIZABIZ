@@ -23,8 +23,8 @@ export const TradeHistoryCard: React.FC<TradeHistoryCardProps> = ({
     String(pos.instrumentKey || '').includes('FO'),
   );
   const estCharges =
-    Number((pos as any).brokerageCharges) > 0
-      ? Number((pos as any).brokerageCharges)
+    Number(pos.brokerageCharges) > 0
+      ? Number(pos.brokerageCharges)
       : calculateTradeCharges(
           Number(pos.buyPrice || 0),
           Math.max(1, Number(pos.quantity || 1)),

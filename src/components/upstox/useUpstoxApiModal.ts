@@ -10,6 +10,7 @@ import {
   DEFAULT_MOBILE,
   getFallbackRedirectUri,
 } from './upstoxOtpApi';
+import type { OtpSessionBackup } from './upstoxOtpApi';
 import { useUpstoxConnectionActions } from './useUpstoxConnectionActions';
 import { useUpstoxAutoConnect } from './useUpstoxAutoConnect';
 import { useUpstoxModalConfigSync } from './useUpstoxModalConfigSync';
@@ -73,7 +74,7 @@ export function useUpstoxApiModal({
   // Single OTP / Code input in Tab 2
   const [otpInput, setOtpInput] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
-  const [otpSessionBackup, setOtpSessionBackup] = useState<any>(null);
+  const [otpSessionBackup, setOtpSessionBackup] = useState<OtpSessionBackup | null>(null);
   const [showKeySettings, setShowKeySettings] = useState(false);
 
   const [loading, setLoading] = useState(false);

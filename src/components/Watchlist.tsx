@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Layers, ArrowUpRight, ArrowDownRight, Bell, BellRing, X } from 'lucide-react';
-import { StockQuote, Language } from '../types';
+import type { StockQuote, Language, PriceAlert } from '../types';
 import { translations } from '../translations';
 
 interface WatchlistProps {
@@ -9,7 +9,7 @@ interface WatchlistProps {
   onSelectSymbol: (symbol: string, instrumentKey?: string) => void;
   language: Language;
   onOpenOrderModal: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
-  priceAlerts?: any[];
+  priceAlerts?: PriceAlert[];
   onAddAlert?: (
     symbol: string,
     instrumentKey: string,
@@ -31,9 +31,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
 }) => {
   const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterSegment, setFilterSegment] = useState<
-    'ALL' | 'INDEX' | 'EQUITY' | 'FUTURES' | 'COMMODITY' | 'GLOBAL'
-  >('ALL');
+  const [filterSegment, setFilterSegment] = useState<'ALL' | StockQuote['segment']>('ALL');
   const [alertTargetSymbol, setAlertTargetSymbol] = useState<string | null>(null);
   const [alertPrice, setAlertPrice] = useState<string>('');
 
@@ -47,7 +45,7 @@ export const Watchlist: React.FC<WatchlistProps> = ({
       (q.segment && q.segment.toLowerCase().includes(term));
     const matchesSegment =
       filterSegment === 'ALL' ||
-      q.segment === (filterSegment as any) ||
+      q.segment === filterSegment ||
       (filterSegment === 'FUTURES' && (q.symbol.includes('FUT') || q.segment === 'FUTURES')) ||
       (filterSegment === 'COMMODITY' &&
         (q.symbol.includes('CRUDE') ||

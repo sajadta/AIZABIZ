@@ -1,8 +1,10 @@
 // Historical chart structure: 60-candle swing highs/lows, HH-HL / LH-LL trend
 // classification and double top/bottom detection for the confluence engine.
 
+import type { CandleData } from '../../../types';
+
 export interface SwingStructureParams {
-  candles: any[];
+  candles: CandleData[];
   currentLtp: number;
   atr14: number;
   ema21: number;

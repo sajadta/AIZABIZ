@@ -103,7 +103,7 @@ export const AlphaMatrix: React.FC<AlphaMatrixProps> = ({
                 key={mode.id}
                 onClick={() => {
                   onUpdateBotConfig({
-                    selectedIndexPriority: mode.id as any,
+                    selectedIndexPriority: mode.id as BotConfig['selectedIndexPriority'],
                   });
                   // Sync main chart if it's a specific index
                   const symMap: Record<string, string> = {

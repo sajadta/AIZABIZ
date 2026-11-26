@@ -115,7 +115,7 @@ export const useGeminiAnalysis = ({
       }
     }
 
-    const lastCandle = candles[candles.length - 1] || ({} as any);
+    const lastCandle: Partial<CandleData> = candles[candles.length - 1] ?? {};
     try {
       const res = await fetch('/api/gemini/market-analysis', {
         method: 'POST',

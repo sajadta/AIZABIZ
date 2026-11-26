@@ -1,9 +1,10 @@
 import React from 'react';
 import { Activity } from 'lucide-react';
 import type { Language } from '../../../types';
+import type { SupervisorActivePosition } from '../types';
 
 interface ActivePositionsAuditProps {
-  positions: any[];
+  positions: SupervisorActivePosition[];
   language: Language;
 }
 
@@ -24,7 +25,7 @@ export const ActivePositionsAudit: React.FC<ActivePositionsAuditProps> = ({
           </span>
         </h5>
         <div className="space-y-2">
-          {positions.map((ap: any, idx: number) => (
+          {positions.map((ap, idx) => (
             <div
               key={idx}
               className="p-2.5 rounded-lg bg-slate-950/90 border border-emerald-500/30 text-[11px] font-mono space-y-1"

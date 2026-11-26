@@ -1,10 +1,13 @@
 import { useCallback } from 'react';
 import type {
+  BotLog,
   ExecutionMode,
   Holding,
   Order,
   OrderTransactionType,
+  OrderType,
   Position,
+  ProductType,
   StockQuote,
 } from '../types';
 import { safeStorage } from '../utils/storage';
@@ -14,8 +17,8 @@ export interface OrderDraft {
   symbol: string;
   instrumentKey?: string;
   transactionType: OrderTransactionType;
-  orderType: any;
-  productType: any;
+  orderType: OrderType;
+  productType: ProductType;
   quantity: number;
   price: number;
   triggerPrice?: number;
@@ -32,7 +35,7 @@ interface UseOrderPlacementParams {
   soundEnabled: boolean;
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   setPositions: React.Dispatch<React.SetStateAction<Position[]>>;
-  setBotLogs: React.Dispatch<React.SetStateAction<any[]>>;
+  setBotLogs: React.Dispatch<React.SetStateAction<BotLog[]>>;
   setIsOrderModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   squareOffPosition: (positionId: string) => void;
   fetchHoldings: () => void | Promise<void>;
@@ -49,7 +52,7 @@ const resolveInstrumentKey = (
   const isOption = /\b(CE|PE)\b/i.test(orderData.symbol);
   return (
     orderData.instrumentKey ||
-    (matchedHolding as any)?.instrumentKey ||
+    matchedHolding?.instrumentKey ||
     matchedQuote?.instrumentKey ||
     (isOption ? `NSE_FO|${orderData.symbol}` : `NSE_EQ|${orderData.symbol}`)
   );

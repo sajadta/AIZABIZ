@@ -1,6 +1,6 @@
 import type { StockQuote } from '../types';
 
-export const deduplicateQuotes = (quotesList: any[]): StockQuote[] => {
+export const deduplicateQuotes = (quotesList: StockQuote[]): StockQuote[] => {
   const map = new Map<string, StockQuote>();
   const listToProcess = Array.isArray(quotesList) ? quotesList : [];
   for (const q of listToProcess) {

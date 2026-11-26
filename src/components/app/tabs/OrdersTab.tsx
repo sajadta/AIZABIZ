@@ -83,7 +83,7 @@ export const OrdersTab: React.FC<OrdersTabProps> = ({
     <CumulativePnLChart tradeHistory={modeTradeHistory} language={language} />
 
     <div className="mt-4">
-      <AdvancedAnalytics history={modeTradeHistory as any} />
+      <AdvancedAnalytics history={modeTradeHistory} />
     </div>
   </div>
 );

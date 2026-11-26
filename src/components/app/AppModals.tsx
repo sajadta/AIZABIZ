@@ -77,7 +77,7 @@ export const AppModals: React.FC<AppModalsProps> = ({
       defaultPrice={orderModalData.price}
       initialType={orderModalData.type}
       defaultQuantity={orderModalData.quantity}
-      defaultLotSize={(orderModalData as any).lotSize}
+      defaultLotSize={orderModalData.lotSize}
       heldQuantity={orderModalData.heldQuantity}
       defaultProductType={orderModalData.productType}
       availableMargin={mode === 'PAPER_TRADING' ? paperAccountBalance : apiConfig.availableMargin}
@@ -137,7 +137,7 @@ export const AppModals: React.FC<AppModalsProps> = ({
       defaultBotConfig={botConfig}
       defaultApiConfig={apiConfig}
       language={language}
-      onSave={(cfg: any) => {
+      onSave={(cfg) => {
         setApiConfig((prev) => ({ ...prev, ...cfg }));
         setIsOnboardingOpen(false);
       }}

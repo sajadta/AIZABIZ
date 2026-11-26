@@ -86,6 +86,9 @@ export interface Position {
   mode: ExecutionMode;
   openedAt: string;
   openedAtMs?: number;
+  /** Alternate timestamps emitted by the DB/broker rows for closed trades. */
+  openTime?: string;
+  timestamp?: string;
   isOption?: boolean;
   type?: string;
   isBtstHoldRecommended?: boolean;
@@ -104,6 +107,7 @@ export interface Holding {
   symbol: string;
   companyName: string;
   instrumentKey?: string;
+  soldTodayQty?: number;
   isin?: string;
   quantity: number;
   avgPrice: number;
@@ -253,5 +257,7 @@ export interface BotLog {
     | 'SUCCESS';
   message: string;
   messageMalayalam?: string;
-  data?: any;
+  /** Backend rows may use `time` instead of `timestamp`. */
+  time?: string;
+  data?: Record<string, unknown>;
 }

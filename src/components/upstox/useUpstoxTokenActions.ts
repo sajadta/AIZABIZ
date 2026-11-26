@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Language } from '../../types';
 import { safeStorage } from '../../utils/storage';
 import type { UpstoxStatusMsg } from './upstoxModalTypes';
+import { errorMessage } from '../../utils/errors';
 
 interface UseUpstoxTokenActionsParams {
   language: Language;
@@ -82,10 +83,10 @@ export function useUpstoxTokenActions({
           text: data.error || 'Upstox V3 Token Request failed',
         });
       }
-    } catch (e: any) {
+    } catch (e) {
       setStatusMsg({
         type: 'error',
-        text: e?.message || 'Failed to send V3 Token Request',
+        text: errorMessage(e) || 'Failed to send V3 Token Request',
       });
     } finally {
       setV3Loading(false);

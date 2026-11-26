@@ -4,6 +4,8 @@
  * 0DTE Expiry Gamma Explosion detection, and Intermarket Correlation.
  */
 
+import type { CandleData } from '../../types';
+
 export interface VwapSigmaResult {
   vwap: number;
   upper1: number;
@@ -22,7 +24,10 @@ export interface VwapSigmaResult {
 /**
  * Calculates VWAP and Multi-Sigma standard deviation bands for mean-reversion & breakout confirmation.
  */
-export function calculateVwapSigmaBands(candles: any[], currentLtp: number): VwapSigmaResult {
+export function calculateVwapSigmaBands(
+  candles: CandleData[],
+  currentLtp: number,
+): VwapSigmaResult {
   if (!candles || candles.length === 0) {
     return {
       vwap: currentLtp,
@@ -97,7 +102,7 @@ export function evaluateDepthPressure(
 /**
  * Detects 0DTE Expiry Day Gamma Explosion conditions (high acceleration in final hours).
  */
-export function detect0DteGammaExplosion(candles: any[], currentLtp: number): boolean {
+export function detect0DteGammaExplosion(candles: CandleData[], currentLtp: number): boolean {
   if (!candles || candles.length < 5) return false;
   const nowIst = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   const hour = nowIst.getHours();

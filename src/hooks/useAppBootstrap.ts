@@ -135,7 +135,7 @@ export const useAppBootstrap = ({
           }
         }
         if (historyRes.status === 'fulfilled' && Array.isArray(historyRes.value)) {
-          const parsedInitHistory = historyRes.value.map((t: any) => ({
+          const parsedInitHistory = historyRes.value.map((t: Position) => ({
             ...t,
             mode: t.mode || 'PAPER_TRADING',
           }));

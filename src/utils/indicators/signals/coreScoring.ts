@@ -133,7 +133,7 @@ export function applyCoreScoring(params: CoreScoringParams): CoreScoringResult {
   bearishPoints += volumeBearishPoints;
 
   // 8.5 ADX Trend Strength & Choppy/Sideways Market Veto (Prevents buying options in dead sideways markets where Theta eats premium!)
-  const adxVal = Number((readings as any).adx?.value ?? 20);
+  const adxVal = Number(readings.adx?.value ?? 20);
   const isDeadSidewaysChop = adxVal < 14.5 && rvol < 1.1 && Math.abs(macdHist) < 0.4;
   if (adxVal >= 22) {
     if (readings.supertrend.signal === 'BUY') bullishPoints += 6;

@@ -1,6 +1,8 @@
 // Supervisor audit polling, deep AI scan trigger and Telegram test-alert plumbing.
 import { useEffect, useRef, useState } from 'react';
 import type { BotConfig, Language } from '../../types';
+import { errorMessage } from '../../utils/errors';
+import type { SupervisorAudit } from './types';
 
 type SupervisorTab = 'AI_SUPERVISOR' | string;
 
@@ -11,7 +13,7 @@ interface UseSupervisorAuditParams {
 }
 
 export function useSupervisorAudit({ activeTab, botConfig, language }: UseSupervisorAuditParams) {
-  const [supervisorAudit, setSupervisorAudit] = useState<any>(null);
+  const [supervisorAudit, setSupervisorAudit] = useState<SupervisorAudit | null>(null);
   const [deepAiScanning, setDeepAiScanning] = useState(false);
   const [supervisorQuestion, setSupervisorQuestion] = useState('');
   const [testAlertSending, setTestAlertSending] = useState(false);
@@ -29,7 +31,7 @@ export function useSupervisorAudit({ activeTab, botConfig, language }: UseSuperv
     try {
       const res = await fetch('/api/bot/supervisor-audit', { signal });
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as SupervisorAudit;
         setSupervisorAudit(data);
       }
     } catch {
@@ -47,7 +49,7 @@ export function useSupervisorAudit({ activeTab, botConfig, language }: UseSuperv
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: supervisorQuestion }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { audit?: SupervisorAudit };
       if (data.audit) setSupervisorAudit(data.audit);
     } catch {
       // ignore
@@ -121,10 +123,10 @@ export function useSupervisorAudit({ activeTab, botConfig, language }: UseSuperv
               : 'Failed to send alert. Check Bot Token & Chat ID.'),
         });
       }
-    } catch (e: any) {
+    } catch (e) {
       setTestAlertResult({
         success: false,
-        message: e.message || 'Error communicating with server.',
+        message: errorMessage(e) || 'Error communicating with server.',
       });
     } finally {
       setTestAlertSending(false);

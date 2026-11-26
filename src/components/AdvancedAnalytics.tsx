@@ -10,14 +10,16 @@ import {
 } from 'recharts';
 import { Activity } from 'lucide-react';
 
-interface TradeHistory {
+/** Closed trades as rendered here; only these fields are read. */
+interface AnalyticsTrade {
   id: string;
   symbol: string;
-  type: string;
   buyPrice: number;
-  sellPrice: number;
-  realizedPnL: number;
-  closeTime: string;
+  sellPrice?: number;
+  realizedPnL?: number;
+  brokerageCharges?: number;
+  quantity?: number;
+  closeTime?: string;
 }
 
 const ANALYTICS_CHART_MARGIN = { top: 10, right: 10, left: -20, bottom: 0 };
@@ -29,27 +31,30 @@ const ANALYTICS_TOOLTIP_STYLE = {
 };
 const ANALYTICS_TOOLTIP_ITEM_STYLE = { color: '#e2e8f0' };
 
-export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
+export const AdvancedAnalytics = ({ history }: { history: AnalyticsTrade[] }) => {
   // Generate cumulative PnL data
   let cumulative = 0;
   const chartData = [...history].reverse().map((t, index) => {
-    cumulative += t.realizedPnL;
+    const pnl = t.realizedPnL ?? 0;
+    cumulative += pnl;
     return {
       name: `Trade ${index + 1}`,
-      pnl: t.realizedPnL,
+      pnl,
       cumulative: cumulative,
-      time: new Date(t.closeTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: t.closeTime
+        ? new Date(t.closeTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '',
       symbol: t.symbol,
     };
   });
 
   const totalProfit = history
-    .filter((t) => t.realizedPnL > 0)
-    .reduce((a, b) => a + b.realizedPnL, 0);
+    .filter((t) => (t.realizedPnL ?? 0) > 0)
+    .reduce((a, b) => a + (b.realizedPnL ?? 0), 0);
   const totalLoss = Math.abs(
-    history.filter((t) => t.realizedPnL < 0).reduce((a, b) => a + b.realizedPnL, 0),
+    history.filter((t) => (t.realizedPnL ?? 0) < 0).reduce((a, b) => a + (b.realizedPnL ?? 0), 0),
   );
-  const totalBrokerage = history.reduce((sum, t: any) => {
+  const totalBrokerage = history.reduce((sum, t) => {
     if (Number(t.brokerageCharges) > 0) return sum + Number(t.brokerageCharges);
     const qty = Math.max(1, Number(t.quantity || 1));
     const buyVal = Number(t.buyPrice || 0) * qty;
@@ -59,7 +64,7 @@ export const AdvancedAnalytics = ({ history }: { history: TradeHistory[] }) => {
   const netAfterCharges = cumulative - totalBrokerage;
   const winRate =
     history.length > 0
-      ? ((history.filter((t) => t.realizedPnL > 0).length / history.length) * 100).toFixed(1)
+      ? ((history.filter((t) => (t.realizedPnL ?? 0) > 0).length / history.length) * 100).toFixed(1)
       : 0;
 
   return (

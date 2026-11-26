@@ -102,8 +102,8 @@ export function useOrderBookSummary(
       const pnl = t.realizedPnL !== undefined ? Number(t.realizedPnL) : (sellP - buyP) * qty;
 
       const chg =
-        Number((t as any).brokerageCharges) > 0
-          ? Number((t as any).brokerageCharges)
+        Number(t.brokerageCharges) > 0
+          ? Number(t.brokerageCharges)
           : calculateTradeCharges(buyP, qty, isOpt, sellP, t.instrumentKey || t.symbol)
               .roundTripCharges;
       totalBrokerageCharges += chg;

@@ -86,14 +86,12 @@ export const SignalCard: React.FC<SignalCardProps> = ({ sig, language, t, onExec
                 ? language === 'ml' && sig.candlestickPatternMalayalam
                   ? sig.candlestickPatternMalayalam
                   : sig.candlestickPattern
-                : (sig.candlestickPattern as any).name || 'Pattern'}
+                : sig.candlestickPattern.name || 'Pattern'}
             </span>
           </div>
         </div>
         <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-          {typeof sig.candlestickPattern === 'object'
-            ? (sig.candlestickPattern as any).type
-            : 'CONFIRMED'}
+          {typeof sig.candlestickPattern === 'object' ? sig.candlestickPattern.type : 'CONFIRMED'}
         </span>
       </div>
     )}

@@ -62,13 +62,13 @@ export const useLivePositionMarks = ({
         const nextPnl = Number(pnl.toFixed(2));
         const nextPnlPercent = Number(pnlPercent.toFixed(2));
         const nextHighestLTP = Math.max(pos.highestLTP || pos.buyPrice, currentLTP);
-        const highestPnl = Math.max((pos as any).highestPnl || 0, pnl);
+        const highestPnl = Math.max(pos.highestPnl || 0, pnl);
         if (
           pos.currentLTP === currentLTP &&
           pos.pnl === nextPnl &&
           pos.pnlPercent === nextPnlPercent &&
           pos.highestLTP === nextHighestLTP &&
-          (pos as any).highestPnl === highestPnl
+          pos.highestPnl === highestPnl
         ) {
           return pos;
         }

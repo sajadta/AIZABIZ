@@ -203,7 +203,7 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
         </div>
         {supervisorAudit?.autoHealHistory && supervisorAudit.autoHealHistory.length > 0 ? (
           <div className="space-y-1.5">
-            {supervisorAudit.autoHealHistory.map((item: any) => (
+            {supervisorAudit.autoHealHistory.map((item) => (
               <div
                 key={item.id}
                 className="p-2.5 rounded-lg bg-slate-950/90 border border-emerald-500/30 text-[11px] flex items-center justify-between gap-2 flex-wrap"
@@ -250,7 +250,7 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
           </span>
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {(supervisorAudit?.directiveChecklist || []).map((dir: any) => (
+          {(supervisorAudit?.directiveChecklist || []).map((dir) => (
             <div
               key={dir.id}
               className={`p-2.5 rounded-xl border text-[11px] space-y-1 ${

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Bell, Trash2, Plus } from 'lucide-react';
-import { PriceAlert, Language } from '../types';
+import type { PriceAlert, Language } from '../types';
 
 interface AlertsModalProps {
   isOpen: boolean;
@@ -114,7 +114,7 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
             <div className="flex items-center gap-2">
               <select
                 value={condition}
-                onChange={(e) => setCondition(e.target.value as any)}
+                onChange={(e) => setCondition(e.target.value as PriceAlert['condition'])}
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 flex-1"
               >
                 <option value="GREATER_THAN">

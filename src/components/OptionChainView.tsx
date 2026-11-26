@@ -7,7 +7,7 @@ import { OptionChainTable } from './optionchain/OptionChainTable';
 
 interface OptionChainViewProps {
   quotes?: StockQuote[];
-  data: OptionChainData | null;
+  data: (OptionChainData & { error?: string }) | null;
   loading: boolean;
   onRefresh: (expiry?: string) => void;
   language: Language;
@@ -121,12 +121,12 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
     }
   };
 
-  if (!data || (data as any).error) {
+  if (!data || data.error) {
     return (
       <div className="bg-slate-900/80 rounded-2xl border border-slate-800 p-8 text-center flex flex-col items-center justify-center h-full">
         <Layers className="w-8 h-8 mx-auto mb-2 text-slate-600" />
         <p className="text-sm font-semibold text-rose-400 mb-2">
-          {(data as any)?.error ||
+          {data?.error ||
             (language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ലഭ്യമായില്ല' : 'Option Chain Unavailable')}
         </p>
         <p className="text-xs text-slate-500 max-w-xs">

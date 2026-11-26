@@ -15,7 +15,7 @@ export const BacktestTab: React.FC<BacktestTabProps> = ({ language, tradeHistory
   const grossProfit = winningTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0);
   const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + (t.realizedPnL || 0), 0));
   const totalBrokerageCharges = tradeHistory.reduce((sum, t) => {
-    const chg = Number((t as any).brokerageCharges || 0);
+    const chg = Number(t.brokerageCharges || 0);
     if (chg > 0) return sum + chg;
     const buyVal = Number(t.buyPrice || 0) * Math.max(1, Number(t.quantity || 1));
     const sellVal =

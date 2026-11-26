@@ -1,3 +1,9 @@
+// The install prompt event is not in lib.dom yet.
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 import React, { useState, useEffect } from 'react';
 import { X, Smartphone } from 'lucide-react';
 import { Language } from '../types';
@@ -17,25 +23,25 @@ export const AndroidInstallModal: React.FC<AndroidInstallModalProps> = ({
   onClose,
   language,
 }) => {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [, setIsInstalled] = useState(false);
   const [activeTab, setActiveTab] = useState<'PWA' | 'APK' | 'GITHUB' | 'IP_FAQ'>('PWA');
   const [manualNote, setManualNote] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleBeforeInstall = (e: any) => {
+    const handleBeforeInstall = (e: BeforeInstallPromptEvent) => {
       e.preventDefault();
       setDeferredPrompt(e);
     };
 
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
 
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setIsInstalled(true);
     }
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall as EventListener);
     };
   }, []);
 

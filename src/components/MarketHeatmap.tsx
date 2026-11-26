@@ -1,9 +1,18 @@
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import * as d3 from 'd3';
-import { StockQuote } from '../types';
+import type { StockQuote } from '../types';
 
 interface MarketHeatmapProps {
   quotes: StockQuote[];
+}
+
+/** Treemap node data: sectors carry children, leaves carry size/colour values. */
+interface HeatmapNodeData {
+  name: string;
+  value?: number;
+  change?: number;
+  ltp?: number;
+  children?: HeatmapNodeData[];
 }
 
 // Hardcoded sectors for common NIFTY 50 stocks for grouping in the treemap
@@ -78,8 +87,8 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
 
   // Process data for treemap
   const hierarchicalData = useMemo(() => {
-    const root = { name: 'Market', children: [] as any[] };
-    const sectorsMap = new Map<string, any>();
+    const root: HeatmapNodeData = { name: 'Market', children: [] };
+    const sectorsMap = new Map<string, HeatmapNodeData>();
 
     // If there are no quotes or very few, we might want to add some mock data for the visualization to look good
     // But we will use the actual quotes passed in.
@@ -95,12 +104,13 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       }
 
       const sectorNode = sectorsMap.get(sectorName);
+      if (!sectorNode) return;
 
       // Calculate a "size" (market cap equivalent or volume). Since we might not have it, use 1 or absolute change
       // For treemaps, size cannot be negative or zero
       const size = quote.ltp > 0 ? quote.ltp : 100;
 
-      sectorNode.children.push({
+      (sectorNode.children ||= []).push({
         name: quote.symbol,
         value: size, // Drives area size
         change: quote.changePercent, // Drives color
@@ -129,14 +139,17 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       .style('font-family', 'sans-serif');
 
     // Create hierarchy and treemap layout
-    const root = d3
-      .hierarchy<any>(hierarchicalData)
-      .sum((d) => (d as any).value || 0)
-      .sort((a, b) => (b.value || 0) - (a.value || 0));
-
     const padding = 2;
-    d3.treemap().size([width, height]).paddingTop(20).paddingRight(padding).paddingInner(padding)(
-      root,
+    const root = d3
+      .treemap<HeatmapNodeData>()
+      .size([width, height])
+      .paddingTop(20)
+      .paddingRight(padding)
+      .paddingInner(padding)(
+      d3
+        .hierarchy<HeatmapNodeData>(hierarchicalData)
+        .sum((d) => d.value || 0)
+        .sort((a, b) => (b.value || 0) - (a.value || 0)),
     );
 
     // Color scale mapping - % change to red/green
@@ -149,7 +162,7 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
     // Draw Sector groups
     const sectorNodes = svg
       .selectAll('g.sector')
-      .data((root.children || []) as d3.HierarchyRectangularNode<any>[])
+      .data(root.children || [])
       .enter()
       .append('g')
       .attr('class', 'sector')
@@ -174,7 +187,7 @@ export const MarketHeatmap: React.FC<MarketHeatmapProps> = ({ quotes }) => {
       .text((d) => d.data.name);
 
     // Draw individual stock cells
-    const leaves = root.leaves() as d3.HierarchyRectangularNode<any>[];
+    const leaves = root.leaves();
 
     const cell = svg
       .selectAll('g.cell')
