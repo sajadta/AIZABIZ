@@ -1,21 +1,14 @@
 // Option-chain candidate evaluation: capital-tier filtering, strike scoring and
 // live 1-minute momentum verification for a single underlying index.
-import { botConfig, recentClosedStrikes } from '../../../state';
+import { botConfig } from '../../../state';
 import { calculateTradeCharges } from '../../../../src/utils/indicators';
 import { lotSizeCache } from '../../../lib/instruments';
 import { getCapitalTierOptionConstraints } from '../../../lib/optionTradeRules';
-import { getTradeNetPnL } from './sessionCircuit';
+import { isChainStrikeCoolingDown } from './chainStrikeGuard';
 import { computeChainOiMetrics } from './chainMetrics';
-import { scoreStrikeCandidate } from './strikeScoring';
+import { evaluateStrikeEconomics } from './strikeEconomics';
 import { verifyOptionCandidates } from './verifyOptionCandidates';
 import { selectAffordableRows } from './affordableRows';
-import {
-  strikeDailyEntryCount,
-  STRIKE_LOCKOUT_MS,
-  STRIKE_LOSS_LOCKOUT_MS,
-  MAX_STRIKE_ENTRIES_DEFAULT,
-  MAX_STRIKE_ENTRIES_TRENDING,
-} from '../antiChurn';
 
 export interface ChainCandidatesParams {
   token: string;
@@ -203,137 +196,42 @@ export async function evaluateChainCandidates(
     // 1. Enforce max entries per strike today so one contract isn't churned endlessly.
     // 2. After a NET LOSS on a strike (incl. brokerage), lock that specific losing strike for 15 minutes
     //    while still allowing other qualified strikes immediately after 30s.
-    const optKeyCandidate = optObj?.instrument_key;
-    const liveStrikeClosedTrades = optKeyCandidate
-      ? activeSessionTrades.filter((t: any) => t.instrumentKey === optKeyCandidate)
-      : [];
-    const strikeTradesToday = optKeyCandidate
-      ? Math.max(strikeDailyEntryCount[optKeyCandidate] || 0, liveStrikeClosedTrades.length)
-      : 0;
-    const recentClosed = optKeyCandidate ? recentClosedStrikes[optKeyCandidate] : null;
-    const latestLiveStrikeClosed = liveStrikeClosedTrades[0] || null;
-    const latestStrikeExitTs = Math.max(
-      recentClosed?.exitTime || 0,
-      latestLiveStrikeClosed?.closeTime ? new Date(latestLiveStrikeClosed.closeTime).getTime() : 0,
-    );
-    const lastStrikeWasNetLoss = recentClosed
-      ? typeof recentClosed.netRealizedPnL === 'number'
-        ? recentClosed.netRealizedPnL < 0
-        : recentClosed.sellPrice < (recentClosed.buyPrice || 0)
-      : latestLiveStrikeClosed
-        ? getTradeNetPnL(latestLiveStrikeClosed) < 0
-        : false;
-    const maxAllowedForStrike = !lastStrikeWasNetLoss
-      ? MAX_STRIKE_ENTRIES_TRENDING
-      : MAX_STRIKE_ENTRIES_DEFAULT;
-
-    if (strikeTradesToday >= maxAllowedForStrike) {
+    if (
+      isChainStrikeCoolingDown({
+        instrumentKey: optObj?.instrument_key,
+        activeSessionTrades,
+      })
+    ) {
       continue;
     }
-    if (latestStrikeExitTs > 0) {
-      const elapsedSinceExit = Date.now() - latestStrikeExitTs;
-      const strikeCooldownNeeded = lastStrikeWasNetLoss
-        ? STRIKE_LOSS_LOCKOUT_MS
-        : STRIKE_LOCKOUT_MS;
-      if (elapsedSinceExit < strikeCooldownNeeded) {
-        continue;
-      }
-    }
-    const rowUnderlyingAtr = Number(signal?.institutionalQuantAnalysis?.atr14 || 18);
-    const rowUnderlyingRes = Number(
-      signal?.institutionalQuantAnalysis?.nearestResistance || liveLtp + rowUnderlyingAtr * 2.5,
-    );
-    const rowUnderlyingSup = Number(
-      signal?.institutionalQuantAnalysis?.nearestSupport || liveLtp - rowUnderlyingAtr * 2.5,
-    );
-    const rowRunwayPts = isBullish
-      ? Math.max(rowUnderlyingAtr * 1.8, rowUnderlyingRes - liveLtp)
-      : Math.max(rowUnderlyingAtr * 1.8, liveLtp - rowUnderlyingSup);
-    const rowGammaGainPts =
-      0.5 * Math.abs(gamma) * Math.pow(Math.min(rowRunwayPts, rowUnderlyingAtr * 3), 2);
-    const rowExpGainPts = Math.max(ltp * 0.25, rowRunwayPts * absDelta + rowGammaGainPts);
-    const baseMult = ltp <= 14 ? 1.65 : ltp <= 65 ? 1.45 : ltp <= 120 ? 1.35 : 1.28;
-    const targetMult = Math.max(baseMult, (ltp + rowExpGainPts) / (ltp || 1));
-    const strikeCharges = calculateTradeCharges(ltp, lotSz, true, ltp * targetMult);
-    const oneLotCost = strikeCharges.tradeValue;
-    const estimatedBrokerage = strikeCharges.roundTripCharges;
-    const strikeBrokerageDragPct = oneLotCost > 0 ? estimatedBrokerage / oneLotCost : 1;
-    const totalRequiredWithBrokerage = strikeCharges.totalRequiredWithBrokerage;
-    const expectedNetProfit = Number(
-      (ltp * (targetMult - 1) * lotSz - estimatedBrokerage).toFixed(2),
-    );
-
-    const entryRequiredCashForStrike = Number(
-      (oneLotCost + strikeCharges.buyCharges + 3).toFixed(2),
-    );
-    const fitsCapital =
-      botConfig.mode === 'UPSTOX_LIVE'
-        ? effectiveCapital > 0 && entryRequiredCashForStrike <= effectiveCapital
-        : effectiveCapital <= 0 || totalRequiredWithBrokerage <= effectiveCapital;
-
-    // Score strike on Capital Fit + High Risk-Reward Ratio + ROI % (കുറഞ്ഞ മുതൽമുടക്കിൽ പരമാവധി ലാഭം)
-    // Sweet spot: Compact capital (₹2,500 - ₹8,500 per lot), High Delta (0.35 - 0.65), ROI >= 20%
-    const roiPotentialPct =
-      totalRequiredWithBrokerage > 0
-        ? Number(((expectedNetProfit / totalRequiredWithBrokerage) * 100).toFixed(1))
-        : 0;
-
-    const scoring = scoreStrikeCandidate({
-      mode: botConfig.mode,
-      tierCfg,
-      effectiveCapital,
-      entryRequiredCashForStrike,
-      totalRequiredWithBrokerage,
-      fitsCapital,
+    const economics = evaluateStrikeEconomics({
+      row,
+      optObj,
       ltp,
-      absDelta,
-      strikeBrokerageDragPct,
-      roiPotentialPct,
-      estimatedBrokerage,
-      expectedNetProfit,
-      configuredMinProfit: botConfig.minOptionProfitAmount,
-      bidAskSpreadPct,
-      iv,
-      volume,
-      oi,
-      closePrice,
-      distRatio: Math.abs(Number(row.strike_price) - liveLtp) / (liveLtp || 1),
-      isSmallCapitalAccount,
-      strike: {
-        strikePrice: Number(row.strike_price),
-        optType,
-        lotSize: lotSz,
-        delta,
-        gamma,
-        theta,
-        oneLotCost,
-      },
-      cheapestSkippedStrikeForCap,
-    });
-    cheapestSkippedStrikeForCap = scoring.cheapestSkippedStrikeForCap;
-    if (scoring.skip) continue;
-    const score = scoring.score;
-
-    scoredCandidates.push({
-      score,
-      strikePrice: Number(row.strike_price),
-      ltp,
-      lotSize: lotSz,
+      lotSz,
+      optType,
+      isBullish,
       delta,
       gamma,
       theta,
+      absDelta,
       iv,
       oi,
       oiChange,
       bidAskRatio,
       volume,
-      instrumentKey: optObj?.instrument_key,
-      oneLotCost,
-      estimatedBrokerage,
-      totalRequiredWithBrokerage,
-      expectedNetProfit,
-      fitsCapital,
+      bidAskSpreadPct,
+      closePrice,
+      liveLtp,
+      effectiveCapital,
+      tierCfg,
+      isSmallCapitalAccount,
+      signal,
+      cheapestSkippedStrikeForCap,
     });
+    cheapestSkippedStrikeForCap = economics.cheapestSkippedStrikeForCap;
+    if (economics.skip) continue;
+    scoredCandidates.push(economics.candidate);
   }
 
   scoredCandidates.sort((a, b) => b.score - a.score);
