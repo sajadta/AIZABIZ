@@ -4,20 +4,15 @@ import { translations } from '../../translations';
 import { useUpstoxProxyState } from './useUpstoxProxyState';
 import { useUpstoxTokenActions } from './useUpstoxTokenActions';
 import { useUpstoxOtpConnect } from './useUpstoxOtpConnect';
+import {
+  DEFAULT_API_KEY,
+  DEFAULT_API_SECRET,
+  DEFAULT_MOBILE,
+  getFallbackRedirectUri,
+} from './upstoxOtpApi';
 import { useUpstoxConnectionActions } from './useUpstoxConnectionActions';
 import { useUpstoxAutoConnect } from './useUpstoxAutoConnect';
 import { useUpstoxModalConfigSync } from './useUpstoxModalConfigSync';
-
-const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
-const DEFAULT_API_SECRET = 'jl5s7qy9r0';
-const DEFAULT_MOBILE = '9847989434';
-
-const getFallbackRedirectUri = (): string => {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/market/callback`;
-  }
-  return 'http://localhost:3000/api/market/callback';
-};
 
 export type { UpstoxStatusMsg } from './upstoxModalTypes';
 
