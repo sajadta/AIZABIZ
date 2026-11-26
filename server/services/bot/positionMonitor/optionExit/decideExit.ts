@@ -1,31 +1,18 @@
 // Exit-decision engine for a single option position: dynamic peak-locked stops,
 // trailing ladders, theta stagnation and maximum-runway harvest rules.
 import { botConfig, botLogs, livePositionStateTracker } from '../../../../state';
-import { calculateTradeCharges } from '../../../../../src/utils/indicators';
 import { detectUnderlyingReversal, isCallOptionSymbol } from '../underlyingReversal';
 import { evaluateOptionTrend } from '../optionTrend';
 import { computeTrailingStopLadder } from '../trailingLadder';
 import { resolveOptionPositionAccounting } from './positionAccounting';
 import { buildLiveTrajectoryRadar } from './liveTrajectoryRadar';
 import { evaluateOptionExitRules } from './exitRules';
+import { resolveForecastedMaxPrice } from './forecastTarget';
+import { resolveDynamicTargetPrice } from './dynamicTarget';
+import { confirmStaticStopLossBreach } from './slBreach';
+import type { OptionExitDecision, OptionExitDecisionParams } from './exitDecisionTypes';
 
-export interface OptionExitDecisionParams {
-  pos: any;
-  isEodSquareOff: boolean;
-  isBtstHoldRecommended: boolean;
-  latestUnderlyingSig: any;
-  openedMs: number;
-  optCandlesActive: any[];
-}
-
-export interface OptionExitDecision {
-  shouldSell: boolean;
-  sellReason: string;
-  dynamicStopLossPrice: number;
-  qty: number;
-  posProdCode: string;
-  posTrackerKey: string;
-}
+export type { OptionExitDecision, OptionExitDecisionParams } from './exitDecisionTypes';
 
 export async function decideOptionExit(
   params: OptionExitDecisionParams,
@@ -45,40 +32,10 @@ export async function decideOptionExit(
   const ltp = Number(pos.currentLTP || pos.buyPrice);
   pos.highestLTP = Math.max(pos.highestLTP || pos.buyPrice, ltp);
 
-  const rawForecast = Number(
-    pos.estimatedMaxOptionPrice ||
-      pos.target2 ||
-      pos.target ||
-      pos.buyPrice * (1 + (botConfig.targetProfitPercent || 30) / 100),
+  const { forecastedMaxPrice, isShortPosition } = resolveForecastedMaxPrice(
+    pos,
+    botConfig.targetProfitPercent,
   );
-  const estQty = Math.max(1, Number(pos.quantity || 1));
-  const estRoundTripBrok = calculateTradeCharges(
-    pos.buyPrice,
-    estQty,
-    true,
-    pos.buyPrice * 1.6,
-    pos.instrumentKey || pos.symbol,
-  ).roundTripCharges;
-  const minNetTargetRupees = pos.buyPrice * estQty <= 300 ? 55 : 110;
-  const minProfitableForecast = Number(
-    (pos.buyPrice + (estRoundTripBrok + minNetTargetRupees) / estQty).toFixed(2),
-  );
-  const isShortPosition = pos.type === 'SELL' || pos.optionStrategyType === 'OPTION_SELLING';
-  const forecastedMaxPrice = isShortPosition
-    ? rawForecast < pos.buyPrice
-      ? rawForecast
-      : Number((pos.buyPrice * 0.45).toFixed(2))
-    : Math.max(
-        minProfitableForecast,
-        rawForecast > pos.buyPrice * 1.35
-          ? rawForecast
-          : Number(
-              (
-                pos.buyPrice *
-                (1 + Math.max(40, botConfig.targetProfitPercent || 50) / 100)
-              ).toFixed(2),
-            ),
-      );
 
   const optionTrend = evaluateOptionTrend({
     candles: optCandlesActive,
@@ -142,23 +99,13 @@ export async function decideOptionExit(
   //    ALL live market parameters (EMA9/21, SuperTrend, MACD, RSI, Corporate Heavyweights, Global Macro, Option Bid/Ask & OI)
   //    on every cycle before locking or exiting!"
 
-  const sameContractSignal =
-    latestUnderlyingSig &&
-    ((latestUnderlyingSig.instrumentKey &&
-      pos.instrumentKey &&
-      latestUnderlyingSig.instrumentKey === pos.instrumentKey) ||
-      (Number(latestUnderlyingSig.price || 0) > 0 &&
-        Math.abs(Number(latestUnderlyingSig.price) - pos.buyPrice) <= pos.buyPrice * 0.45));
-  const liveUnderlyingForecastPrice = sameContractSignal
-    ? Number(latestUnderlyingSig?.institutionalQuantAnalysis?.estimatedMaxOptionPrice || 0)
-    : 0;
-  let dynamicTargetPrice = Math.max(forecastedMaxPrice, liveUnderlyingForecastPrice);
-  if (ltp >= dynamicTargetPrice * 0.98 && !isUnderlyingParametersReversing) {
-    // Resistance-Shattering Target Expansion: Automatically move target higher as price climbs!
-    dynamicTargetPrice = Number(Math.max(dynamicTargetPrice * 1.08, ltp * 1.1).toFixed(2));
-  }
-  pos.target = dynamicTargetPrice;
-  pos.estimatedMaxOptionPrice = dynamicTargetPrice;
+  const dynamicTargetPrice = resolveDynamicTargetPrice({
+    pos,
+    latestUnderlyingSig,
+    forecastedMaxPrice,
+    ltp,
+    isUnderlyingParametersReversing,
+  });
 
   const perShareBrokerage = roundTripTax / Math.max(1, pos.quantity || 1);
   const breakEvenWithBrokerage = Number((pos.buyPrice + perShareBrokerage).toFixed(2));
@@ -240,28 +187,19 @@ export async function decideOptionExit(
   const isInitialWiggleProtected =
     tradeAgeSeconds < 120 && !isUnderlyingParametersReversing && !isOption1mBreakingDown;
 
-  // Multi-tick Stop-Loss Breach Confirmation (3.5s hold below SL) so 1-second flash wicks never shake out winners!
   const slStateKey = posTrackerKey || pos.instrumentKey || pos.id;
   const trackerObj =
     activeTracker || (slStateKey ? livePositionStateTracker[slStateKey] : undefined);
   const isStaticSlBreachedNow = ltp <= staticStopLossPrice;
-  let isStaticSlConfirmed = false;
-  if (isStaticSlBreachedNow) {
-    const breachStart = Number(pos._slBreachAtMs || trackerObj?._slBreachAtMs || 0);
-    if (breachStart <= 0) {
-      pos._slBreachAtMs = Date.now();
-      if (trackerObj) trackerObj._slBreachAtMs = pos._slBreachAtMs;
-    } else if (
-      Date.now() - breachStart >= 3500 ||
-      isUnderlyingParametersReversing ||
-      posPnL <= -maxAllowedRupeeLoss * 1.15
-    ) {
-      isStaticSlConfirmed = true;
-    }
-  } else {
-    pos._slBreachAtMs = 0;
-    if (trackerObj) trackerObj._slBreachAtMs = 0;
-  }
+
+  const isStaticSlConfirmed = confirmStaticStopLossBreach({
+    pos,
+    trackerObj,
+    isStaticSlBreachedNow,
+    isUnderlyingParametersReversing,
+    posPnL,
+    maxAllowedRupeeLoss,
+  });
 
   const exitRules = evaluateOptionExitRules({
     pos,
