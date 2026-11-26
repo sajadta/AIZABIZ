@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BotConfig, BotLog, TradingSignal } from './types';
 import { getStandardIndexLotSize } from './utils/quotes';
-import { deriveCurrentQuote } from './utils/currentQuote';
 import { useBackendBotSync } from './hooks/useBackendBotSync';
 import { useTradingActions } from './hooks/useTradingActions';
 import { useOrderPlacement } from './hooks/useOrderPlacement';
@@ -9,10 +8,7 @@ import { useTradingDataFetchers } from './hooks/useTradingDataFetchers';
 import { useGeminiAnalysis } from './hooks/useGeminiAnalysis';
 import { useSignalExecution } from './hooks/useSignalExecution';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
-import { useLiveQuotes } from './hooks/useLiveQuotes';
-import { useChartCandles } from './hooks/useChartCandles';
 import { useLivePositionMarks } from './hooks/useLivePositionMarks';
-import { useServerWakeup } from './hooks/useServerWakeup';
 import { translations } from './translations';
 import { useAccountMetrics } from './hooks/useAccountMetrics';
 import { usePriceAlerts } from './hooks/usePriceAlerts';
@@ -22,8 +18,8 @@ import { useAppUiState } from './hooks/useAppUiState';
 import { useAppShellActions } from './hooks/useAppShellActions';
 import { useTradingState } from './hooks/useTradingState';
 import { useAppChartFocus } from './hooks/useAppChartFocus';
-import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
 import { useAppDataSync } from './hooks/useAppDataSync';
+import { useAppMarketFeeds } from './hooks/useAppMarketFeeds';
 import { AppShell } from './components/app/AppShell';
 import { triggerAlertEvent } from './utils/soundAlerts';
 
@@ -116,46 +112,27 @@ export const App: React.FC = () => {
   const [botLogs, setBotLogs] = useState<BotLog[]>([]);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
 
-  const lastSseQuoteAtRef = useRef<number>(0);
   const livePositionsInFlightRef = useRef<Promise<void> | null>(null);
   const lastLivePositionsAtRef = useRef<number>(0);
-
-  // 0. Server Wakeup Heartbeat
-  useServerWakeup();
 
   // Load configuration from API on mount & auto-restore saved Upstox daily token
   useAppBootstrap({ setMode, setBotConfig, setApiConfig, setTradeHistory });
 
-  // Fetch real Upstox live quotes via SSE with resilient HTTP fallback
-  useLiveQuotes({
-    accessToken: apiConfig.accessToken,
-    lastSseQuoteAtRef,
-    setQuotes,
-    setIsWsConnected,
-  });
-
-  // Fetch real Upstox Candlesticks & Technical Indicators
-  useChartCandles({
+  // Live quotes, candles and chart-tick synchronization (see useAppMarketFeeds)
+  const { currentQuote, lastSseQuoteAtRef } = useAppMarketFeeds({
     accessToken: apiConfig.accessToken,
     selectedSymbol,
     selectedInstrumentKey,
     chartInterval,
-    setCandles,
-  });
-
-  useChartTradeContextSync({ positions, candles, chartTradeContext, setChartTradeContext });
-
-  // Sync selected symbol's current live tick into latest candle (only if price belongs to the same instrument scale!)
-  const currentQuote = deriveCurrentQuote({
-    quotes,
-    selectedSymbol,
-    selectedInstrumentKey,
     chartTradeContext,
-    positions,
+    quotes,
     candles,
+    positions,
+    setQuotes,
+    setIsWsConnected,
+    setCandles,
+    setChartTradeContext,
   });
-
-  useCandleTickSync({ currentQuote, setCandles });
 
   // Fetch or Compute Gemini AI Market Analysis (see useGeminiAnalysis)
   const { handleFetchGeminiAnalysis } = useGeminiAnalysis({
