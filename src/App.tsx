@@ -23,6 +23,7 @@ import { useAppShellActions } from './hooks/useAppShellActions';
 import { useTradingState } from './hooks/useTradingState';
 import { useAppChartFocus } from './hooks/useAppChartFocus';
 import { useChartTradeContextSync, useCandleTickSync } from './hooks/useAppChartSync';
+import { useAppDataSync } from './hooks/useAppDataSync';
 import { AppShell } from './components/app/AppShell';
 import { triggerAlertEvent } from './utils/soundAlerts';
 
@@ -188,21 +189,18 @@ export const App: React.FC = () => {
       setTradeHistory,
     });
 
-  useEffect(() => {
-    if (activeTab === 'OPTIONS') {
-      fetchOptionChain(undefined, selectedSymbol);
-    } else if (activeTab === 'HOLDINGS' || activeTab === 'ORDERS') {
-      fetchHoldings();
-      fetchLivePositions();
-    }
-  }, [activeTab, selectedSymbol, fetchOptionChain, fetchHoldings, fetchLivePositions]);
-
-  // Initial and periodic sync of holdings (server holds token fallback)
-  useEffect(() => {
-    if (apiConfig.isConnected || apiConfig.accessToken) {
-      fetchHoldings();
-    }
-  }, [apiConfig.isConnected, apiConfig.accessToken, fetchHoldings]);
+  useAppDataSync({
+    activeTab,
+    selectedSymbol,
+    isConnected: apiConfig.isConnected,
+    accessToken: apiConfig.accessToken,
+    geminiAnalysis,
+    aiLoading,
+    fetchOptionChain,
+    fetchHoldings,
+    fetchLivePositions,
+    handleFetchGeminiAnalysis,
+  });
 
   // Square-off, paper reset and brokerage-sync actions (see useTradingActions)
   const {
@@ -295,13 +293,6 @@ export const App: React.FC = () => {
     setSignals,
     setActiveSignal,
   });
-
-  // 3. Auto-load AI analysis when switching to AI tab
-  useEffect(() => {
-    if (activeTab === 'AI' && !geminiAnalysis && !aiLoading) {
-      handleFetchGeminiAnalysis();
-    }
-  }, [activeTab, geminiAnalysis, aiLoading, handleFetchGeminiAnalysis]);
 
   // 5. Multi-Tier Audio & Visual Lighting Alert Monitor for Positions & Holdings
   usePositionAlerts({ positions, holdings, soundEnabled, setLightingBanner });
