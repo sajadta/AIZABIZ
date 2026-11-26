@@ -7,8 +7,8 @@ bootstraps the server, logic lives under `server/`).
 ## Commands
 - Typecheck: `npm run typecheck` (tsc --noEmit) — must stay at 0 errors.
 - Build: `npm run build` (vite build).
-- Lint: `npm run lint` (eslint). Warnings are tolerated; errors are not.
-- Tests: `npx tsx --test "server/tests/*.test.ts"` (34 tests across focused files).
+- Lint: `npm run lint` (eslint). Currently 0 errors and 0 warnings; keep it that way.
+- Tests: `npm test` (115 tests across focused files) — must stay fully green.
 - Dev server: `npx tsx server.ts` (listens on port 3000; run with `timeout` in CI/agent contexts).
 
 ## Structure
