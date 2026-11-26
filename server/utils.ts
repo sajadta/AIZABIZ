@@ -107,10 +107,6 @@ export async function resilientFetchJson<T = any>(
   }
 }
 
-export function getIstDateString() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-}
-
 export function getIstTimeString() {
   return new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
 }

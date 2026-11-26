@@ -130,5 +130,4 @@ class SoundEngine {
   }
 }
 
-export const soundManager = new SoundEngine();
-export const soundEngine = soundManager;
+export const soundEngine = new SoundEngine();
