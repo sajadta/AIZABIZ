@@ -18,6 +18,13 @@ export function applyCorsMiddleware(app: express.Application) {
   });
 }
 
+// Blocks direct HTTP access to server-side TypeScript sources. Client bundles are
+// served from /src by the Vite dev middleware, so only top-level server paths match.
+function isServerSourceRequest(cleanPath: string): boolean {
+  if (!cleanPath.endsWith('.ts') && !cleanPath.endsWith('.tsx')) return false;
+  return cleanPath.startsWith('/server') || cleanPath.includes('/server/');
+}
+
 // Strictly block any direct HTTP access to dotfiles, state databases, tokens, or server files
 export function applySecurityFirewall(app: express.Application) {
   app.use((req, res, next) => {
@@ -30,7 +37,7 @@ export function applySecurityFirewall(app: express.Application) {
       cleanPath.startsWith('/.') ||
       cleanPath.includes('.upstox') ||
       cleanPath.includes('.json') && !cleanPath.startsWith('/api') && !cleanPath.includes('manifest') ||
-      cleanPath.endsWith('.ts') && cleanPath.includes('server') ||
+      isServerSourceRequest(cleanPath) ||
       cleanPath.includes('render.yaml')
     ) {
       return res.status(403).json({ error: "Access Denied: Protected Security Resource" });

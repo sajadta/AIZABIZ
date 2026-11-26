@@ -109,13 +109,15 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
         )}
 
-        <SignalOverlay
-          signal={signal as TradingSignal}
-          minimized={isAiOverlayMinimized}
-          onToggleMinimize={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
-          onRefresh={onGenerateAiAnalysis}
-          aiLoading={aiLoading}
-        />
+        {signal && (
+          <SignalOverlay
+            signal={signal}
+            minimized={isAiOverlayMinimized}
+            onToggleMinimize={() => setIsAiOverlayMinimized(!isAiOverlayMinimized)}
+            onRefresh={onGenerateAiAnalysis}
+            aiLoading={aiLoading}
+          />
+        )}
       </div>
     </div>
   );

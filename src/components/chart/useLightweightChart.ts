@@ -65,6 +65,11 @@ export function useLightweightChart({
       crosshair: {
         mode: CrosshairMode.Normal,
       },
+      // Never inherit navigator.language: non-Intl tags such as "en-US@posix"
+      // make lightweight-charts throw when it formats axis tick marks.
+      localization: {
+        locale: 'en-IN',
+      },
       rightPriceScale: {
         borderColor: '#1e293b',
       },

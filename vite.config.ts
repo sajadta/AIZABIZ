@@ -7,7 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'icon.svg', 'launchericon-192x192.png', 'launchericon-512x512.png'],
+      includeAssets: [
+        'favicon.ico',
+        'icon.svg',
+        'launchericon-192x192.png',
+        'launchericon-512x512.png',
+      ],
       manifest: {
         id: 'com.aizabiz.trading.terminal',
         name: 'AIZABIZ PRO Trading Terminal',
@@ -50,6 +55,14 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     strictPort: false,
+    // Dev/preview tunnels (Agent Canvas, VS Code forwards, ngrok) send their own Host header.
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      '.all-hands.dev',
+      '.prod-runtime.all-hands.dev',
+      ...(process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean) ?? []),
+    ],
     hmr: {
       host: 'localhost',
       port: 3000,
