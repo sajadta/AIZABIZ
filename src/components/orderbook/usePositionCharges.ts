@@ -107,7 +107,15 @@ export function usePositionCharges(pos: Position): PositionCharges {
     return () => {
       isMounted = false;
     };
-  }, [pos.symbol, pos.instrumentKey, pos.buyPrice, pos.currentLTP, pos.quantity, pos.productType]);
+  }, [
+    pos.symbol,
+    pos.instrumentKey,
+    pos.buyPrice,
+    pos.currentLTP,
+    pos.quantity,
+    pos.productType,
+    pos.isOption,
+  ]);
   return {
     defaultTotal: defaultCharges.total,
     entryPaid: defaultCharges.entryPaid,

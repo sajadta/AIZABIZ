@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import type { ExecutionMode, Language, OrderTransactionType, PriceAlert } from '../types';
+import type {
+  ChartTradeContext,
+  ExecutionMode,
+  Language,
+  OrderTransactionType,
+  PriceAlert,
+} from '../types';
 import { safeStorage } from '../utils/storage';
 import type { LightingAlertBannerState } from '../utils/soundAlerts';
 
@@ -35,7 +41,7 @@ export function useAppUiState() {
 
   const [selectedSymbol, setSelectedSymbol] = useState<string>('NIFTY 50');
   const [selectedInstrumentKey, setSelectedInstrumentKey] = useState<string>('NSE_INDEX|Nifty 50');
-  const [chartTradeContext, setChartTradeContext] = useState<any>(null);
+  const [chartTradeContext, setChartTradeContext] = useState<ChartTradeContext | null>(null);
   const [ipCopiedNotice, setIpCopiedNotice] = useState(false);
   const [dismissedIpWarning, setDismissedIpWarning] = useState(false);
 

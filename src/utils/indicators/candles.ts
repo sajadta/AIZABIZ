@@ -1,5 +1,12 @@
 import type { CandleData } from '../../types';
-import { calculateADX, calculateBollingerBands, calculateEMA, calculateMACD, calculateRSI, calculateSupertrend } from './calculations';
+import {
+  calculateADX,
+  calculateBollingerBands,
+  calculateEMA,
+  calculateMACD,
+  calculateRSI,
+  calculateSupertrend,
+} from './calculations';
 
 export function enrichCandlesWithIndicators(
   rawCandles: {
@@ -41,4 +48,3 @@ export function enrichCandlesWithIndicators(
     middleBand: bb.middle[i],
   }));
 }
-

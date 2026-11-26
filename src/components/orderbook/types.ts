@@ -1,5 +1,5 @@
 import { translations } from '../../translations';
-import type { Language } from '../../types';
+import type { ChartTradeContext, Language } from '../../types';
 
 export type Translations = (typeof translations)[Language];
 export type TabKey = 'POSITIONS' | 'HOLDINGS' | 'ORDERS' | 'TRADE_HISTORY';
@@ -31,4 +31,8 @@ export interface TradeDateEntry {
   count: number;
 }
 
-export type ViewChartFn = (symbol: string, instrumentKey?: string, context?: any) => void;
+export type ViewChartFn = (
+  symbol: string,
+  instrumentKey?: string,
+  context?: ChartTradeContext,
+) => void;

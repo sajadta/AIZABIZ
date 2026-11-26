@@ -1,20 +1,18 @@
 import React from 'react';
 import { Briefcase, TrendingUp, TrendingDown, Clock, BarChart2, Zap, Target } from 'lucide-react';
-import type { Position, Language } from '../../types';
+import type { ChartTradeContext, Language, Position } from '../../types';
 import { usePositionCharges } from './usePositionCharges';
 export const PositionItem: React.FC<{
   pos: Position;
   onSquareOff: (id: string) => void;
   isNew?: boolean;
-  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
+  onViewChart?: (symbol: string, instrumentKey?: string, context?: ChartTradeContext) => void;
   language?: Language;
 }> = ({ pos, onSquareOff, isNew, onViewChart, language = 'ml' }) => {
   const isOpt = pos.isOption !== false;
   const buyPx = Math.max(0, Number(pos.buyPrice || 0));
   const curPx = Number(pos.currentLTP || buyPx);
-  const qty = Math.max(1, Number(pos.quantity || 1));
   const {
-    defaultTotal,
     entryPaid,
     estCharges,
     chargeDetails,

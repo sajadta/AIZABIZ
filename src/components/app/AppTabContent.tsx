@@ -12,6 +12,7 @@ import type {
   BotConfig,
   BotLog,
   CandleData,
+  ChartTradeContext,
   ExecutionMode,
   GeminiMarketAnalysis,
   Holding,
@@ -46,8 +47,8 @@ interface AppTabContentProps {
   ) => void;
   handleRemoveAlert: (id: string) => void;
   currentQuote: StockQuote;
-  chartTradeContext?: any;
-  setChartTradeContext: (v: any) => void;
+  chartTradeContext?: ChartTradeContext | null;
+  setChartTradeContext: (v: ChartTradeContext | null) => void;
   candles: CandleData[];
   chartInterval: string;
   setChartInterval: (v: string) => void;
@@ -62,7 +63,7 @@ interface AppTabContentProps {
   botLogs: BotLog[];
   signals: TradingSignal[];
   handleExecuteSignal: (sig: TradingSignal) => Promise<void>;
-  handleViewChart: (sym: string, key?: string, context?: any) => void;
+  handleViewChart: (sym: string, key?: string, context?: ChartTradeContext) => void;
   handleSquareOffPosition: (id: string) => Promise<void>;
   handleSquareOffAll: () => void;
   onSquareOffEquityOnly?: () => void;

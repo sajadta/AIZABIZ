@@ -1,8 +1,8 @@
 // Intraday session helpers: IST session-candle selection and VWAP computation.
-import type { CandleData } from "../../types";
+import type { CandleData } from '../../types';
 
 const getIstDateKey = (ts: number) =>
-  ts > 0 ? new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) : "";
+  ts > 0 ? new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '';
 
 /**
  * Selects the candles belonging to the latest candle's IST trading session so

@@ -1,5 +1,4 @@
 // Static bilingual copy for the algo bot scan ticker and settings HUD carousel.
-import type { Language } from '../../types';
 
 export const hudTickerStepsMl = [
   {

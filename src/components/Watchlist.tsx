@@ -10,7 +10,12 @@ interface WatchlistProps {
   language: Language;
   onOpenOrderModal: (type: 'BUY' | 'SELL', symbol: string, price: number) => void;
   priceAlerts?: any[];
-  onAddAlert?: (symbol: string, instrumentKey: string, targetPrice: number, condition: 'GREATER_THAN'|'LESS_THAN') => void;
+  onAddAlert?: (
+    symbol: string,
+    instrumentKey: string,
+    targetPrice: number,
+    condition: 'GREATER_THAN' | 'LESS_THAN',
+  ) => void;
   onRemoveAlert?: (id: string) => void;
 }
 
@@ -22,11 +27,13 @@ export const Watchlist: React.FC<WatchlistProps> = ({
   onOpenOrderModal,
   priceAlerts = [],
   onAddAlert,
-  onRemoveAlert
+  onRemoveAlert,
 }) => {
   const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterSegment, setFilterSegment] = useState<'ALL' | 'INDEX' | 'EQUITY' | 'FUTURES' | 'COMMODITY' | 'GLOBAL'>('ALL');
+  const [filterSegment, setFilterSegment] = useState<
+    'ALL' | 'INDEX' | 'EQUITY' | 'FUTURES' | 'COMMODITY' | 'GLOBAL'
+  >('ALL');
   const [alertTargetSymbol, setAlertTargetSymbol] = useState<string | null>(null);
   const [alertPrice, setAlertPrice] = useState<string>('');
 
@@ -42,13 +49,17 @@ export const Watchlist: React.FC<WatchlistProps> = ({
       filterSegment === 'ALL' ||
       q.segment === (filterSegment as any) ||
       (filterSegment === 'FUTURES' && (q.symbol.includes('FUT') || q.segment === 'FUTURES')) ||
-      (filterSegment === 'COMMODITY' && (q.symbol.includes('CRUDE') || q.symbol.includes('GOLD') || q.symbol.includes('GAS') || q.segment === 'COMMODITY'));
+      (filterSegment === 'COMMODITY' &&
+        (q.symbol.includes('CRUDE') ||
+          q.symbol.includes('GOLD') ||
+          q.symbol.includes('GAS') ||
+          q.segment === 'COMMODITY'));
     return matchesSearch && matchesSegment;
   });
 
   // Ensure unique list items by instrumentKey / symbol
   const uniqueFilteredQuotes = Array.from(
-    new Map(filteredQuotes.map((q, i) => [q.instrumentKey || `${q.symbol}-${i}`, q])).values()
+    new Map(filteredQuotes.map((q, i) => [q.instrumentKey || `${q.symbol}-${i}`, q])).values(),
   );
 
   return (
@@ -61,7 +72,10 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               <Layers className="w-4 h-4" />
             </div>
             <h3 className="text-xs font-black text-white tracking-wider uppercase">
-              {t.watchlist} <span className="text-slate-400 font-mono-num font-semibold">({filteredQuotes.length})</span>
+              {t.watchlist}{' '}
+              <span className="text-slate-400 font-mono-num font-semibold">
+                ({filteredQuotes.length})
+              </span>
             </h3>
           </div>
           <span className="text-[10px] font-mono-num font-extrabold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30 shadow-sm flex items-center gap-1">
@@ -77,7 +91,11 @@ export const Watchlist: React.FC<WatchlistProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder={language === 'ml' ? 'ഓഹരികൾ, ഫ്യൂച്ചറുകൾ, കമോഡിറ്റി തിരയുക...' : 'Search symbol, futures, commodity...'}
+            placeholder={
+              language === 'ml'
+                ? 'ഓഹരികൾ, ഫ്യൂച്ചറുകൾ, കമോഡിറ്റി തിരയുക...'
+                : 'Search symbol, futures, commodity...'
+            }
             className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition font-medium"
           />
         </div>
@@ -119,13 +137,14 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               } ${q.tickFlash === 'up' ? 'flash-up' : q.tickFlash === 'down' ? 'flash-down' : ''}`}
             >
               <div className="flex items-start justify-between gap-2">
-                
                 {/* Left: Symbol & Exchange */}
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className={`text-xs sm:text-sm font-black tracking-tight transition ${
-                      isSelected ? 'text-emerald-400' : 'text-white group-hover:text-emerald-300'
-                    }`}>
+                    <span
+                      className={`text-xs sm:text-sm font-black tracking-tight transition ${
+                        isSelected ? 'text-emerald-400' : 'text-white group-hover:text-emerald-300'
+                      }`}
+                    >
                       {q.symbol}
                     </span>
                     <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#1d2335]/80 text-slate-400 border border-slate-700/60">
@@ -140,7 +159,9 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                 {/* Right: LTP & % Change */}
                 <div className="text-right font-mono-num">
                   <div className="text-xs sm:text-sm font-black text-white">
-                    {q.ltp > 0 ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Live...'}
+                    {q.ltp > 0
+                      ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                      : 'Live...'}
                   </div>
                   {q.ltp > 0 && (
                     <div
@@ -175,20 +196,32 @@ export const Watchlist: React.FC<WatchlistProps> = ({
               )}
 
               {/* Active Alerts for this symbol */}
-              {priceAlerts.filter(a => a.symbol === q.symbol && a.isActive).length > 0 && (
+              {priceAlerts.filter((a) => a.symbol === q.symbol && a.isActive).length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {priceAlerts.filter(a => a.symbol === q.symbol && a.isActive).map(alert => (
-                    <span key={alert.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[9px] text-blue-300 font-mono-num font-bold">
-                      <BellRing className="w-2.5 h-2.5" />
-                      {alert.condition === 'GREATER_THAN' ? '≥' : '≤'} ₹{alert.targetPrice.toFixed(2)}
-                      <button onClick={(e) => { e.stopPropagation(); onRemoveAlert?.(alert.id); }} className="hover:text-rose-400 ml-0.5">
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </span>
-                  ))}
+                  {priceAlerts
+                    .filter((a) => a.symbol === q.symbol && a.isActive)
+                    .map((alert) => (
+                      <span
+                        key={alert.id}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/15 border border-blue-500/30 text-[9px] text-blue-300 font-mono-num font-bold"
+                      >
+                        <BellRing className="w-2.5 h-2.5" />
+                        {alert.condition === 'GREATER_THAN' ? '≥' : '≤'} ₹
+                        {alert.targetPrice.toFixed(2)}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveAlert?.(alert.id);
+                          }}
+                          className="hover:text-rose-400 ml-0.5"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
                 </div>
               )}
-              
+
               {/* Quick Action buttons on hover/select */}
               <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-slate-800/40">
                 <div className="flex flex-col gap-1 w-1/3">
@@ -204,33 +237,48 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 justify-end">
                   {alertTargetSymbol === q.symbol ? (
-                     <div className="flex items-center gap-1">
-                        <input 
-                          type="number" 
-                          autoFocus
-                          value={alertPrice}
-                          onChange={(e) => setAlertPrice(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          placeholder="Target ₹"
-                          className="w-16 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-white"
-                        />
-                        <button 
-                          onClick={(e) => {
-                             e.stopPropagation();
-                             if (onAddAlert && alertPrice) {
-                               onAddAlert(q.symbol, q.instrumentKey, Number(alertPrice), Number(alertPrice) > q.ltp ? 'GREATER_THAN' : 'LESS_THAN');
-                             }
-                             setAlertTargetSymbol(null);
-                          }}
-                          className="px-1.5 py-0.5 rounded bg-blue-500 hover:bg-blue-600 text-white text-[9px] font-bold"
-                        >OK</button>
-                        <button onClick={(e) => { e.stopPropagation(); setAlertTargetSymbol(null); }} className="text-slate-500 hover:text-white"><X className="w-3 h-3"/></button>
-                     </div>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        autoFocus
+                        value={alertPrice}
+                        onChange={(e) => setAlertPrice(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="Target ₹"
+                        className="w-16 bg-slate-900 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-white"
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onAddAlert && alertPrice) {
+                            onAddAlert(
+                              q.symbol,
+                              q.instrumentKey,
+                              Number(alertPrice),
+                              Number(alertPrice) > q.ltp ? 'GREATER_THAN' : 'LESS_THAN',
+                            );
+                          }
+                          setAlertTargetSymbol(null);
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-blue-500 hover:bg-blue-600 text-white text-[9px] font-bold"
+                      >
+                        OK
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAlertTargetSymbol(null);
+                        }}
+                        className="text-slate-500 hover:text-white"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
                   ) : (
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        setAlertTargetSymbol(q.symbol); 
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAlertTargetSymbol(q.symbol);
                         setAlertPrice(q.ltp.toFixed(2));
                       }}
                       className="px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-blue-400 transition"
@@ -240,28 +288,30 @@ export const Watchlist: React.FC<WatchlistProps> = ({
                     </button>
                   )}
                   {q.segment === 'INDEX' ? (
-                   <span className="text-[10px] text-slate-500 italic mr-2">{language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ഉപയോഗിക്കുക' : 'Trade via Options'}</span>
+                    <span className="text-[10px] text-slate-500 italic mr-2">
+                      {language === 'ml' ? 'ഓപ്ഷൻ ചെയിൻ ഉപയോഗിക്കുക' : 'Trade via Options'}
+                    </span>
                   ) : (
-                  <>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenOrderModal('BUY', q.symbol, q.ltp);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-300 hover:text-white text-[10px] font-black transition border border-emerald-500/30 shadow-sm active:scale-95"
-                  >
-                    {t.quickBuy}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenOrderModal('SELL', q.symbol, q.ltp);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white text-[10px] font-black transition border border-rose-500/30 shadow-sm active:scale-95"
-                  >
-                    {t.quickSell}
-                  </button>
-                  </>
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenOrderModal('BUY', q.symbol, q.ltp);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-600 text-emerald-300 hover:text-white text-[10px] font-black transition border border-emerald-500/30 shadow-sm active:scale-95"
+                      >
+                        {t.quickBuy}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenOrderModal('SELL', q.symbol, q.ltp);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-600 text-rose-300 hover:text-white text-[10px] font-black transition border border-rose-500/30 shadow-sm active:scale-95"
+                      >
+                        {t.quickSell}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

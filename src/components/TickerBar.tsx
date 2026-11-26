@@ -7,13 +7,9 @@ interface TickerBarProps {
   onSelectSymbol?: (symbol: string, instrumentKey?: string) => void;
 }
 
-export const TickerBar: React.FC<TickerBarProps> = ({
-  quotes,
-  selectedSymbol,
-  onSelectSymbol,
-}) => {
+export const TickerBar: React.FC<TickerBarProps> = ({ quotes, selectedSymbol, onSelectSymbol }) => {
   const uniqueQuotes = Array.from(
-    new Map(quotes.map((q, idx) => [q.instrumentKey || `${q.symbol}-${idx}`, q])).values()
+    new Map(quotes.map((q, idx) => [q.instrumentKey || `${q.symbol}-${idx}`, q])).values(),
   );
 
   return (
@@ -37,19 +33,22 @@ export const TickerBar: React.FC<TickerBarProps> = ({
                 <span className="text-[11px] font-bold tracking-tight text-slate-200">
                   {q.symbol}
                 </span>
-                <span className="text-[8px] text-slate-400 font-sans">
-                  {q.exchange}
-                </span>
+                <span className="text-[8px] text-slate-400 font-sans">{q.exchange}</span>
               </div>
               <div className="flex items-center gap-1 text-[11px] font-semibold">
-                <span className="text-slate-100 font-bold">{q.ltp > 0 ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Live...'}</span>
+                <span className="text-slate-100 font-bold">
+                  {q.ltp > 0
+                    ? `₹${q.ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                    : 'Live...'}
+                </span>
                 {q.ltp > 0 && (
                   <span
                     className={`flex items-center text-[10px] font-medium ${
                       isPositive ? 'text-emerald-400' : 'text-rose-400'
                     }`}
                   >
-                    {isPositive ? '+' : ''}{q.changePercent}%
+                    {isPositive ? '+' : ''}
+                    {q.changePercent}%
                   </span>
                 )}
               </div>

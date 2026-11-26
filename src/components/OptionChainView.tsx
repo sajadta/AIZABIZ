@@ -47,7 +47,7 @@ export const OptionChainView: React.FC<OptionChainViewProps> = ({
     return q && q.ltp > 0 ? q.ltp : defaultLtp;
   };
 
-  const strikes = data?.strikes || [];
+  const strikes = useMemo(() => data?.strikes || [], [data?.strikes]);
   const underlyingLtp = data?.underlyingLTP || 0;
 
   const atmIndex = useMemo(() => {

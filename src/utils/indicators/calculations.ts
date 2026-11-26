@@ -111,14 +111,14 @@ export function calculateSupertrend(
   candles: { high: number; low: number; close: number }[],
   period: number = 10,
   multiplier: number = 3,
-): { supertrend: number[]; direction: ("BUY" | "SELL")[] } {
+): { supertrend: number[]; direction: ('BUY' | 'SELL')[] } {
   const atr = calculateATR(candles, period);
   const supertrend: number[] = [];
-  const direction: ("BUY" | "SELL")[] = [];
+  const direction: ('BUY' | 'SELL')[] = [];
 
   let prevUpper = 0;
   let prevLower = 0;
-  let prevTrend: "BUY" | "SELL" = "BUY";
+  let prevTrend: 'BUY' | 'SELL' = 'BUY';
 
   for (let i = 0; i < candles.length; i++) {
     const hl2 = (candles[i].high + candles[i].low) / 2;
@@ -142,16 +142,16 @@ export function calculateSupertrend(
       }
     }
 
-    let currentTrend: "BUY" | "SELL" = prevTrend;
+    let currentTrend: 'BUY' | 'SELL' = prevTrend;
     if (i > 0) {
-      if (prevTrend === "BUY" && candles[i].close < finalLower) {
-        currentTrend = "SELL";
-      } else if (prevTrend === "SELL" && candles[i].close > finalUpper) {
-        currentTrend = "BUY";
+      if (prevTrend === 'BUY' && candles[i].close < finalLower) {
+        currentTrend = 'SELL';
+      } else if (prevTrend === 'SELL' && candles[i].close > finalUpper) {
+        currentTrend = 'BUY';
       }
     }
 
-    const stValue = currentTrend === "BUY" ? finalLower : finalUpper;
+    const stValue = currentTrend === 'BUY' ? finalLower : finalUpper;
     supertrend.push(Number(stValue.toFixed(2)));
     direction.push(currentTrend);
 
@@ -179,8 +179,7 @@ export function calculateBollingerBands(
     } else {
       const slice = closes.slice(i - period + 1, i + 1);
       const avg = middle[i];
-      const variance =
-        slice.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / period;
+      const variance = slice.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / period;
       const stdDev = Math.sqrt(variance);
       upper.push(Number((avg + stdDevMultiplier * stdDev).toFixed(2)));
       lower.push(Number((avg - stdDevMultiplier * stdDev).toFixed(2)));
@@ -242,4 +241,3 @@ export function calculateADX(
   const adxSeries = calculateEMA(dxList, period);
   return adxSeries.map((v) => Number(Math.max(5, Math.min(85, v || 20)).toFixed(2)));
 }
-

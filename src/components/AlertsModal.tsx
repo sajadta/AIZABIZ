@@ -6,7 +6,12 @@ interface AlertsModalProps {
   isOpen: boolean;
   onClose: () => void;
   priceAlerts: PriceAlert[];
-  onAddAlert: (symbol: string, instrumentKey: string, targetPrice: number, condition: 'GREATER_THAN' | 'LESS_THAN') => void;
+  onAddAlert: (
+    symbol: string,
+    instrumentKey: string,
+    targetPrice: number,
+    condition: 'GREATER_THAN' | 'LESS_THAN',
+  ) => void;
   onRemoveAlert: (id: string) => void;
   language: Language;
 }
@@ -51,11 +56,11 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-md shadow-2xl max-h-[92vh] overflow-y-auto flex flex-col my-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -70,13 +75,15 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
                 {language === 'ml' ? 'വില അലർട്ടുകൾ' : 'Price Alerts'}
               </h2>
               <p className="text-[11px] text-slate-400">
-                {language === 'ml' ? 'ടാർഗെറ്റ് വിലയിലെത്തുമ്പോൾ നോട്ടിഫിക്കേഷൻ' : 'Notify when price hits target'}
+                {language === 'ml'
+                  ? 'ടാർഗെറ്റ് വിലയിലെത്തുമ്പോൾ നോട്ടിഫിക്കേഷൻ'
+                  : 'Notify when price hits target'}
               </p>
             </div>
           </div>
-          <button 
+          <button
             type="button"
-            onClick={onClose} 
+            onClick={onClose}
             className="w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors active:scale-95 touch-manipulation"
             aria-label="Close modal"
           >
@@ -92,29 +99,33 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
                 type="text"
                 placeholder={language === 'ml' ? 'സിംബൽ (ഉദാ: RELIANCE)' : 'Symbol (e.g. RELIANCE)'}
                 value={symbol}
-                onChange={e => setSymbol(e.target.value)}
+                onChange={(e) => setSymbol(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               />
               <input
                 type="number"
                 placeholder={language === 'ml' ? 'വില (₹)' : 'Target Price (₹)'}
                 value={targetPrice}
-                onChange={e => setTargetPrice(e.target.value)}
+                onChange={(e) => setTargetPrice(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
               />
             </div>
-            
+
             <div className="flex items-center gap-2">
               <select
                 value={condition}
-                onChange={e => setCondition(e.target.value as any)}
+                onChange={(e) => setCondition(e.target.value as any)}
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 flex-1"
               >
-                <option value="GREATER_THAN">{language === 'ml' ? 'വില കൂടുമ്പോൾ (>)' : 'Crosses Above (>)'}</option>
-                <option value="LESS_THAN">{language === 'ml' ? 'വില കുറയുമ്പോൾ (<)' : 'Crosses Below (<)'}</option>
+                <option value="GREATER_THAN">
+                  {language === 'ml' ? 'വില കൂടുമ്പോൾ (>)' : 'Crosses Above (>)'}
+                </option>
+                <option value="LESS_THAN">
+                  {language === 'ml' ? 'വില കുറയുമ്പോൾ (<)' : 'Crosses Below (<)'}
+                </option>
               </select>
-              
-              <button 
+
+              <button
                 onClick={handleAdd}
                 disabled={!symbol || !targetPrice}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-4 py-2 min-h-[44px] rounded-lg text-sm font-bold transition flex items-center justify-center gap-1 active:scale-95 touch-manipulation"
@@ -128,23 +139,31 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
           <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
             {priceAlerts.length === 0 ? (
               <div className="text-center py-6 text-slate-500 text-sm">
-                {language === 'ml' ? 'അലർട്ടുകൾ ഒന്നും സജ്ജമാക്കിയിട്ടില്ല.' : 'No alerts configured.'}
+                {language === 'ml'
+                  ? 'അലർട്ടുകൾ ഒന്നും സജ്ജമാക്കിയിട്ടില്ല.'
+                  : 'No alerts configured.'}
               </div>
             ) : (
-              priceAlerts.map(alert => (
-                <div key={alert.id} className={`flex items-center justify-between p-3 rounded-xl border ${alert.isActive ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-900/50 border-slate-800 opacity-60'}`}>
+              priceAlerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className={`flex items-center justify-between p-3 rounded-xl border ${alert.isActive ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-900/50 border-slate-800 opacity-60'}`}
+                >
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-200">{alert.symbol}</span>
                       {!alert.isActive && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 uppercase font-bold">Triggered</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 uppercase font-bold">
+                          Triggered
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {alert.condition === 'GREATER_THAN' ? 'Above' : 'Below'} <span className="font-mono text-indigo-400">₹{alert.targetPrice}</span>
+                      {alert.condition === 'GREATER_THAN' ? 'Above' : 'Below'}{' '}
+                      <span className="font-mono text-indigo-400">₹{alert.targetPrice}</span>
                     </p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => onRemoveAlert(alert.id)}
                     className="w-10 h-10 min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
                   >

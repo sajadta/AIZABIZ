@@ -3,14 +3,21 @@ import { AdvancedAnalytics } from '../../AdvancedAnalytics';
 import { CumulativePnLChart } from '../../CumulativePnLChart';
 import { OrderBookPositions } from '../../OrderBookPositions';
 import { PerformanceOverviewCard } from '../../PerformanceOverviewCard';
-import type { Holding, Language, Order, Position, UpstoxApiConfig } from '../../../types';
+import type {
+  ChartTradeContext,
+  Holding,
+  Language,
+  Order,
+  Position,
+  UpstoxApiConfig,
+} from '../../../types';
 import type { OrderModalData } from '../types';
 
 interface OrdersTabProps {
   language: Language;
   setOrderModalData: (v: OrderModalData) => void;
   setIsOrderModalOpen: (v: boolean) => void;
-  handleViewChart: (sym: string, key?: string, context?: any) => void;
+  handleViewChart: (sym: string, key?: string, context?: ChartTradeContext) => void;
   handleSquareOffPosition: (id: string) => Promise<void>;
   handleSquareOffAll: () => void;
   onSquareOffEquityOnly?: () => void;

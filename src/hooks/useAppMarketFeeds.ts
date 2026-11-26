@@ -1,7 +1,7 @@
 // Market feed wiring for the app root: wakeup heartbeat, live quotes SSE, candles,
 // selected-quote derivation and candle tick merging.
 import { useRef, type MutableRefObject, type Dispatch, type SetStateAction } from 'react';
-import type { CandleData, Position, StockQuote } from '../types';
+import type { CandleData, ChartTradeContext, Position, StockQuote } from '../types';
 import { deriveCurrentQuote } from '../utils/currentQuote';
 import { useServerWakeup } from './useServerWakeup';
 import { useLiveQuotes } from './useLiveQuotes';
@@ -13,14 +13,16 @@ export interface AppMarketFeedsParams {
   selectedSymbol: string;
   selectedInstrumentKey: string;
   chartInterval: string;
-  chartTradeContext: any;
+  chartTradeContext: ChartTradeContext | null;
   quotes: StockQuote[];
   candles: CandleData[];
   positions: Position[];
   setQuotes: Dispatch<SetStateAction<StockQuote[]>>;
   setIsWsConnected: Dispatch<SetStateAction<boolean>>;
   setCandles: Dispatch<SetStateAction<CandleData[]>>;
-  setChartTradeContext: (updater: (prev: any) => any) => void;
+  setChartTradeContext: (
+    updater: (prev: ChartTradeContext | null) => ChartTradeContext | null,
+  ) => void;
 }
 
 export interface AppMarketFeeds {

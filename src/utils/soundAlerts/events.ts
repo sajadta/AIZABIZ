@@ -46,7 +46,7 @@ export function triggerAlertEvent(
   titleMl: string,
   subtitleMl: string,
   muted = false,
-  pnl?: number
+  pnl?: number,
 ): LightingAlertBannerState {
   const categoryMap: Record<string, AlertCategory> = {
     TRADE_ENTRY: 'TRADE_ENTRY',

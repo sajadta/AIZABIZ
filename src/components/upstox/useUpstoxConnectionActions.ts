@@ -9,7 +9,9 @@ export interface UpstoxConnectionActionsParams {
   accessToken: string;
   setAccessToken: Dispatch<SetStateAction<string>>;
   config: UpstoxApiConfig;
-  setStatusMsg: Dispatch<SetStateAction<{ type: 'success' | 'error' | 'info'; text: string } | null>>;
+  setStatusMsg: Dispatch<
+    SetStateAction<{ type: 'success' | 'error' | 'info'; text: string } | null>
+  >;
   setIsFixedProxyActive: Dispatch<SetStateAction<boolean>>;
   setProxyError: Dispatch<SetStateAction<string>>;
   setContainerIp: Dispatch<SetStateAction<string>>;

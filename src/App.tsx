@@ -119,7 +119,7 @@ export const App: React.FC = () => {
   useAppBootstrap({ setMode, setBotConfig, setApiConfig, setTradeHistory });
 
   // Live quotes, candles and chart-tick synchronization (see useAppMarketFeeds)
-  const { currentQuote, lastSseQuoteAtRef } = useAppMarketFeeds({
+  const { currentQuote } = useAppMarketFeeds({
     accessToken: apiConfig.accessToken,
     selectedSymbol,
     selectedInstrumentKey,
@@ -279,7 +279,7 @@ export const App: React.FC = () => {
     if (!lightingBanner) return;
     const tId = setTimeout(() => setLightingBanner(null), 8000);
     return () => clearTimeout(tId);
-  }, [lightingBanner]);
+  }, [lightingBanner, setLightingBanner]);
 
   const t = translations[language];
   return (

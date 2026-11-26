@@ -95,8 +95,10 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
     100,
     Math.max(
       0,
-      Number((((totalMinutes - marketOpenMin) / (marketCloseMin - marketOpenMin)) * 100).toFixed(1))
-    )
+      Number(
+        (((totalMinutes - marketOpenMin) / (marketCloseMin - marketOpenMin)) * 100).toFixed(1),
+      ),
+    ),
   );
 
   if (totalMinutes < algoStartMin) {
@@ -141,7 +143,8 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
       isMarketOpen: true,
       isAlgoEntryWindowOpen: false,
       phaseCode: 'LATE_SESSION_HOLD_ONLY_1445_1515',
-      phaseLabelMl: '🟠 പുതിയ എൻട്രി അവസാനിച്ചു (03:15 PM) — ഓപ്പൺ ട്രേഡുകൾ പ്രോഫിറ്റ് ലോക്ക് ചെയ്യുന്നു',
+      phaseLabelMl:
+        '🟠 പുതിയ എൻട്രി അവസാനിച്ചു (03:15 PM) — ഓപ്പൺ ട്രേഡുകൾ പ്രോഫിറ്റ് ലോക്ക് ചെയ്യുന്നു',
       phaseLabelEn: '🟠 New Entry Cutoff Passed (03:15 PM) — Trailing Open Positions',
       countdownLabelMl: `സുരക്ഷിത സ്ക്വയർ-ഓഫ് (03:25 PM): ${formatDuration(secUntilSqOff)} ബാക്കി`,
       countdownLabelEn: `Safe Square-Off (03:25 PM) in: ${formatDuration(secUntilSqOff)}`,
@@ -180,4 +183,3 @@ export function getLiveIstMarketSessionStatus(): MarketSessionStatus {
     sessionProgressPct: 100,
   };
 }
-

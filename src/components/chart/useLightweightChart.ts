@@ -3,12 +3,20 @@ import {
   createChart,
   CrosshairMode,
   LineStyle,
-  IChartApi,
   ColorType,
   CandlestickSeries,
   HistogramSeries,
   LineSeries,
   createSeriesMarkers,
+} from 'lightweight-charts';
+import type {
+  IChartApi,
+  ISeriesApi,
+  ISeriesMarkersPluginApi,
+  LineData,
+  SeriesMarker,
+  Time,
+  UTCTimestamp,
 } from 'lightweight-charts';
 import type { CandleData, StockQuote } from '../../types';
 import { buildDisplayCandles } from './displayCandles';
@@ -35,13 +43,13 @@ export function useLightweightChart({
   const chartRef = useRef<IChartApi | null>(null);
 
   const seriesRef = useRef<{
-    candlestick?: any;
-    candlestickMarkers?: any;
-    volume?: any;
-    supertrend?: any;
-    ema9?: any;
-    ema21?: any;
-    ema50?: any;
+    candlestick?: ISeriesApi<'Candlestick'>;
+    candlestickMarkers?: ISeriesMarkersPluginApi<Time>;
+    volume?: ISeriesApi<'Histogram'>;
+    supertrend?: ISeriesApi<'Line'>;
+    ema9?: ISeriesApi<'Line'>;
+    ema21?: ISeriesApi<'Line'>;
+    ema50?: ISeriesApi<'Line'>;
   }>({});
 
   const displayCandles = useMemo(
@@ -171,7 +179,7 @@ export function useLightweightChart({
     );
 
     const candlestickData = uniqueCandles.map((c) => ({
-      time: c._istSec as any,
+      time: c._istSec as UTCTimestamp,
       open: c.open,
       high: c.high,
       low: c.low,
@@ -179,7 +187,7 @@ export function useLightweightChart({
     }));
 
     const volumeData = uniqueCandles.map((c) => ({
-      time: c._istSec as any,
+      time: c._istSec as UTCTimestamp,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)',
     }));
@@ -187,14 +195,14 @@ export function useLightweightChart({
     seriesRef.current.candlestick.setData(candlestickData);
     seriesRef.current.volume?.setData(volumeData);
 
-    const ema9Data: any[] = [];
-    const ema21Data: any[] = [];
-    const ema50Data: any[] = [];
-    const supertrendData: any[] = [];
-    const markers: any[] = [];
+    const ema9Data: LineData<Time>[] = [];
+    const ema21Data: LineData<Time>[] = [];
+    const ema50Data: LineData<Time>[] = [];
+    const supertrendData: LineData<Time>[] = [];
+    const markers: SeriesMarker<Time>[] = [];
 
     uniqueCandles.forEach((c) => {
-      const time = c._istSec as any;
+      const time = c._istSec as UTCTimestamp;
       if (c.ema9 && c.ema9 > 0) ema9Data.push({ time, value: c.ema9 });
       if (c.ema21 && c.ema21 > 0) ema21Data.push({ time, value: c.ema21 });
       if (c.ema50 && c.ema50 > 0) ema50Data.push({ time, value: c.ema50 });

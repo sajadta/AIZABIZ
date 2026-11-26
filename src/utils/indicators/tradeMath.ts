@@ -44,7 +44,8 @@ export function calculateTradeCharges(
     // - Stamp Duty (Buy): 0.003% (0.00003), rounded to paisa (₹0 on ~₹100 BSE lot)
     const txnRate = isBse ? 0.00005 : 0.0003503;
     const buyBrokerage = buyValue > 0 ? 30 : 0;
-    const buyTxn = buyValue > 0 ? Math.max(isBse ? 0.01 : 0, Number((buyValue * txnRate).toFixed(2))) : 0;
+    const buyTxn =
+      buyValue > 0 ? Math.max(isBse ? 0.01 : 0, Number((buyValue * txnRate).toFixed(2))) : 0;
     const buySebi = Number((buyValue * 0.000001).toFixed(2));
     const buyStamp = buyValue > 0 ? Number((buyValue * 0.00003).toFixed(2)) : 0;
     const buyGst = Number(((buyBrokerage + buyTxn + buySebi) * 0.18).toFixed(2));
@@ -52,7 +53,8 @@ export function calculateTradeCharges(
 
     const sellBrokerage = sellValue > 0 ? 30 : 0;
     const sellStt = Number((sellValue * 0.0015).toFixed(2));
-    const sellTxn = sellValue > 0 ? Math.max(isBse ? 0.01 : 0, Number((sellValue * txnRate).toFixed(2))) : 0;
+    const sellTxn =
+      sellValue > 0 ? Math.max(isBse ? 0.01 : 0, Number((sellValue * txnRate).toFixed(2))) : 0;
     const sellSebi = Number((sellValue * 0.000001).toFixed(2));
     const sellGst = Number(((sellBrokerage + sellTxn + sellSebi) * 0.18).toFixed(2));
     const sellCharges = Number((sellBrokerage + sellStt + sellTxn + sellSebi + sellGst).toFixed(2));
@@ -154,4 +156,3 @@ export function calculateAffordableLotsWithBrokerage(
     oneLotTotalRequired: oneLotCharges.totalRequiredWithBrokerage,
   };
 }
-

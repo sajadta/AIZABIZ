@@ -71,6 +71,9 @@ export function useSupervisorAudit({ activeTab, botConfig, language }: UseSuperv
     };
   }, [activeTab]);
 
+  const handleRunDeepScanRef = useRef(handleRunDeepAiSupervisorScan);
+  handleRunDeepScanRef.current = handleRunDeepAiSupervisorScan;
+
   useEffect(() => {
     if (activeTab !== 'AI_SUPERVISOR') {
       hasAutoTriggeredDeepScanRef.current = false;
@@ -83,7 +86,7 @@ export function useSupervisorAudit({ activeTab, botConfig, language }: UseSuperv
       !hasAutoTriggeredDeepScanRef.current
     ) {
       hasAutoTriggeredDeepScanRef.current = true;
-      handleRunDeepAiSupervisorScan();
+      handleRunDeepScanRef.current();
     }
   }, [activeTab, supervisorAudit, deepAiScanning]);
 

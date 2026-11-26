@@ -29,7 +29,7 @@ export const OrderRow: React.FC<OrderRowProps> = ({
   const isOpt =
     /\b(CE|PE)\b/i.test(ord.symbol || '') || String(ord.instrumentKey || '').includes('FO');
   const matchingClosedTrade = tradeHistory.find((t) => {
-    if ((ord as any).positionId && t.id === (ord as any).positionId) return true;
+    if (ord.positionId && t.id === ord.positionId) return true;
     if (t.symbol !== ord.symbol) return false;
     if (isBuy && Math.abs(Number(t.buyPrice || 0) - execPx) < 0.05) return true;
     if (!isBuy && Math.abs(Number(t.sellPrice || 0) - execPx) < 0.05) return true;
@@ -38,18 +38,18 @@ export const OrderRow: React.FC<OrderRowProps> = ({
   const matchingOpenPos = matchingClosedTrade
     ? undefined
     : positions.find((p) => {
-        if ((ord as any).positionId && p.id === (ord as any).positionId) return true;
+        if (ord.positionId && p.id === ord.positionId) return true;
         if (p.symbol !== ord.symbol) return false;
         return isBuy && Math.abs(Number(p.buyPrice || 0) - execPx) < 0.05;
       }) ||
       (!matchingClosedTrade && isBuy ? positions.find((p) => p.symbol === ord.symbol) : undefined);
   const entryPx = Number(
-    (ord as any).buyPrice || matchingOpenPos?.buyPrice || matchingClosedTrade?.buyPrice || execPx,
+    ord.buyPrice || matchingOpenPos?.buyPrice || matchingClosedTrade?.buyPrice || execPx,
   );
   const currentOrExitPx = matchingOpenPos
     ? Number(matchingOpenPos.currentLTP || execPx)
     : Number(
-        (ord as any).sellPrice ||
+        ord.sellPrice ||
           matchingClosedTrade?.sellPrice ||
           matchingClosedTrade?.currentLTP ||
           execPx,
@@ -63,22 +63,20 @@ export const OrderRow: React.FC<OrderRowProps> = ({
   );
   const legCharge = isBuy ? ordCharges.buyCharges : ordCharges.sellCharges;
   const roundTripTax = Number(
-    (ord as any).brokerageCharges ||
-      (matchingClosedTrade as any)?.brokerageCharges ||
-      ordCharges.roundTripCharges,
+    ord.brokerageCharges || matchingClosedTrade?.brokerageCharges || ordCharges.roundTripCharges,
   );
   const grossPnl = matchingOpenPos
     ? Number(matchingOpenPos.pnl ?? (currentOrExitPx - entryPx) * qty)
-    : (ord as any).realizedPnL !== undefined
-      ? Number((ord as any).realizedPnL)
+    : ord.realizedPnL !== undefined
+      ? Number(ord.realizedPnL)
       : matchingClosedTrade?.realizedPnL !== undefined
         ? Number(matchingClosedTrade.realizedPnL)
         : Number(((currentOrExitPx - entryPx) * qty).toFixed(2));
   const netPnlAfterTax =
-    !matchingOpenPos && (ord as any).netRealizedPnL !== undefined
-      ? Number((ord as any).netRealizedPnL)
+    !matchingOpenPos && ord.netRealizedPnL !== undefined
+      ? Number(ord.netRealizedPnL)
       : Number((grossPnl - roundTripTax).toFixed(2));
-  const orderFormattedDate = formatTradeDateTime((ord as any).time || ord.timestamp, language);
+  const orderFormattedDate = formatTradeDateTime(ord.time || ord.timestamp, language);
   return (
     <div
       key={ord.id}

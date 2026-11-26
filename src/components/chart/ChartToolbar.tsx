@@ -1,7 +1,7 @@
 import React from 'react';
 import { TrendingUp, Sliders, Layers } from 'lucide-react';
 
-export const CHART_INTERVALS = ['1m', '3m', '5m', '15m', '1h', '1D'];
+const CHART_INTERVALS = ['1m', '3m', '5m', '15m', '1h', '1D'];
 
 interface ChartToolbarProps {
   symbol: string;

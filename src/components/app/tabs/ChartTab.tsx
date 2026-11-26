@@ -2,6 +2,7 @@ import React from 'react';
 import { CandlestickChart } from '../../CandlestickChart';
 import type {
   CandleData,
+  ChartTradeContext,
   Language,
   OptionChainData,
   StockQuote,
@@ -17,8 +18,8 @@ interface ChartTabProps {
   setOrderModalData: (v: OrderModalData) => void;
   setIsOrderModalOpen: (v: boolean) => void;
   currentQuote: StockQuote;
-  chartTradeContext?: any;
-  setChartTradeContext: (v: any) => void;
+  chartTradeContext?: ChartTradeContext | null;
+  setChartTradeContext: (v: ChartTradeContext | null) => void;
   candles: CandleData[];
   chartInterval: string;
   setChartInterval: (v: string) => void;

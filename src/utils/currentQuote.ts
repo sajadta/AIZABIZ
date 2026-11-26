@@ -1,12 +1,12 @@
 // Derive the quote shown for the selected symbol: prefer the live watchlist tick,
 // then the open chart trade context, then a matching position, then the candles.
-import type { CandleData, Position, StockQuote } from '../types';
+import type { CandleData, ChartTradeContext, Position, StockQuote } from '../types';
 
 export interface DeriveCurrentQuoteParams {
   quotes: StockQuote[];
   selectedSymbol: string;
   selectedInstrumentKey: string;
-  chartTradeContext: any;
+  chartTradeContext: ChartTradeContext | null;
   positions: Position[];
   candles: CandleData[];
 }

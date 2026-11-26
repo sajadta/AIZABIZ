@@ -4,6 +4,21 @@ export type ProductType = 'INTRADAY' | 'DELIVERY';
 export type OrderStatus = 'COMPLETE' | 'PENDING' | 'CANCELLED' | 'REJECTED';
 export type ExecutionMode = 'UPSTOX_LIVE' | 'PAPER_TRADING';
 
+/** The trade snapshot the chart tab overlays when opened from a position or order row. */
+export interface ChartTradeContext {
+  id?: string;
+  symbol: string;
+  instrumentKey?: string;
+  buyPrice: number;
+  sellPrice?: number;
+  currentLTP?: number;
+  pnl?: number;
+  stopLoss?: number;
+  target?: number;
+  quantity?: number;
+  isOption?: boolean;
+}
+
 export interface Order {
   id: string;
   orderId: string;
@@ -24,6 +39,8 @@ export interface Order {
   brokerageCharges?: number;
   netRealizedPnL?: number;
   timestamp: string;
+  /** Raw backend field; `timestamp` is the normalised display value. */
+  time?: string;
   mode: ExecutionMode;
   notes?: string;
 }
@@ -128,7 +145,8 @@ export interface Holding {
     fiftyPctReachProbability: number;
     recommendedAction: string;
     forecastSummaryMl: string;
-    trendOutlook?: 'STRONG_UPTREND' | 'ACCUMULATION_RECOVERY' | 'PROFIT_BOOKING_ZONE' | 'DOWNTREND_CAUTION';
+    trendOutlook?:
+      'STRONG_UPTREND' | 'ACCUMULATION_RECOVERY' | 'PROFIT_BOOKING_ZONE' | 'DOWNTREND_CAUTION';
     verdictEn?: string;
     verdictMl?: string;
     nextBreakoutTarget?: number;
@@ -142,7 +160,7 @@ export interface Holding {
   };
 }
 
-export type StrategyKey = 
+export type StrategyKey =
   | 'SUPERTREND_EMA_CONFLUENCE'
   | 'RSI_MOMENTUM_BREAKOUT'
   | 'VWAP_INSTITUTIONAL_REVERSION'
@@ -163,10 +181,7 @@ export interface CandlestickPattern {
 export type TradeMode = 'OPTIONS_ONLY' | 'STOCKS_ONLY' | 'BOTH' | 'AUTO_ADAPTIVE';
 
 export type OptionStrategyMode =
-  | 'OPTION_BUYING'
-  | 'OPTION_SELLING'
-  | 'MULTI_LEG_STRANGLE'
-  | 'HYBRID_AUTO_REGIME';
+  'OPTION_BUYING' | 'OPTION_SELLING' | 'MULTI_LEG_STRANGLE' | 'HYBRID_AUTO_REGIME';
 
 export interface BotConfig {
   enabled: boolean;
@@ -226,7 +241,16 @@ export interface BotConfig {
 export interface BotLog {
   id: string;
   timestamp: string;
-  type: 'INFO' | 'SIGNAL' | 'EXECUTION' | 'SL_TRIGGER' | 'TP_TRIGGER' | 'ERROR' | 'SYSTEM' | 'TRADE' | 'SUCCESS';
+  type:
+    | 'INFO'
+    | 'SIGNAL'
+    | 'EXECUTION'
+    | 'SL_TRIGGER'
+    | 'TP_TRIGGER'
+    | 'ERROR'
+    | 'SYSTEM'
+    | 'TRADE'
+    | 'SUCCESS';
   message: string;
   messageMalayalam?: string;
   data?: any;

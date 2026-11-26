@@ -19,7 +19,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       id: '1',
       sender: 'ai',
       text: 'ഹലോ! ഞാൻ ഈ ആപ്പിന്റെ AI അസിസ്റ്റൻ്റ് ആണ്. ആപ്പ് ഉപയോഗിക്കുന്നതിൽ എന്തെങ്കിലും സംശയങ്ങളോ എററുകളോ ഉണ്ടെങ്കിൽ എന്നോട് ചോദിക്കാവുന്നതാണ്. തകരാറുകൾ പരിശോധിക്കാൻ താഴെയുള്ള "Run Diagnostics" ക്ലിക്ക് ചെയ്യുക.',
-    }
+    },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,7 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
     if (!input.trim()) return;
 
     const userMsg: Message = { id: Date.now().toString(), sender: 'user', text: input };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
 
@@ -46,25 +46,39 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMsg.text, geminiApiKey: apiConfig.geminiApiKey,
+          message: userMsg.text,
+          geminiApiKey: apiConfig.geminiApiKey,
           systemStatus: {
             apiConnected: apiConfig.isConnected,
             apiTokenExists: !!apiConfig.accessToken,
             liveQuotesReceiving: quotesCount > 0,
             networkOnline: navigator.onLine,
-            timestamp: new Date().toISOString()
-          }
+            timestamp: new Date().toISOString(),
+          },
         }),
       });
 
       const data = await res.json();
       if (data.success || data.text) {
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now().toString(), sender: 'ai', text: data.text },
+        ]);
       } else {
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Error: ' + (data.error || 'Server error. Please try again later.') }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            sender: 'system',
+            text: 'Error: ' + (data.error || 'Server error. Please try again later.'),
+          },
+        ]);
       }
     } catch {
-      setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now().toString(), sender: 'system', text: 'Network Error.' },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -73,38 +87,56 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
   const runDiagnostics = async () => {
     setLoading(true);
     const diagMsg = '🔍 **System Diagnostic Check Started...**\n\n';
-    setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: diagMsg }]);
-    
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now().toString(), sender: 'system', text: diagMsg },
+    ]);
+
     try {
       const res = await fetch('/api/gemini/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          geminiApiKey: apiConfig.geminiApiKey, message: "[AUTO-DIAGNOSTIC-REQUEST] Verify the algorithm working, code execution health, and API connectivity state based on the following system payload. Reply in Malayalam detailing the health of the bot, execution engine, and options calculations (IV/Theta/Gamma).",
+          geminiApiKey: apiConfig.geminiApiKey,
+          message:
+            '[AUTO-DIAGNOSTIC-REQUEST] Verify the algorithm working, code execution health, and API connectivity state based on the following system payload. Reply in Malayalam detailing the health of the bot, execution engine, and options calculations (IV/Theta/Gamma).',
           systemStatus: {
             apiConnected: apiConfig.isConnected,
             apiTokenExists: !!apiConfig.accessToken,
             liveQuotesReceiving: quotesCount > 0,
             networkOnline: navigator.onLine,
-            memory: (performance as Performance & { memory?: { usedJSHeapSize?: number } })?.memory?.usedJSHeapSize,
+            memory: (performance as Performance & { memory?: { usedJSHeapSize?: number } })?.memory
+              ?.usedJSHeapSize,
             executionEngine: 'Active (v2.4.1)',
             optionGreeksEngine: 'Active (Real-time)',
-            timestamp: new Date().toISOString()
-          }
+            timestamp: new Date().toISOString(),
+          },
         }),
       });
       const data = await res.json();
       if (data.success || data.text) {
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'ai', text: data.text }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now().toString(), sender: 'ai', text: data.text },
+        ]);
       } else {
-        let errText = 'ഡയഗ്നോസ്റ്റിക്സിൽ പിഴവ് സംഭവിച്ചു (API Error). ' + (data.error ? '\nകാരണം: ' + data.error : '');
+        let errText =
+          'ഡയഗ്നോസ്റ്റിക്സിൽ പിഴവ് സംഭവിച്ചു (API Error). ' +
+          (data.error ? '\nകാരണം: ' + data.error : '');
         if (JSON.stringify(data).includes('503') || JSON.stringify(data).includes('high demand')) {
-            errText = 'ക്ഷമിക്കണം, AI സെർവറുകളിൽ ഇപ്പോൾ വലിയ തിരക്കാണ് (High Demand). ദയവായി അല്പസമയം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.';
+          errText =
+            'ക്ഷമിക്കണം, AI സെർവറുകളിൽ ഇപ്പോൾ വലിയ തിരക്കാണ് (High Demand). ദയവായി അല്പസമയം കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.';
         }
-        setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: errText }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now().toString(), sender: 'system', text: errText },
+        ]);
       }
     } catch {
-      setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'system', text: 'Network Error.' }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now().toString(), sender: 'system', text: 'Network Error.' },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -137,14 +169,19 @@ export const LiveAiSupport: React.FC<Props> = ({ apiConfig, quotesCount }) => {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
-              msg.sender === 'user' 
-                ? 'bg-indigo-600 text-white rounded-br-sm' 
-                : msg.sender === 'system'
-                ? 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm font-mono whitespace-pre-wrap'
-                : 'bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-bl-sm'
-            }`}>
+          <div
+            key={msg.id}
+            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
+                msg.sender === 'user'
+                  ? 'bg-indigo-600 text-white rounded-br-sm'
+                  : msg.sender === 'system'
+                    ? 'bg-slate-800 border border-slate-700 text-slate-200 rounded-bl-sm font-mono whitespace-pre-wrap'
+                    : 'bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-bl-sm'
+              }`}
+            >
               {msg.sender === 'ai' && <Bot className="w-3.5 h-3.5 mb-1.5 text-indigo-400" />}
               {msg.text}
             </div>

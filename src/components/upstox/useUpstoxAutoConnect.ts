@@ -88,7 +88,7 @@ export function useUpstoxAutoConnect({
       }
     }, 2000);
     return () => clearInterval(pollTimer);
-  }, [isOpen, config.isConnected, language]);
+  }, [isOpen, config.isConnected, language, setAccessToken, setLiveHoldingsCount, setStatusMsg]);
 
   // Listen for automatic OAuth callback postMessage
   useEffect(() => {
@@ -121,5 +121,5 @@ export function useUpstoxAutoConnect({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [language]);
+  }, [language, setAccessToken, setStatusMsg]);
 }

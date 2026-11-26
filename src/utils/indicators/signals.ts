@@ -2,11 +2,6 @@ import type { CandleData, IndicatorReadings, StrategyKey, TradingSignal } from '
 import type { RealOptionMetrics } from './optionTypes';
 import { calculateATR } from './calculations';
 import { selectSessionCandles, computeSessionVwap } from './session';
-import {
-  calculateVwapSigmaBands,
-  evaluateDepthPressure,
-  detect0DteGammaExplosion,
-} from './institutionalQuant';
 import { buildIndicatorReadings } from './signals/readings';
 import { buildTargetForecast } from './signals/targetForecast';
 import { runConfluenceEngine } from './signals/confluenceEngine';
@@ -47,21 +42,9 @@ export function analyzeTradingSignals(
   const atr14 =
     atrSeries.length > 0 ? atrSeries[atrSeries.length - 1] : Math.max(1, last.high - last.low);
 
-  // Identify today's intraday session candles and compute the intraday VWAP & Multi-Sigma Bands.
+  // Identify today's intraday session candles for the intraday VWAP context.
   const sessionCandles = selectSessionCandles(candles);
   const vwapPrice = computeSessionVwap(sessionCandles, currentLtp);
-  const vwapSigma = calculateVwapSigmaBands(
-    sessionCandles.length > 0 ? sessionCandles : candles,
-    currentLtp,
-  );
-  const isGammaExploding0Dte = detect0DteGammaExplosion(
-    sessionCandles.length > 0 ? sessionCandles : candles,
-    currentLtp,
-  );
-  const depthScore = evaluateDepthPressure(
-    Number(optionMetrics?.bidQty || 1000),
-    Number(optionMetrics?.askQty || 1000),
-  );
 
   // Evaluate individual indicator signals
   const readings: IndicatorReadings = buildIndicatorReadings({

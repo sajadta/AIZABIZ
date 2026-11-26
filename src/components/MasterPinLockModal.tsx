@@ -32,9 +32,12 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
     setErrorMsg(null);
   }, [isLocked]);
 
-  useEffect(() => () => {
-    if (resetTimeout.current) clearTimeout(resetTimeout.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (resetTimeout.current) clearTimeout(resetTimeout.current);
+    },
+    [],
+  );
 
   if (!isLocked) return null;
 
@@ -46,7 +49,9 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
     }
 
     setShake(true);
-    setErrorMsg(language === 'ml' ? 'തെറ്റായ പിൻ! വീണ്ടും ശ്രമിക്കുക.' : 'Incorrect PIN. Try again.');
+    setErrorMsg(
+      language === 'ml' ? 'തെറ്റായ പിൻ! വീണ്ടും ശ്രമിക്കുക.' : 'Incorrect PIN. Try again.',
+    );
     if (resetTimeout.current) clearTimeout(resetTimeout.current);
     resetTimeout.current = setTimeout(() => {
       setShake(false);
@@ -100,7 +105,11 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
             />
           ))}
         </div>
-        {errorMsg && <p role="alert" className="text-sm text-rose-400">{errorMsg}</p>}
+        {errorMsg && (
+          <p role="alert" className="text-sm text-rose-400">
+            {errorMsg}
+          </p>
+        )}
         <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
             <button
@@ -113,18 +122,36 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
               {digit}
             </button>
           ))}
-          <button type="button" onClick={handleClear} className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-xs font-semibold text-slate-300">
+          <button
+            type="button"
+            onClick={handleClear}
+            className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-xs font-semibold text-slate-300"
+          >
             {language === 'ml' ? 'മായ്ക്കുക' : 'Clear'}
           </button>
-          <button type="button" onClick={() => handleKeyPress('0')} className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-lg font-bold text-white hover:bg-slate-800" aria-label="Enter 0">
+          <button
+            type="button"
+            onClick={() => handleKeyPress('0')}
+            className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-lg font-bold text-white hover:bg-slate-800"
+            aria-label="Enter 0"
+          >
             0
           </button>
-          <button type="button" onClick={handleBackspace} className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-slate-300" aria-label={language === 'ml' ? 'അവസാന അക്കം നീക്കുക' : 'Delete last digit'}>
+          <button
+            type="button"
+            onClick={handleBackspace}
+            className="min-h-12 rounded-xl border border-slate-700 bg-slate-900 text-slate-300"
+            aria-label={language === 'ml' ? 'അവസാന അക്കം നീക്കുക' : 'Delete last digit'}
+          >
             ⌫
           </button>
         </div>
         <label className="flex items-center gap-2 text-xs text-slate-400">
-          <input type="checkbox" checked={rememberDevice} onChange={(event) => setRememberDevice(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={rememberDevice}
+            onChange={(event) => setRememberDevice(event.target.checked)}
+          />
           {language === 'ml' ? 'ഈ ഉപകരണത്തിൽ ഓർമ്മിക്കുക' : 'Remember this device'}
         </label>
         <p className="text-[10px] text-slate-500">
@@ -132,7 +159,12 @@ export const MasterPinLockModal: React.FC<MasterPinLockModalProps> = ({
             ? 'ഇത് സൗകര്യത്തിനുള്ള ലോക്ക് മാത്രമാണ്; യഥാർത്ഥ സുരക്ഷ സെർവറിൽ നടപ്പാക്കണം.'
             : 'This is a convenience lock only, not server-side authentication.'}
         </p>
-        <div className="sr-only" aria-hidden="true"><Unlock /><AlertTriangle /><KeyRound /><CheckCircle2 /></div>
+        <div className="sr-only" aria-hidden="true">
+          <Unlock />
+          <AlertTriangle />
+          <KeyRound />
+          <CheckCircle2 />
+        </div>
       </div>
     </div>
   );

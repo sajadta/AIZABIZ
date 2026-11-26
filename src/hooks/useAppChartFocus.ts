@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
-import type { StockQuote } from '../types';
+import type { ChartTradeContext, StockQuote } from '../types';
 import type { TabKey } from '../components/app/types';
 
 interface UseAppChartFocusParams {
   quotes: StockQuote[];
   setSelectedSymbol: (v: string) => void;
   setSelectedInstrumentKey: (v: string) => void;
-  setChartTradeContext: (v: any) => void;
+  setChartTradeContext: (v: ChartTradeContext | null) => void;
   setActiveTab: (tab: TabKey) => void;
 }
 
@@ -27,7 +27,7 @@ export function useAppChartFocus({
   setActiveTab,
 }: UseAppChartFocusParams) {
   return useCallback(
-    (sym: string, key?: string, context?: any) => {
+    (sym: string, key?: string, context?: ChartTradeContext) => {
       setSelectedSymbol(sym);
       setChartTradeContext(context || null);
 

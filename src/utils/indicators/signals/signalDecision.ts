@@ -47,8 +47,6 @@ export function decideSignalDirection(p: SignalDecisionParams): SignalDecisionRe
     isSidewaysChopRegime,
     isCorporateMtfBullBlocked,
     isCorporateMtfBearBlocked,
-    isStrongTechUptrend,
-    isStrongTechDowntrend,
   } = p;
 
   const totalBullishConfidence = Math.min(99, Math.max(10, bullishPoints));

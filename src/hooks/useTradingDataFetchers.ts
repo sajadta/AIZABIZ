@@ -69,7 +69,7 @@ export const useTradingDataFetchers = ({
         setOptionChainLoading(false);
       }
     },
-    [selectedSymbol, accessToken],
+    [selectedSymbol, accessToken, setOptionChainLoading, setOptionChainData],
   );
 
   // Fetch real Upstox long-term holdings
@@ -95,7 +95,7 @@ export const useTradingDataFetchers = ({
     } catch (e) {
       console.warn('Holdings fetch notice:', e);
     }
-  }, [accessToken, mode]);
+  }, [accessToken, mode, setHoldings]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -114,7 +114,7 @@ export const useTradingDataFetchers = ({
     } catch {
       // Ignored
     }
-  }, []);
+  }, [setTradeHistory]);
 
   // Fetch real Upstox live positions AND Paper Trading positions/orders from backend (coalesced to prevent duplicate bursts)
   const fetchLivePositions = useCallback(async () => {
@@ -225,6 +225,15 @@ export const useTradingDataFetchers = ({
 
     livePositionsInFlightRef.current = work;
     return work;
-  }, [accessToken, isConnected, mode]);
+  }, [
+    accessToken,
+    isConnected,
+    mode,
+    livePositionsInFlightRef,
+    lastLivePositionsAtRef,
+    setPositions,
+    setOrders,
+    setTradeHistory,
+  ]);
   return { fetchOptionChain, fetchHoldings, fetchHistory, fetchLivePositions };
 };

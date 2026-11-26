@@ -45,7 +45,8 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.props.fallbackTitle || 'ഘടകം ലോഡ് ചെയ്യുന്നതിൽ പിശക് സംഭവിച്ചു (Display Error)'}
             </h3>
             <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              വിവരങ്ങൾ റെൻഡർ ചെയ്യുമ്പോൾ ഒരു തടസ്സം നേരിട്ടു. താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത് വീണ്ടും ശ്രമിക്കുക.
+              വിവരങ്ങൾ റെൻഡർ ചെയ്യുമ്പോൾ ഒരു തടസ്സം നേരിട്ടു. താഴെയുള്ള ബട്ടൺ ക്ലിക്ക് ചെയ്ത്
+              വീണ്ടും ശ്രമിക്കുക.
             </p>
           </div>
           <button

@@ -10,7 +10,13 @@ export interface VwapSigmaResult {
   lower1: number;
   upper2: number;
   lower2: number;
-  position: 'ABOVE_UPPER2' | 'BETWEEN_UPPER1_2' | 'ABOVE_VWAP' | 'BELOW_VWAP' | 'BETWEEN_LOWER1_2' | 'BELOW_LOWER2';
+  position:
+    | 'ABOVE_UPPER2'
+    | 'BETWEEN_UPPER1_2'
+    | 'ABOVE_VWAP'
+    | 'BELOW_VWAP'
+    | 'BETWEEN_LOWER1_2'
+    | 'BELOW_LOWER2';
 }
 
 /**
@@ -18,7 +24,14 @@ export interface VwapSigmaResult {
  */
 export function calculateVwapSigmaBands(candles: any[], currentLtp: number): VwapSigmaResult {
   if (!candles || candles.length === 0) {
-    return { vwap: currentLtp, upper1: currentLtp, lower1: currentLtp, upper2: currentLtp, lower2: currentLtp, position: 'ABOVE_VWAP' };
+    return {
+      vwap: currentLtp,
+      upper1: currentLtp,
+      lower1: currentLtp,
+      upper2: currentLtp,
+      lower2: currentLtp,
+      position: 'ABOVE_VWAP',
+    };
   }
 
   let cumulativeVwapVol = 0;
@@ -33,11 +46,13 @@ export function calculateVwapSigmaBands(candles: any[], currentLtp: number): Vwa
     closes.push(c.close);
   }
 
-  const vwap = cumulativeVol > 0 ? Number((cumulativeVwapVol / cumulativeVol).toFixed(2)) : currentLtp;
+  const vwap =
+    cumulativeVol > 0 ? Number((cumulativeVwapVol / cumulativeVol).toFixed(2)) : currentLtp;
 
   // Calculate standard deviation of closes around VWAP
-  const variance = closes.reduce((sum, p) => sum + Math.pow(p - vwap, 2), 0) / Math.max(1, closes.length);
-  const stdev = Math.sqrt(variance) || (vwap * 0.002);
+  const variance =
+    closes.reduce((sum, p) => sum + Math.pow(p - vwap, 2), 0) / Math.max(1, closes.length);
+  const stdev = Math.sqrt(variance) || vwap * 0.002;
 
   const upper1 = Number((vwap + stdev).toFixed(2));
   const lower1 = Number((vwap - stdev).toFixed(2));
@@ -59,7 +74,13 @@ export function calculateVwapSigmaBands(candles: any[], currentLtp: number): Vwa
 /**
  * Evaluates Order Book Bid-Ask Depth Pressure (sum of top 5 bid quantities vs ask quantities).
  */
-export function evaluateDepthPressure(totalBidQty: number, totalAskQty: number): { ratio: number; sentiment: 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH' } {
+export function evaluateDepthPressure(
+  totalBidQty: number,
+  totalAskQty: number,
+): {
+  ratio: number;
+  sentiment: 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH';
+} {
   const bids = Math.max(1, Number(totalBidQty || 1));
   const asks = Math.max(1, Number(totalAskQty || 1));
   const ratio = Number((bids / asks).toFixed(2));
@@ -68,7 +89,7 @@ export function evaluateDepthPressure(totalBidQty: number, totalAskQty: number):
   if (ratio >= 2.2) sentiment = 'STRONG_BULLISH';
   else if (ratio >= 1.25) sentiment = 'BULLISH';
   else if (ratio <= 0.45) sentiment = 'STRONG_BEARISH';
-  else if (ratio <= 0.80) sentiment = 'BEARISH';
+  else if (ratio <= 0.8) sentiment = 'BEARISH';
 
   return { ratio, sentiment };
 }
@@ -96,7 +117,9 @@ export function detect0DteGammaExplosion(candles: any[], currentLtp: number): bo
 /**
  * Evaluates Intermarket Correlation (Gift Nifty proxy, USDINR, etc.).
  */
-export function evaluateIntermarketCorrelation(giftNiftyChgPct: number): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
+export function evaluateIntermarketCorrelation(
+  giftNiftyChgPct: number,
+): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
   if (giftNiftyChgPct >= 0.25) return 'BULLISH';
   if (giftNiftyChgPct <= -0.25) return 'BEARISH';
   return 'NEUTRAL';

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { UpstoxApiConfig } from '../../types';
 
 export interface UpstoxModalConfigSyncParams {
@@ -43,7 +43,64 @@ export function useUpstoxModalConfigSync({
   setLiveHoldingsCount,
   onSaveConfig,
 }: UpstoxModalConfigSyncParams) {
+  // These arrive as fresh identities on every parent render; refs keep the
+  // effect keyed to modal/config state only, so it cannot re-run in a loop.
+  const unstableRef = useRef({
+    defaultApiKey,
+    defaultApiSecret,
+    getFallbackRedirectUri,
+    onSaveConfig,
+    setApiKey,
+    setApiSecret,
+    setAccessToken,
+    setActiveTab,
+    setRedirectUri,
+    setStatusMsg,
+    setIsFixedProxyActive,
+    setProxyUrlInput,
+    setContainerIp,
+    setProxyError,
+    setSavedMobile,
+    setLiveHoldingsCount,
+  });
+  unstableRef.current = {
+    defaultApiKey,
+    defaultApiSecret,
+    getFallbackRedirectUri,
+    onSaveConfig,
+    setApiKey,
+    setApiSecret,
+    setAccessToken,
+    setActiveTab,
+    setRedirectUri,
+    setStatusMsg,
+    setIsFixedProxyActive,
+    setProxyUrlInput,
+    setContainerIp,
+    setProxyError,
+    setSavedMobile,
+    setLiveHoldingsCount,
+  };
+
   useEffect(() => {
+    const {
+      defaultApiKey,
+      defaultApiSecret,
+      getFallbackRedirectUri,
+      onSaveConfig,
+      setApiKey,
+      setApiSecret,
+      setAccessToken,
+      setActiveTab,
+      setRedirectUri,
+      setStatusMsg,
+      setIsFixedProxyActive,
+      setProxyUrlInput,
+      setContainerIp,
+      setProxyError,
+      setSavedMobile,
+      setLiveHoldingsCount,
+    } = unstableRef.current;
     if (isOpen) {
       setApiKey(config.apiKey || defaultApiKey);
       setApiSecret(

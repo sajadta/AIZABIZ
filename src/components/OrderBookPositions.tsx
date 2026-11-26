@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Order, Position, Holding, Language } from '../types';
+import type { Order, Position, Holding, Language, ChartTradeContext } from '../types';
 import { translations } from '../translations';
 import { formatTradeDateTime } from './orderbook/tradeUtils';
 import { useOrderBookSummary } from './orderbook/useOrderBookSummary';
@@ -10,8 +10,6 @@ import { PositionsTab } from './orderbook/PositionsTab';
 import { HoldingsTab } from './orderbook/HoldingsTab';
 import { OrdersTab } from './orderbook/OrdersTab';
 import { TradeHistoryTab } from './orderbook/TradeHistoryTab';
-
-export { formatTradeDateTime, getTradeDuration, translateExitReason } from './orderbook/tradeUtils';
 
 interface OrderBookPositionsProps {
   positions: Position[];
@@ -38,7 +36,7 @@ interface OrderBookPositionsProps {
   onRefreshHoldings?: () => void;
   isConnected?: boolean;
   onOpenApiModal?: () => void;
-  onViewChart?: (symbol: string, instrumentKey?: string, context?: any) => void;
+  onViewChart?: (symbol: string, instrumentKey?: string, context?: ChartTradeContext) => void;
   onSyncHistoryBrokerage?: () => Promise<void>;
 }
 

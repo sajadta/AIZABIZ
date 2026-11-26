@@ -60,12 +60,12 @@ export const useChartCandles = ({
       if (candlesAbortRef.current === ctrl) candlesAbortRef.current = null;
       candlesInFlightRef.current = false;
     }
-  }, [selectedSymbol, selectedInstrumentKey, chartInterval, accessToken]);
+  }, [selectedSymbol, selectedInstrumentKey, chartInterval, accessToken, setCandles]);
 
   // Clear stale candles immediately when selectedSymbol or selectedInstrumentKey changes so old symbol's price scale never mixes with new symbol
   useEffect(() => {
     setCandles([]);
-  }, [selectedSymbol, selectedInstrumentKey]);
+  }, [selectedSymbol, selectedInstrumentKey, setCandles]);
 
   useEffect(() => {
     fetchRealCandles();

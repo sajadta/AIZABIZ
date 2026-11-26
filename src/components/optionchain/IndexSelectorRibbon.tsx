@@ -11,7 +11,7 @@ const MAJOR_INDICES = [
   { symbol: 'BANKEX', key: 'BSE_INDEX|BANKEX', name: 'BANKEX' },
 ];
 
-export const normalizeIndexSymbol = (s?: string): string => {
+const normalizeIndexSymbol = (s?: string): string => {
   const str = String(s || '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');

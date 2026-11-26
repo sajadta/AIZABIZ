@@ -1,14 +1,16 @@
 // Chart/tick synchronization effects shared by the app shell: keep the open chart
 // trade context live and fold the selected symbol's tick into the last candle.
-import { useEffect } from 'react';
-import type { CandleData, Position } from '../types';
+import { useEffect, useRef } from 'react';
+import type { CandleData, ChartTradeContext, Position } from '../types';
 import { enrichCandlesWithIndicators } from '../utils/indicators';
 
 export interface ChartTradeContextSyncParams {
   positions: Position[];
   candles: CandleData[];
-  chartTradeContext: any;
-  setChartTradeContext: (updater: (prev: any) => any) => void;
+  chartTradeContext: ChartTradeContext | null;
+  setChartTradeContext: (
+    updater: (prev: ChartTradeContext | null) => ChartTradeContext | null,
+  ) => void;
 }
 
 export function useChartTradeContextSync({
@@ -17,11 +19,13 @@ export function useChartTradeContextSync({
   chartTradeContext,
   setChartTradeContext,
 }: ChartTradeContextSyncParams): void {
+  const contextRef = useRef(chartTradeContext);
+  contextRef.current = chartTradeContext;
+
   useEffect(() => {
-    if (!chartTradeContext) return;
-    const active = positions.find(
-      (p) => p.id === chartTradeContext.id || p.symbol === chartTradeContext.symbol,
-    );
+    const ctx = contextRef.current;
+    if (!ctx) return;
+    const active = positions.find((p) => p.id === ctx.id || p.symbol === ctx.symbol);
     const lastCandleClose = candles.length > 0 ? Number(candles[candles.length - 1].close || 0) : 0;
     if (active) {
       const liveLtp =
@@ -29,7 +33,7 @@ export function useChartTradeContextSync({
           ? lastCandleClose
           : Number(active.currentLTP || active.buyPrice);
       const livePnl = Number(((liveLtp - active.buyPrice) * active.quantity).toFixed(2));
-      setChartTradeContext((prev: any) => {
+      setChartTradeContext((prev) => {
         if (!prev) return prev;
         if (
           prev.currentLTP === liveLtp &&
@@ -45,7 +49,7 @@ export function useChartTradeContextSync({
         };
       });
     } else if (lastCandleClose > 0) {
-      setChartTradeContext((prev: any) => {
+      setChartTradeContext((prev) => {
         if (!prev || prev.currentLTP === lastCandleClose) return prev;
         const livePnl = Number(
           ((lastCandleClose - prev.buyPrice) * (prev.quantity || 1)).toFixed(2),
@@ -57,7 +61,7 @@ export function useChartTradeContextSync({
         };
       });
     }
-  }, [positions, candles, chartTradeContext?.symbol]);
+  }, [positions, candles, chartTradeContext?.symbol, setChartTradeContext]);
 }
 
 export interface CandleTickSyncParams {
@@ -66,32 +70,30 @@ export interface CandleTickSyncParams {
 }
 
 export function useCandleTickSync({ currentQuote, setCandles }: CandleTickSyncParams): void {
+  const ltp = currentQuote?.ltp;
+
   useEffect(() => {
-    if (!currentQuote || !currentQuote.ltp || currentQuote.ltp <= 0) return;
+    if (!ltp || ltp <= 0) return;
     setCandles((prev) => {
       if (prev.length === 0) return prev;
       const last = prev[prev.length - 1];
       if (!last || !last.close || last.close <= 0) return prev;
       // Guard against cross-symbol contamination (e.g., merging a ₹54,450 NIFTY BANK quote into ₹22,700 NIFTY 50 candles)
-      const priceDiffRatio = Math.abs(currentQuote.ltp - last.close) / last.close;
+      const priceDiffRatio = Math.abs(ltp - last.close) / last.close;
       if (priceDiffRatio > 0.15) {
         return prev;
       }
-      if (
-        last.close === currentQuote.ltp &&
-        currentQuote.ltp <= last.high &&
-        currentQuote.ltp >= last.low
-      ) {
+      if (last.close === ltp && ltp <= last.high && ltp >= last.low) {
         return prev;
       }
       const updatedLast: CandleData = {
         ...last,
-        close: currentQuote.ltp,
-        high: Math.max(last.high, currentQuote.ltp),
-        low: Math.min(last.low, currentQuote.ltp),
+        close: ltp,
+        high: Math.max(last.high, ltp),
+        low: Math.min(last.low, ltp),
       };
       const copy = [...prev.slice(0, -1), updatedLast];
       return enrichCandlesWithIndicators(copy);
     });
-  }, [currentQuote?.ltp]);
+  }, [ltp, setCandles]);
 }

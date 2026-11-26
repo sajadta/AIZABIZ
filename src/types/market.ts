@@ -86,7 +86,12 @@ export type SignalType = 'BUY' | 'SELL' | 'HOLD';
 
 export interface IndicatorReadings {
   supertrend: { signal: 'BUY' | 'SELL'; value: number };
-  emaCross: { signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL'; ema9: number; ema21: number; ema50: number };
+  emaCross: {
+    signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+    ema9: number;
+    ema21: number;
+    ema50: number;
+  };
   rsi: { value: number; condition: 'OVERSOLD' | 'OVERBOUGHT' | 'BULLISH' | 'BEARISH' | 'NEUTRAL' };
   macd: { macd: number; signal: number; hist: number; cross: 'BULLISH' | 'BEARISH' | 'NEUTRAL' };
   vwap: { value: number; position: 'ABOVE' | 'BELOW' };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { OptionChainView } from '../../OptionChainView';
-import type { Language, OptionChainData, StockQuote } from '../../../types';
+import type { ChartTradeContext, Language, OptionChainData, StockQuote } from '../../../types';
 import type { OrderModalData } from '../types';
 
 interface OptionsTabProps {
@@ -12,7 +12,7 @@ interface OptionsTabProps {
   setOrderModalData: (v: OrderModalData) => void;
   setIsOrderModalOpen: (v: boolean) => void;
   optionChainData: OptionChainData | null;
-  handleViewChart: (sym: string, key?: string, context?: any) => void;
+  handleViewChart: (sym: string, key?: string, context?: ChartTradeContext) => void;
   optionChainLoading: boolean;
   fetchOptionChain: (expiryOverride?: string, symbolOverride?: string) => Promise<void>;
 }

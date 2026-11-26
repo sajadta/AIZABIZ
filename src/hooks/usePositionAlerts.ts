@@ -16,7 +16,9 @@ export function usePositionAlerts({
   soundEnabled,
   setLightingBanner,
 }: UsePositionAlertsParams) {
-  const prevPositionsRef = useRef<Record<string, { pnl: number; is50Hit: boolean; tier: number }>>({});
+  const prevPositionsRef = useRef<Record<string, { pnl: number; is50Hit: boolean; tier: number }>>(
+    {},
+  );
   const prevHoldingsRef = useRef<Record<string, { pnl: number; is50Hit: boolean }>>({});
 
   useEffect(() => {
