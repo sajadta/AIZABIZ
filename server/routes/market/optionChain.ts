@@ -1,36 +1,42 @@
 // Instrument details and option chain routes.
-import express from "express";
-import type { Request, Response } from "express";
-import { upstoxConfig, globalLiveQuotes, getLastQuotesCache } from "../../state";
-import { getInstrumentKey, getUnderlyingOptionInstrumentKey, getDynamicLotSizeInfo, lotSizeCache } from "../../lib/instruments";
+import express from 'express';
+import type { Request, Response } from 'express';
+import { upstoxConfig, globalLiveQuotes } from '../../state';
+import {
+  getInstrumentKey,
+  getUnderlyingOptionInstrumentKey,
+  getDynamicLotSizeInfo,
+  lotSizeCache,
+} from '../../lib/instruments';
+import { buildSimulatedOptionChain } from './simulatedOptionChain';
 
 export function resolveOptionChainSymbol(query: Record<string, any>): string {
-  const sym = typeof query?.symbol === "string" ? query.symbol.trim() : "";
-  const inst = typeof query?.instrumentKey === "string" ? query.instrumentKey.trim() : "";
-  return sym || inst || "NIFTY 50";
+  const sym = typeof query?.symbol === 'string' ? query.symbol.trim() : '';
+  const inst = typeof query?.instrumentKey === 'string' ? query.instrumentKey.trim() : '';
+  return sym || inst || 'NIFTY 50';
 }
 
 export function registerOptionChainRoutes(app: express.Application) {
   // 6. Option Chain Data (Real Upstox API with Fallback)
 
   // Real-time instrument lookup (100% Dynamic Live Lot Size from Upstox API)
-  app.get("/api/instrument/details", async (req: Request, res: Response) => {
-    const symbol = String(req.query.symbol || "").trim();
-    const rawInstrumentKey = String(req.query.instrumentKey || "").trim();
+  app.get('/api/instrument/details', async (req: Request, res: Response) => {
+    const symbol = String(req.query.symbol || '').trim();
+    const rawInstrumentKey = String(req.query.instrumentKey || '').trim();
     const instrumentKey = rawInstrumentKey || getInstrumentKey(symbol);
     const token = upstoxConfig.accessToken;
 
     const symUpper = symbol.toUpperCase();
     const isOptionOrIndex =
       /\b(CE|PE|CALL|PUT|FUT)\b/.test(symUpper) ||
-      symUpper.includes("NIFTY") ||
-      symUpper.includes("BANKNIFTY") ||
-      symUpper.includes("FINNIFTY") ||
-      symUpper.includes("MIDCP") ||
-      symUpper.includes("SENSEX") ||
-      symUpper.includes("BANKEX") ||
-      instrumentKey.includes("FO|") ||
-      instrumentKey.includes("INDEX|");
+      symUpper.includes('NIFTY') ||
+      symUpper.includes('BANKNIFTY') ||
+      symUpper.includes('FINNIFTY') ||
+      symUpper.includes('MIDCP') ||
+      symUpper.includes('SENSEX') ||
+      symUpper.includes('BANKEX') ||
+      instrumentKey.includes('FO|') ||
+      instrumentKey.includes('INDEX|');
 
     if (!isOptionOrIndex) {
       // Equity / Cash Stock uses exact Share Quantity (1 share step), never option lots
@@ -38,7 +44,7 @@ export function registerOptionChainRoutes(app: express.Application) {
         symbol,
         instrumentKey,
         lotSize: 1,
-        source: "EQUITY_SHARES",
+        source: 'EQUITY_SHARES',
       });
     }
 
@@ -53,110 +59,14 @@ export function registerOptionChainRoutes(app: express.Application) {
     });
   });
 
-  function getSimulatedOptionChain(symbol: string, requestedExpiry?: string) {
-    let spot = 24200;
-    let step = 50;
-    let lotSize = 25;
-    const symUpper = symbol.toUpperCase();
-    if (symUpper.includes('BANKNIFTY') || symUpper.includes('NIFTY BANK')) {
-      spot = 51500;
-      step = 100;
-      lotSize = 15;
-    } else if (symUpper.includes('SENSEX')) {
-      spot = 79500;
-      step = 100;
-      lotSize = 10;
-    } else if (symUpper.includes('FINNIFTY') || symUpper.includes('FIN')) {
-      spot = 23800;
-      step = 50;
-      lotSize = 25;
-    } else if (symUpper.includes('MIDCPNIFTY') || symUpper.includes('MID')) {
-      spot = 12800;
-      step = 25;
-      lotSize = 50;
-    } else if (symUpper.includes('BANKEX')) {
-      spot = 58000;
-      step = 100;
-      lotSize = 15;
-    }
-    const matchQ = getLastQuotesCache().quotes.find((q: any) =>
-      q.symbol?.toUpperCase().includes(symbol.split(' ')[0].toUpperCase())
-    );
-    if (matchQ && matchQ.ltp > 0) {
-      spot = matchQ.ltp;
-    }
-
-    const atmStrike = Math.round(spot / step) * step;
-    const strikes = [];
-    let totalCallOI = 0;
-    let totalPutOI = 0;
-
-    for (let i = -15; i <= 15; i++) {
-      const strikePrice = atmStrike + i * step;
-      const dist = (strikePrice - spot) / step;
-      const callLTP = strikePrice < spot
-        ? Number((spot - strikePrice + 60 + Math.abs(dist) * 4).toFixed(1))
-        : Number(Math.max(3.5, 120 - dist * 12).toFixed(1));
-      const putLTP = strikePrice > spot
-        ? Number((strikePrice - spot + 60 + Math.abs(dist) * 4).toFixed(1))
-        : Number(Math.max(3.5, 120 + dist * 12).toFixed(1));
-      const callOI = Math.max(12000, Math.round(1800000 - Math.abs(dist) * 90000 + Math.sin(i) * 50000));
-      const putOI = Math.max(12000, Math.round(1950000 - Math.abs(dist) * 95000 + Math.cos(i) * 60000));
-      totalCallOI += callOI;
-      totalPutOI += putOI;
-
-      strikes.push({
-        strikePrice,
-        callLTP,
-        putLTP,
-        callOI,
-        putOI,
-        callChangeOI: Math.round(callOI * 0.05),
-        putChangeOI: Math.round(putOI * 0.06),
-        callVolume: Math.round(callOI * 1.8),
-        putVolume: Math.round(putOI * 1.6),
-        callDelta: strikePrice < spot ? 0.65 : 0.42,
-        putDelta: strikePrice > spot ? -0.65 : -0.42,
-        callTheta: -4.5,
-        putTheta: -4.2,
-        callGamma: 0.002,
-        putGamma: 0.002,
-        callIV: Number((13.5 + Math.abs(dist) * 0.2).toFixed(1)),
-        putIV: Number((14.1 + Math.abs(dist) * 0.2).toFixed(1)),
-        callInstrumentKey: `NSE_FO|${symbol.replace(' 50', '')}${strikePrice}CE`,
-        putInstrumentKey: `NSE_FO|${symbol.replace(' 50', '')}${strikePrice}PE`,
-        lotSize,
-      });
-    }
-
-    const nextThu = new Date();
-    nextThu.setDate(nextThu.getDate() + ((4 - nextThu.getDay() + 7) % 7 || 7));
-    const expStr = nextThu.toISOString().split('T')[0];
-
-    return {
-      underlyingSymbol: symbol,
-      underlyingLTP: spot,
-      lotSize,
-      timestamp: new Date().toISOString(),
-      expiryDates: [expStr],
-      selectedExpiry: requestedExpiry || expStr,
-      strikes,
-      pcr: Number((totalPutOI / (totalCallOI || 1)).toFixed(2)),
-      maxPain: atmStrike,
-      totalCallOI,
-      totalPutOI,
-      isSimulated: true,
-    };
-  }
-
-  app.get("/api/market/optionchain", async (req: Request, res: Response) => {
+  app.get('/api/market/optionchain', async (req: Request, res: Response) => {
     const symbol = resolveOptionChainSymbol(req.query as Record<string, any>);
     const instrumentKey = getUnderlyingOptionInstrumentKey(symbol);
     const token = upstoxConfig.accessToken;
 
     if (!token) {
       // Provide realistic option chain for paper trading and demonstration
-      return res.json(getSimulatedOptionChain(symbol, req.query.expiry as string));
+      return res.json(buildSimulatedOptionChain(symbol, req.query.expiry as string));
     }
 
     try {
@@ -166,21 +76,19 @@ export function registerOptionChainRoutes(app: express.Application) {
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Api-Version": "2.0",
+            Accept: 'application/json',
+            'Api-Version': '2.0',
           },
         },
       );
 
       if (!contractRes.ok) {
-        return res
-          .status(401)
-          .json({ error: "Unauthorized. Check API Token.", strikes: [] });
+        return res.status(401).json({ error: 'Unauthorized. Check API Token.', strikes: [] });
       }
 
       const contractData = await contractRes.json();
       if (!contractData.data || contractData.data.length === 0) {
-        throw new Error("No contracts found");
+        throw new Error('No contracts found');
       }
 
       // Find nearest valid expiry date
@@ -189,12 +97,12 @@ export function registerOptionChainRoutes(app: express.Application) {
       const validExpiries: string[] = Array.from<string>(
         new Set<string>(
           contractData.data
-            .map((c: any) => String(c.expiry || ""))
+            .map((c: any) => String(c.expiry || ''))
             .filter((e: string) => e && new Date(e).getTime() >= today.getTime()),
         ),
       ).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
-      const requestedExpiry = String(req.query.expiry || "").trim();
+      const requestedExpiry = String(req.query.expiry || '').trim();
       const expiryDate =
         requestedExpiry && validExpiries.includes(requestedExpiry)
           ? requestedExpiry
@@ -206,8 +114,7 @@ export function registerOptionChainRoutes(app: express.Application) {
       const activeContractForLot =
         contractData.data.find(
           (c: any) => c.expiry === expiryDate && Number(c.lot_size || c.minimum_lot) > 0,
-        ) ||
-        contractData.data.find((c: any) => Number(c.lot_size || c.minimum_lot) > 0);
+        ) || contractData.data.find((c: any) => Number(c.lot_size || c.minimum_lot) > 0);
       const liveLotSize = Number(
         activeContractForLot?.lot_size || activeContractForLot?.minimum_lot || 1,
       );
@@ -216,7 +123,7 @@ export function registerOptionChainRoutes(app: express.Application) {
         const cacheEntry = {
           lotSize: liveLotSize,
           timestamp: Date.now(),
-          source: "UPSTOX_LIVE",
+          source: 'UPSTOX_LIVE',
           expiry: expiryDate,
         };
         lotSizeCache[instrumentKey] = cacheEntry;
@@ -229,14 +136,14 @@ export function registerOptionChainRoutes(app: express.Application) {
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            "Api-Version": "2.0",
+            Accept: 'application/json',
+            'Api-Version': '2.0',
           },
         },
       );
 
       if (!chainRes.ok) {
-        throw new Error("Failed to fetch option chain");
+        throw new Error('Failed to fetch option chain');
       }
 
       const chainData = await chainRes.json();
@@ -270,14 +177,13 @@ export function registerOptionChainRoutes(app: express.Application) {
             putGamma: put.option_greeks?.gamma || 0,
             callIV: call.option_greeks?.iv || 0,
             putIV: put.option_greeks?.iv || 0,
-            callInstrumentKey: call.instrument_key || "",
-            putInstrumentKey: put.instrument_key || "",
+            callInstrumentKey: call.instrument_key || '',
+            putInstrumentKey: put.instrument_key || '',
             lotSize: liveLotSize,
           };
         });
 
-        const pcr =
-          totalCallOI > 0 ? Number((totalPutOI / totalCallOI).toFixed(2)) : 1;
+        const pcr = totalCallOI > 0 ? Number((totalPutOI / totalCallOI).toFixed(2)) : 1;
 
         const underlyingSpot = Number(
           chainData.data[0]?.underlying_spot_price ||
@@ -314,10 +220,10 @@ export function registerOptionChainRoutes(app: express.Application) {
 
         return res.json(result);
       }
-      throw new Error("Invalid chain data");
+      throw new Error('Invalid chain data');
     } catch (error) {
-      console.warn("Upstox live option chain fallback to simulated dataset:", error);
-      return res.json(getSimulatedOptionChain(symbol, req.query.expiry as string));
+      console.warn('Upstox live option chain fallback to simulated dataset:', error);
+      return res.json(buildSimulatedOptionChain(symbol, req.query.expiry as string));
     }
   });
 }

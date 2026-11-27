@@ -67,9 +67,7 @@ export const UpstoxDailyTokenTab: React.FC<UpstoxDailyTokenTabProps> = ({
               className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white text-xs font-black transition shadow-lg flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation"
             >
               <ExternalLink className="w-4 h-4 shrink-0" />
-              <span>
-                {language === 'ml' ? '1-ക്ലിക്ക് OAuth ലോഗിൻ' : '1-Click OAuth Login'}
-              </span>
+              <span>{language === 'ml' ? '1-ക്ലിക്ക് OAuth ലോഗിൻ' : '1-Click OAuth Login'}</span>
             </a>
 
             <button
@@ -83,9 +81,7 @@ export const UpstoxDailyTokenTab: React.FC<UpstoxDailyTokenTabProps> = ({
               ) : (
                 <Smartphone className="w-4 h-4 shrink-0" />
               )}
-              <span>
-                {language === 'ml' ? 'V3 ആപ്പ് Approve' : 'Upstox V3 Approve'}
-              </span>
+              <span>{language === 'ml' ? 'V3 ആപ്പ് Approve' : 'Upstox V3 Approve'}</span>
             </button>
           </div>
 

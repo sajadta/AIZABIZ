@@ -20,8 +20,8 @@ export interface PlaceOrderInput {
   symbol: string;
   instrumentKey?: string;
   transactionType: import('../../types').OrderTransactionType;
-  orderType: any;
-  productType: any;
+  orderType: import('../../types').OrderType;
+  productType: import('../../types').ProductType;
   quantity: number;
   price: number;
   triggerPrice?: number;

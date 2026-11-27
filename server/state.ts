@@ -146,7 +146,6 @@ export const setCachedUpstoxLivePositions = (v: { timestamp: number; list: any[]
 export const setCachedUpstoxLiveMargin = (v: typeof cachedUpstoxLiveMargin) => { cachedUpstoxLiveMargin = v; };
 export const setLatestMultiIndexAlphaMatrix = (v: any[]) => { latestMultiIndexAlphaMatrix = v; };
 export const setLastQuotesCache = (v: typeof lastQuotesCache) => { lastQuotesCache = v; };
-export const setSubscribedKeys = (v: Set<string>) => { subscribedKeys = v; };
 
 export const getEngineHeartbeatTicks = () => engineHeartbeatTicks;
 export const getLastEngineTickAt = () => lastEngineTickAt;
@@ -158,7 +157,6 @@ export const getCachedUpstoxLivePositions = () => cachedUpstoxLivePositions;
 export const getCachedUpstoxLiveMargin = () => cachedUpstoxLiveMargin;
 export const getLatestMultiIndexAlphaMatrix = () => latestMultiIndexAlphaMatrix;
 export const getLastQuotesCache = () => lastQuotesCache;
-export const getSubscribedKeys = () => subscribedKeys;
 
 export const resetPaperTradingState = () => {
   paperOrders.length = 0;

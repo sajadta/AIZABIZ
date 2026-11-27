@@ -11,6 +11,8 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { Position } from '../types';
+import { buildPnLChartData } from './charts/pnlChartData';
+import { computePnLSummary } from './charts/pnlSummary';
 
 interface CumulativePnLChartProps {
   tradeHistory: Position[];
@@ -34,121 +36,19 @@ const PNL_REF_LABEL = {
   fontSize: 10,
 };
 
-export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHistory = [], language }) => {
-  const chartData = useMemo<ChartPoint[]>(() => {
-    if (!tradeHistory || tradeHistory.length === 0) return [];
+export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({
+  tradeHistory = [],
+  language,
+}) => {
+  const chartData = useMemo<ChartPoint[]>(
+    () => buildPnLChartData(tradeHistory, language),
+    [tradeHistory, language],
+  );
 
-    // Sort trade history by closeTime ascending (oldest first)
-    const sortedTrades = [...tradeHistory].sort((a, b) => {
-      const timeA = a.closeTime ? new Date(a.closeTime).getTime() : 0;
-      const timeB = b.closeTime ? new Date(b.closeTime).getTime() : 0;
-      return timeA - timeB;
-    });
-
-    // Group realized PnL by calendar date
-    const dailyMap = new Map<string, { pnl: number; count: number; rawDate: Date }>();
-
-    sortedTrades.forEach((trade) => {
-      const d = trade.closeTime ? new Date(trade.closeTime) : new Date();
-      // Format YYYY-MM-DD for grouping
-      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      
-      const realized = trade.realizedPnL || 0;
-      const existing = dailyMap.get(dateKey);
-      if (existing) {
-        existing.pnl += realized;
-        existing.count += 1;
-      } else {
-        dailyMap.set(dateKey, { pnl: realized, count: 1, rawDate: d });
-      }
-    });
-
-    // If only one day of trades exists, also provide an intraday baseline and trade-by-trade cumulative progression
-    // so the line chart shows a rich trajectory even on the first trading day!
-    if (dailyMap.size === 1) {
-      const points: ChartPoint[] = [];
-      const singleDay = Array.from(dailyMap.values())[0];
-      const dayLabel = singleDay.rawDate.toLocaleDateString(language === 'ml' ? 'ml-IN' : 'en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
-
-      // Starting break-even point
-      points.push({
-        date: 'Start',
-        displayDate: `${dayLabel} (Open)`,
-        dailyPnL: 0,
-        cumulative: 0,
-        tradesCount: 0,
-      });
-
-      let running = 0;
-      sortedTrades.forEach((t, idx) => {
-        running += (t.realizedPnL || 0);
-        const tradeTime = t.closeTime 
-          ? new Date(t.closeTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-          : `T-${idx + 1}`;
-
-        points.push({
-          date: tradeTime,
-          displayDate: `${t.symbol} (${tradeTime})`,
-          dailyPnL: t.realizedPnL || 0,
-          cumulative: Math.round(running * 100) / 100,
-          tradesCount: idx + 1,
-        });
-      });
-
-      return points;
-    }
-
-    // Multi-day cumulative PnL progression
-    let runningCumulative = 0;
-    const points: ChartPoint[] = [];
-
-    // Initial baseline point
-    const firstDate = Array.from(dailyMap.values())[0]?.rawDate;
-    if (firstDate) {
-      points.push({
-        date: 'Start',
-        displayDate: 'Initial (₹0.00)',
-        dailyPnL: 0,
-        cumulative: 0,
-        tradesCount: 0,
-      });
-    }
-
-    dailyMap.forEach((val) => {
-      runningCumulative += val.pnl;
-      const displayLabel = val.rawDate.toLocaleDateString(language === 'ml' ? 'ml-IN' : 'en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
-
-      points.push({
-        date: displayLabel,
-        displayDate: `${displayLabel} (${val.count} ${val.count === 1 ? 'trade' : 'trades'})`,
-        dailyPnL: Math.round(val.pnl * 100) / 100,
-        cumulative: Math.round(runningCumulative * 100) / 100,
-        tradesCount: val.count,
-      });
-    });
-
-    return points;
-  }, [tradeHistory, language]);
-
-  // Performance metrics
-  const totalPnL = useMemo(() => {
-    return tradeHistory.reduce((acc, t) => acc + (t.realizedPnL || 0), 0);
-  }, [tradeHistory]);
-
-  const winningTrades = useMemo(() => {
-    return tradeHistory.filter((t) => (t.realizedPnL || 0) > 0).length;
-  }, [tradeHistory]);
-
-  const winRate = useMemo(() => {
-    if (tradeHistory.length === 0) return 0;
-    return Math.round((winningTrades / tradeHistory.length) * 100);
-  }, [winningTrades, tradeHistory.length]);
+  const { totalPnL, winningTrades, winRate } = useMemo(
+    () => computePnLSummary(tradeHistory),
+    [tradeHistory],
+  );
 
   const maxCumulative = useMemo(() => {
     if (chartData.length === 0) return 0;
@@ -186,7 +86,9 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-extrabold text-white tracking-tight">
-              {language === 'ml' ? 'പ്രതിദിന ക്യുമുലേറ്റീവ് P&L പ്രകടനം' : 'Daily Cumulative P&L Performance'}
+              {language === 'ml'
+                ? 'പ്രതിദിന ക്യുമുലേറ്റീവ് P&L പ്രകടനം'
+                : 'Daily Cumulative P&L Performance'}
             </h3>
             <p className="text-[11px] text-slate-400">
               {language === 'ml'
@@ -202,7 +104,9 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
               {language === 'ml' ? 'വിൻ റേറ്റ്' : 'Win Rate'}:
             </span>
-            <span className={`text-xs font-black font-mono ${winRate >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <span
+              className={`text-xs font-black font-mono ${winRate >= 50 ? 'text-emerald-400' : 'text-amber-400'}`}
+            >
               {winRate}%
             </span>
           </div>
@@ -216,7 +120,11 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                 isProfit ? 'text-emerald-400' : 'text-rose-400'
               }`}
             >
-              {isProfit ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+              {isProfit ? (
+                <TrendingUp className="w-3.5 h-3.5" />
+              ) : (
+                <TrendingDown className="w-3.5 h-3.5" />
+              )}
               {isProfit ? '+' : ''}₹{totalPnL.toFixed(2)}
             </span>
           </div>
@@ -251,12 +159,7 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                   axisLine={PNL_AXIS_LINE}
                   tickFormatter={(val) => `₹${val}`}
                 />
-                <ReferenceLine
-                  y={0}
-                  stroke="#475569"
-                  strokeDasharray="4 4"
-                  label={PNL_REF_LABEL}
-                />
+                <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 4" label={PNL_REF_LABEL} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
@@ -281,7 +184,9 @@ export const CumulativePnLChart: React.FC<CumulativePnLChartProps> = ({ tradeHis
                             </span>
                           </div>
                           <div className="flex justify-between items-center text-slate-200 font-bold pt-1 border-t border-slate-800/80">
-                            <span>{language === 'ml' ? 'ആകെ ക്യുമുലേറ്റീവ്' : 'Cumulative P&L'}:</span>
+                            <span>
+                              {language === 'ml' ? 'ആകെ ക്യുമുലേറ്റീവ്' : 'Cumulative P&L'}:
+                            </span>
                             <span
                               className={`font-mono font-black text-sm ${
                                 pointPositive ? 'text-emerald-400' : 'text-rose-400'

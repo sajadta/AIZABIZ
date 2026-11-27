@@ -1,4 +1,13 @@
-import { pgTable, serial, text, doublePrecision, timestamp, varchar, integer, jsonb } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  serial,
+  text,
+  doublePrecision,
+  timestamp,
+  varchar,
+  integer,
+  jsonb,
+} from 'drizzle-orm/pg-core';
 
 export const tradeHistory = pgTable('trade_history', {
   id: serial('id').primaryKey(),

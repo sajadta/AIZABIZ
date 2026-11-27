@@ -1,7 +1,7 @@
 export interface RealOptionMetrics {
   optionSymbol?: string;
   strikePrice: number;
-  optionType: "CE" | "PE";
+  optionType: 'CE' | 'PE';
   ltp: number;
   expiry: string;
   lotSize: number;
@@ -20,8 +20,8 @@ export interface RealOptionMetrics {
   putWallStrike?: number;
   corporateHeavyweightScore?: number; // -100 to +100
   corporateHeavyweightSummary?: string;
-  globalMacroAlignment?: "BULLISH" | "BEARISH" | "MIXED";
-  fiveYearRegimeTrend?: "BULLISH_SECULAR" | "BEARISH_CORRECTION" | "RANGE_CONSOLIDATION";
+  globalMacroAlignment?: 'BULLISH' | 'BEARISH' | 'MIXED';
+  fiveYearRegimeTrend?: 'BULLISH_SECULAR' | 'BEARISH_CORRECTION' | 'RANGE_CONSOLIDATION';
   fiveYearRegimeSummary?: string;
   fiveYearRegimeSummaryMl?: string;
   multiYearSupport?: number;
@@ -38,4 +38,3 @@ export interface RealOptionMetrics {
   expectedNetProfit?: number;
   availableCapital?: number;
 }
-

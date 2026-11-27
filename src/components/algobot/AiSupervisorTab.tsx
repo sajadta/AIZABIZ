@@ -1,7 +1,10 @@
 import React from 'react';
-import { CheckCircle2, Activity, Sparkles, BarChart3, ShieldCheck, Brain } from 'lucide-react';
+import { CheckCircle2, Sparkles, ShieldCheck } from 'lucide-react';
 import type { BotConfig, Language } from '../../types';
 import type { SupervisorAudit } from './types';
+import { TradeForensicsAudit } from './supervisor/TradeForensicsAudit';
+import { DeepAiDiagnosisReport } from './supervisor/DeepAiDiagnosisReport';
+import { ActivePositionsAudit } from './supervisor/ActivePositionsAudit';
 interface AiSupervisorTabProps {
   supervisorAudit: SupervisorAudit | null;
   botConfig: BotConfig;
@@ -179,51 +182,10 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
           </div>
         )}
       </div>
-      {/* Deep AI Diagnosis Report (if generated) */}
-      {supervisorAudit?.lastAiSupervisorDeepReport && (
-        <div className="p-4 rounded-xl bg-indigo-950/30 border border-indigo-500/40 space-y-2.5 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="font-black text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Brain className="w-4 h-4 text-fuchsia-400" />
-              <span>
-                {language === 'ml'
-                  ? 'AI സൂപ്പർവൈസർ ഡീപ്പ് ഡയഗ്നോസിസ് റിപ്പോർട്ട്'
-                  : 'AI Supervisor Deep Diagnosis Report'}
-              </span>
-            </span>
-            <span className="text-[10px] font-mono text-slate-400">
-              {supervisorAudit.lastAiSupervisorDeepReport.timestamp}
-            </span>
-          </div>
-          <p className="text-slate-100 leading-relaxed font-semibold">
-            {language === 'ml'
-              ? supervisorAudit.lastAiSupervisorDeepReport.summaryMl
-              : supervisorAudit.lastAiSupervisorDeepReport.summaryEn}
-          </p>
-          <div className="p-2.5 rounded-lg bg-slate-950/80 border border-amber-500/30 text-[11px] text-amber-200">
-            <strong className="text-amber-400 block mb-0.5">
-              {language === 'ml' ? '🔍 പ്രധാന കണ്ടെത്തലും കാരണവും:' : '🔍 Root-Cause Analysis:'}
-            </strong>
-            {supervisorAudit.lastAiSupervisorDeepReport.rootCauseMl}
-          </div>
-          {Array.isArray(supervisorAudit.lastAiSupervisorDeepReport.actionableUpgradesMl) && (
-            <div className="space-y-1 pt-1">
-              <span className="text-[10px] font-black uppercase text-emerald-400 block">
-                {language === 'ml'
-                  ? '✅ സീറോ-ലോസ് & 100% മാക്സിമം പ്രോഫിറ്റ് പരിഹാരങ്ങൾ:'
-                  : '✅ Zero-Loss & 100% Peak Profit Solutions:'}
-              </span>
-              <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-200">
-                {supervisorAudit.lastAiSupervisorDeepReport.actionableUpgradesMl.map(
-                  (item: string, idx: number) => (
-                    <li key={idx}>{item}</li>
-                  ),
-                )}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      <DeepAiDiagnosisReport
+        report={supervisorAudit?.lastAiSupervisorDeepReport}
+        language={language}
+      />
       {/* Autonomous Self-Healing Live Action Log (Shows what the AI automatically fixed without user clicking) */}
       <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -241,7 +203,7 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
         </div>
         {supervisorAudit?.autoHealHistory && supervisorAudit.autoHealHistory.length > 0 ? (
           <div className="space-y-1.5">
-            {supervisorAudit.autoHealHistory.map((item: any) => (
+            {supervisorAudit.autoHealHistory.map((item) => (
               <div
                 key={item.id}
                 className="p-2.5 rounded-lg bg-slate-950/90 border border-emerald-500/30 text-[11px] flex items-center justify-between gap-2 flex-wrap"
@@ -273,63 +235,10 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
           </div>
         )}
       </div>
-      {/* Active Open Positions Real-Time Peak-Lock Audit */}
-      {supervisorAudit?.activePositionsAudit && supervisorAudit.activePositionsAudit.length > 0 && (
-        <div className="p-3.5 rounded-xl bg-emerald-950/20 border border-emerald-500/40 space-y-2">
-          <h5 className="text-xs font-black text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-            <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
-            <span>
-              {language === 'ml'
-                ? 'നിലവിലെ ഓപ്പൺ ട്രേഡുകളുടെ തത്സമയ പരിശോധന (Live Position Audit)'
-                : 'Active Open Trades Live Peak-Lock Audit'}
-            </span>
-          </h5>
-          <div className="space-y-2">
-            {supervisorAudit.activePositionsAudit.map((ap: any, idx: number) => (
-              <div
-                key={idx}
-                className="p-2.5 rounded-lg bg-slate-950/90 border border-emerald-500/30 text-[11px] font-mono space-y-1"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-black text-white">{ap.symbol}</span>
-                  <span className="text-emerald-400 font-bold">
-                    Buy: ₹{Number(ap.buyPrice).toFixed(2)} | LTP: ₹
-                    {Number(ap.currentLTP).toFixed(2)} | Peak: ₹{Number(ap.highestLTP).toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-slate-300">
-                  <span>
-                    Auto-Moving SL:{' '}
-                    <strong className="text-amber-300">
-                      ₹{Number(ap.autoStopLoss || 0).toFixed(2)} ↑
-                    </strong>
-                  </span>
-                  <span>
-                    Target:{' '}
-                    <strong className="text-cyan-300">
-                      ₹{Number(ap.autoTarget || 0).toFixed(2)}
-                    </strong>
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-300 pt-1 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-slate-400">തത്സമയ അവസ്ഥ:</span>
-                  <span
-                    className={
-                      ap.currentNetProfit >= 0
-                        ? 'text-emerald-400 font-bold'
-                        : 'text-amber-300 font-bold'
-                    }
-                  >
-                    {ap.currentNetProfit >= 0
-                      ? `+₹${ap.currentNetProfit.toFixed(2)} ലാഭത്തിൽ`
-                      : `-₹${Math.abs(ap.currentNetProfit).toFixed(2)} റിസ്ക് മോണിറ്ററിംഗ്`}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ActivePositionsAudit
+        positions={supervisorAudit?.activePositionsAudit || []}
+        language={language}
+      />
       {/* 12-Directive Real-Time Verification Checklist */}
       <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
         <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
@@ -341,7 +250,7 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
           </span>
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {(supervisorAudit?.directiveChecklist || []).map((dir: any) => (
+          {(supervisorAudit?.directiveChecklist || []).map((dir) => (
             <div
               key={dir.id}
               className={`p-2.5 rounded-xl border text-[11px] space-y-1 ${
@@ -369,63 +278,7 @@ export const AiSupervisorTab: React.FC<AiSupervisorTabProps> = ({
           ))}
         </div>
       </div>
-      {/* Closed Trade Forensics & Missed Peak Profit Diagnosis */}
-      <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
-        <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-          <BarChart3 className="w-4 h-4 text-cyan-400" />
-          <span>
-            {language === 'ml'
-              ? 'ട്രേഡ് ഫോറൻസിക് ഓഡിറ്റ് (ലാഭ-നഷ്ട കാരണങ്ങളും പരിഹാരവും)'
-              : 'Trade Forensics Audit (Profit/Loss Root Cause & Peak Capture)'}
-          </span>
-        </h5>
-        {!supervisorAudit?.tradeDiagnostics || supervisorAudit.tradeDiagnostics.length === 0 ? (
-          <p className="text-xs text-slate-400">
-            {language === 'ml'
-              ? 'ട്രേഡുകൾ നടക്കുമ്പോൾ ഓരോ ട്രേഡിന്റെയും ലാഭ-നഷ്ട കാരണവും പീക്ക് പ്രോഫിറ്റ് ഓഡിറ്റും ഇവിടെ കാണാം.'
-              : 'Individual trade forensics will appear here as trades are executed.'}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {supervisorAudit.tradeDiagnostics.map((td: any, idx: number) => (
-              <div
-                key={td.id || idx}
-                className={`p-2.5 rounded-xl border text-[11px] space-y-1 ${
-                  td.netPnL >= 0
-                    ? 'bg-emerald-950/15 border-emerald-500/30'
-                    : 'bg-rose-950/15 border-rose-500/30'
-                }`}
-              >
-                <div className="flex items-center justify-between flex-wrap gap-2 font-mono">
-                  <span className="font-black text-white">
-                    {td.symbol} ({td.quantity} Qty)
-                  </span>
-                  <div className="flex items-center gap-2 text-[10px]">
-                    <span className="text-slate-300">
-                      ₹{td.buyPrice} → ₹{td.sellPrice} (Peak: ₹{td.peakLTP})
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded font-black ${
-                        td.netPnL >= 0
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : 'bg-rose-500/20 text-rose-300'
-                      }`}
-                    >
-                      Net: {td.netPnL >= 0 ? '+' : ''}₹{td.netPnL}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-[10px] text-slate-300">
-                  <strong className="text-cyan-300">കണ്ടെത്തൽ:</strong> {td.diagnosisMl}
-                </p>
-                <p className="text-[10px] text-emerald-300">
-                  <strong>പരിഹാരം:</strong> {td.fixStatusMl}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <TradeForensicsAudit audit={supervisorAudit} language={language} />
     </div>
   </>
 );

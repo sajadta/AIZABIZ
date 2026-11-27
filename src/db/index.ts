@@ -5,8 +5,10 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 export const isPostgresConfigured = Boolean(
-  (process.env.SQL_HOST && process.env.SQL_HOST !== 'localhost' && process.env.SQL_HOST !== '127.0.0.1') ||
-  process.env.DATABASE_URL
+  (process.env.SQL_HOST &&
+    process.env.SQL_HOST !== 'localhost' &&
+    process.env.SQL_HOST !== '127.0.0.1') ||
+  process.env.DATABASE_URL,
 );
 
 let db: any;
@@ -15,7 +17,9 @@ try {
     process.env.DATABASE_URL
       ? {
           connectionString: process.env.DATABASE_URL,
-          ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+          ssl: process.env.DATABASE_URL.includes('localhost')
+            ? false
+            : { rejectUnauthorized: false },
         }
       : {
           host: process.env.SQL_HOST || 'localhost',
@@ -23,7 +27,7 @@ try {
           password: process.env.SQL_PASSWORD || '',
           database: process.env.SQL_DB_NAME || 'postgres',
           ssl: false,
-        }
+        },
   );
 
   pool.on('error', (err) => {
@@ -33,28 +37,34 @@ try {
   db = drizzle(pool, { schema });
 } catch (e) {
   console.warn('[AI Studio] Database connection failed, using mock');
-  const noOp = { 
-    findMany: async () => [], 
+  const noOp = {
+    findMany: async () => [],
     findFirst: async () => null,
-    findUnique: async () => null, 
+    findUnique: async () => null,
     create: async (d: any) => d?.data ?? {},
-    update: async (d: any) => d?.data ?? {}, 
+    update: async (d: any) => d?.data ?? {},
     delete: async () => ({}),
     select: () => ({ from: () => ({ orderBy: () => ({ limit: () => [] }) }) }),
     insert: () => ({ values: () => ({ returning: () => [] }) }),
-    query: new Proxy({}, { get: () => ({ findMany: async () => [], findFirst: async () => null }) })
+    query: new Proxy(
+      {},
+      { get: () => ({ findMany: async () => [], findFirst: async () => null }) },
+    ),
   };
-  db = new Proxy({}, {
-    get: (_, prop) => {
-      if (prop === 'query') return noOp.query;
-      if (prop === 'select') return noOp.select;
-      if (prop === 'delete') return noOp.delete;
-      if (prop === 'insert') return noOp.insert;
-      if (typeof noOp[prop as keyof typeof noOp] === 'function') return noOp[prop as keyof typeof noOp];
-      return async () => [];
+  db = new Proxy(
+    {},
+    {
+      get: (_, prop) => {
+        if (prop === 'query') return noOp.query;
+        if (prop === 'select') return noOp.select;
+        if (prop === 'delete') return noOp.delete;
+        if (prop === 'insert') return noOp.insert;
+        if (typeof noOp[prop as keyof typeof noOp] === 'function')
+          return noOp[prop as keyof typeof noOp];
+        return async () => [];
+      },
     },
-  });
+  );
 }
 
 export { db };
-

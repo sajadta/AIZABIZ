@@ -7,7 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'icon.svg', 'launchericon-192x192.png', 'launchericon-512x512.png'],
+      includeAssets: [
+        'favicon.ico',
+        'icon.svg',
+        'launchericon-192x192.png',
+        'launchericon-512x512.png',
+      ],
       manifest: {
         id: 'com.aizabiz.trading.terminal',
         name: 'AIZABIZ PRO Trading Terminal',
@@ -50,6 +55,14 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     strictPort: false,
+    // Dev/preview tunnels (Agent Canvas, VS Code forwards, ngrok) send their own Host header.
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      '.all-hands.dev',
+      '.prod-runtime.all-hands.dev',
+      ...(process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean) ?? []),
+    ],
     hmr: {
       host: 'localhost',
       port: 3000,
@@ -68,10 +81,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'charts-vendor': ['recharts', 'd3', 'lightweight-charts'],
-          'ui-vendor': ['lucide-react', 'motion'],
+        // Rolldown (Vite 8) only accepts the function form of manualChunks.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('react-dom') || /node_modules\/react\//.test(id)) return 'react-vendor';
+          if (/node_modules\/(recharts|d3|lightweight-charts)\//.test(id)) return 'charts-vendor';
+          if (/node_modules\/(lucide-react|motion)\//.test(id)) return 'ui-vendor';
         },
       },
     },

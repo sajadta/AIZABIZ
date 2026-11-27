@@ -1,20 +1,21 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import type { UpstoxApiConfig, Language } from '../../types';
 import { translations } from '../../translations';
-import { safeStorage } from '../../utils/storage';
+import { useUpstoxProxyState } from './useUpstoxProxyState';
+import { useUpstoxTokenActions } from './useUpstoxTokenActions';
+import { useUpstoxOtpConnect } from './useUpstoxOtpConnect';
+import {
+  DEFAULT_API_KEY,
+  DEFAULT_API_SECRET,
+  DEFAULT_MOBILE,
+  getFallbackRedirectUri,
+} from './upstoxOtpApi';
+import type { OtpSessionBackup } from './upstoxOtpApi';
+import { useUpstoxConnectionActions } from './useUpstoxConnectionActions';
+import { useUpstoxAutoConnect } from './useUpstoxAutoConnect';
+import { useUpstoxModalConfigSync } from './useUpstoxModalConfigSync';
 
-const DEFAULT_API_KEY = '3ab5711d-8891-480b-b0c1-29662852de49';
-const DEFAULT_API_SECRET = 'jl5s7qy9r0';
-const DEFAULT_MOBILE = '9847989434';
-
-const getFallbackRedirectUri = (): string => {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/market/callback`;
-  }
-  return 'http://localhost:3000/api/market/callback';
-};
-
-export type UpstoxStatusMsg = { type: 'success' | 'error' | 'info'; text: string } | null;
+export type { UpstoxStatusMsg } from './upstoxModalTypes';
 
 export interface UseUpstoxApiModalParams {
   isOpen: boolean;
@@ -73,843 +74,114 @@ export function useUpstoxApiModal({
   // Single OTP / Code input in Tab 2
   const [otpInput, setOtpInput] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
-  const [otpSessionBackup, setOtpSessionBackup] = useState<any>(null);
+  const [otpSessionBackup, setOtpSessionBackup] = useState<OtpSessionBackup | null>(null);
   const [showKeySettings, setShowKeySettings] = useState(false);
 
   const [loading, setLoading] = useState(false);
-  const [validating, setValidating] = useState(false);
-  const [checkingStatus, setCheckingStatus] = useState(false);
-  const [v3Loading, setV3Loading] = useState(false);
-  const [proxyUrlInput, setProxyUrlInput] = useState<string>('socks5://upstoxuser:Sajad9847989434@34.180.11.27:1080');
-  const [isFixedProxyActive, setIsFixedProxyActive] = useState<boolean>(Boolean(config.isFixedProxyActive));
-  const [isTestingProxy, setIsTestingProxy] = useState<boolean>(false);
-  const [showProxyConfig, setShowProxyConfig] = useState<boolean>(false);
-  const [containerIp, setContainerIp] = useState<string>(
-    config.serverSecondaryIp && config.serverSecondaryIp !== '34.180.11.27'
-      ? config.serverSecondaryIp
-      : 'Detecting...',
-  );
-  const [proxyError, setProxyError] = useState<string>(config.proxyError || '');
   const [liveHoldingsCount, setLiveHoldingsCount] = useState<number | null>(
     typeof config.holdingsCount === 'number' ? config.holdingsCount : null,
   );
 
-  useEffect(() => {
-    if (!isTestingProxy && typeof config.isFixedProxyActive === 'boolean') {
-      setIsFixedProxyActive(config.isFixedProxyActive);
-      if (config.isFixedProxyActive) {
-        setProxyError('');
-      } else if (typeof config.proxyError === 'string') {
-        setProxyError(config.proxyError);
-      }
-    }
-  }, [config.isFixedProxyActive, config.proxyError, isTestingProxy]);
   const [statusMsg, setStatusMsg] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
   } | null>(null);
 
-  const handleSaveProxy = async (remove = false) => {
-    setIsTestingProxy(true);
-    setStatusMsg(null);
-    try {
-      const targetVal = remove ? '' : proxyUrlInput;
-      const res = await fetch('/api/market/proxy-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proxyUrl: targetVal }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsFixedProxyActive(Boolean(data.isFixedProxy));
-        setProxyError('');
-        if (remove) setProxyUrlInput('');
-        setStatusMsg({
-          type: 'success',
-          text: data.message || `✅ Proxy Updated! Static IP: ${data.serverOutboundIp}`,
-        });
-      } else {
-        setIsFixedProxyActive(false);
-        setProxyError(data.error || 'Failed to connect to proxy');
-        setStatusMsg({
-          type: 'error',
-          text:
-            (data.error || 'Failed to connect to proxy') +
-            (data.suggestedFix ? ` — ${data.suggestedFix}` : ''),
-        });
-      }
-    } catch (e: any) {
-      setIsFixedProxyActive(false);
-      setProxyError(e?.message || 'Network error');
-      setStatusMsg({
-        type: 'error',
-        text: 'Proxy test network error: ' + (e?.message || 'Failed'),
-      });
-    } finally {
-      setIsTestingProxy(false);
-    }
-  };
+  const {
+    proxyUrlInput,
+    setProxyUrlInput,
+    isFixedProxyActive,
+    setIsFixedProxyActive,
+    isTestingProxy,
+    showProxyConfig,
+    setShowProxyConfig,
+    containerIp,
+    setContainerIp,
+    proxyError,
+    setProxyError,
+    handleSaveProxy,
+  } = useUpstoxProxyState(config, setStatusMsg);
 
-  useEffect(() => {
-    if (isOpen) {
-      setApiKey(config.apiKey || DEFAULT_API_KEY);
-      setApiSecret(
-        config.apiSecret && config.apiSecret !== '••••••••' ? config.apiSecret : DEFAULT_API_SECRET,
-      );
-      let localTok = config.accessToken || '';
-      if (!localTok) {
-        try {
-          localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          /* ignored */
-        }
-      }
-      setAccessToken(localTok);
-      if (localTok.length > 30) {
-        setActiveTab('DAILY_TOKEN');
-      }
-      const cleanUri =
-        config.redirectUri && config.redirectUri.trim() !== ''
-          ? config.redirectUri.trim()
-          : getFallbackRedirectUri();
-      setRedirectUri(cleanUri);
-      setStatusMsg(null);
+  const { v3Loading, handleClearToken, handleRequestTokenV3, handleSaveRedirectUri } =
+    useUpstoxTokenActions({
+      language,
+      apiKey,
+      apiSecret,
+      redirectUri,
+      defaultApiKey: DEFAULT_API_KEY,
+      defaultApiSecret: DEFAULT_API_SECRET,
+      getFallbackRedirectUri,
+      setAccessToken,
+      setStatusMsg,
+      onSaveConfig,
+    });
 
-      const reqHeaders: Record<string, string> = {};
-      if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
+  useUpstoxModalConfigSync({
+    isOpen,
+    config,
+    defaultApiKey: DEFAULT_API_KEY,
+    defaultApiSecret: DEFAULT_API_SECRET,
+    getFallbackRedirectUri,
+    setApiKey,
+    setApiSecret,
+    setAccessToken,
+    setActiveTab,
+    setRedirectUri,
+    setStatusMsg,
+    setIsFixedProxyActive,
+    setProxyUrlInput,
+    setContainerIp,
+    setProxyError,
+    setSavedMobile,
+    setLiveHoldingsCount,
+    onSaveConfig,
+  });
 
-      let cancelled = false;
-      Promise.allSettled([
-        fetch('/api/market/config', { headers: reqHeaders }).then((r) => r.json()),
-        fetch('/api/market/proxy-status').then((pr) => pr.json()),
-      ]).then(([cfgRes, proxyRes]) => {
-        if (cancelled) return;
-        const data = cfgRes.status === 'fulfilled' ? cfgRes.value : null;
-        const pData = proxyRes.status === 'fulfilled' ? proxyRes.value : null;
+  useUpstoxAutoConnect({
+    isOpen,
+    config,
+    language,
+    onSaveConfig,
+    onRefreshPortfolio,
+    setAccessToken,
+    setLiveHoldingsCount,
+    setStatusMsg,
+  });
 
-        if (pData && pData.success) {
-          setIsFixedProxyActive(Boolean(pData.isProxyActive));
-          if (typeof pData.configuredProxy === 'string') setProxyUrlInput(pData.configuredProxy);
-          if (pData.containerIp && pData.containerIp !== 'Detecting...') {
-            setContainerIp(pData.containerIp);
-          }
-          setProxyError(pData.lastError || '');
-        } else if (data && typeof data.isFixedProxyActive === 'boolean') {
-          setIsFixedProxyActive(Boolean(data.isFixedProxyActive));
-          setProxyError(data.proxyError || '');
-        }
-
-        if (!data) return;
-
-        if (
-          data.mobile &&
-          String(data.mobile).length === 10 &&
-          String(data.mobile) !== '0000000000'
-        ) {
-          setSavedMobile(String(data.mobile));
-          try {
-            localStorage.setItem('upstox_saved_mobile', String(data.mobile));
-          } catch {
-            /* ignored */
-          }
-        }
-        if (data.apiSecret && data.apiSecret !== '••••••••') {
-          setApiSecret(String(data.apiSecret));
-        }
-        if (data.serverSecondaryIp && data.serverSecondaryIp !== '34.180.11.27') {
-          setContainerIp(data.serverSecondaryIp);
-        }
-        if (typeof data.holdingsCount === 'number') {
-          setLiveHoldingsCount(data.holdingsCount);
-        }
-        const resolvedFixedProxy =
-          pData && pData.success
-            ? Boolean(pData.isProxyActive)
-            : Boolean(data.isFixedProxyActive);
-
-        if (data.isConnected && data.accessToken) {
-          setAccessToken(data.accessToken);
-          onSaveConfigRef.current({
-            accessToken: data.accessToken,
-            isConnected: true,
-            userName: data.userName || '',
-            userClientCode: data.userClientCode || '',
-            availableMargin: data.availableMargin || 0,
-            settledCash: data.settledCash,
-            deliverySellCredit: data.deliverySellCredit,
-            usedMargin: data.usedMargin || 0,
-            utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
-            payin: data.payin || 0,
-            payout: data.payout || 0,
-            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
-            holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
-            tokenGeneratedAt: data.tokenGeneratedAt || undefined,
-            tokenExpiresAt: data.tokenExpiresAt || undefined,
-            serverOutboundIp: data.serverOutboundIp || undefined,
-            serverSecondaryIp: data.serverSecondaryIp || undefined,
-            actualDetectedIp: data.actualDetectedIp || undefined,
-            isFixedProxyActive: resolvedFixedProxy,
-            proxyError: (pData?.lastError ?? data.proxyError) || '',
-            todayTokenValid: true,
-          });
-        } else if (data.tokenExpired && !localTok) {
-          onSaveConfigRef.current({
-            isConnected: false,
-            availableMargin: 0,
-            settledCash: 0,
-            deliverySellCredit: 0,
-            usedMargin: 0,
-            utilizedMargin: 0,
-            payin: 0,
-            payout: 0,
-            totalBalance: 0,
-            isFixedProxyActive: resolvedFixedProxy,
-            todayTokenValid: false,
-          });
-        }
-      });
-
-      const proxyPollInterval = setInterval(() => {
-        fetch('/api/market/proxy-status')
-          .then((pr) => pr.json())
-          .then((pData) => {
-            if (!cancelled && pData && pData.success) {
-              setIsFixedProxyActive(Boolean(pData.isProxyActive));
-              if (pData.containerIp && pData.containerIp !== 'Detecting...') {
-                setContainerIp(pData.containerIp);
-              }
-              setProxyError(pData.lastError || '');
-            }
-          })
-          .catch(() => {});
-      }, 8000);
-
-      return () => {
-        cancelled = true;
-        clearInterval(proxyPollInterval);
-      };
-    }
-  }, [isOpen, config.apiKey, config.apiSecret, config.accessToken, config.redirectUri]);
-
-  // Auto-poll backend every 2 seconds while modal is open so any approved token immediately connects
-  useEffect(() => {
-    if (!isOpen || config.isConnected) return;
-    const pollTimer = setInterval(async () => {
-      try {
-        let localTok = '';
-        try {
-          localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          /* ignored */
-        }
-        const reqHeaders: Record<string, string> = {};
-        if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
-
-        const res = await fetch('/api/market/config', { headers: reqHeaders });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.isConnected && data.accessToken) {
-          setAccessToken(data.accessToken);
-          setLiveHoldingsCount(typeof data.holdingsCount === 'number' ? data.holdingsCount : null);
-          try {
-            localStorage.setItem('upstox_daily_token', data.accessToken);
-            localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch {
-            /* ignored */
-          }
-          await onSaveConfigRef.current({
-            accessToken: data.accessToken,
-            isConnected: true,
-            userName: data.userName || '',
-            userClientCode: data.userClientCode || '',
-            availableMargin: data.availableMargin || 0,
-            settledCash: data.settledCash,
-            deliverySellCredit: data.deliverySellCredit,
-            usedMargin: data.usedMargin || 0,
-            utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
-            payin: data.payin || 0,
-            payout: data.payout || 0,
-            totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
-            holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
-            tokenGeneratedAt: data.tokenGeneratedAt || undefined,
-            actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
-            todayTokenValid: true,
-          });
-          if (onRefreshPortfolioRef.current) onRefreshPortfolioRef.current();
-          setStatusMsg({
-            type: 'success',
-            text:
-              language === 'ml'
-                ? `🎉 Upstox ടോക്കൺ ഓട്ടോമാറ്റിക്കായി സ്വീകരിച്ചു! ലൈവ് ട്രേഡിംഗും ഹോൾഡിങ്‌സും (${data.holdingsCount ?? 0}) സജീവമായി!`
-                : '🎉 Upstox Token automatically received! Live Trading & Holdings are now ACTIVE!',
-          });
-        }
-      } catch {
-        /* ignored */
-      }
-    }, 2000);
-    return () => clearInterval(pollTimer);
-  }, [isOpen, config.isConnected, language]);
-
-  // Listen for automatic OAuth callback postMessage
-  useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data && event.data.type === 'UPSTOX_OAUTH_SUCCESS' && event.data.accessToken) {
-        const token = event.data.accessToken;
-        setAccessToken(token);
-        try {
-          localStorage.setItem('upstox_daily_token', token);
-          localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-        } catch {
-          /* ignored */
-        }
-        await onSaveConfigRef.current({
-          accessToken: token,
-          isConnected: true,
-          userName: event.data.userName || '',
-          userClientCode: event.data.userClientCode || '',
-          todayTokenValid: true,
-        });
-        if (onRefreshPortfolioRef.current) onRefreshPortfolioRef.current();
-        setStatusMsg({
-          type: 'success',
-          text:
-            language === 'ml'
-              ? '🎉 പുതിയ Access Token ഓട്ടോമാറ്റിക്കായി ജനറേറ്റ് ചെയ്ത് ലൈവ് കണക്റ്റായി!'
-              : '🎉 Daily Access Token automatically generated and connected!',
-        });
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [language]);
-
-  // Live Diagnostic Check Button Handler
-  const handleCheckLiveConnection = async () => {
-    setCheckingStatus(true);
-    setStatusMsg(null);
-    try {
-      let localTok = accessToken || config.accessToken || '';
-      if (!localTok) {
-        try {
-          localTok = localStorage.getItem('upstox_daily_token') || '';
-        } catch {
-          /* ignored */
-        }
-      }
-      const reqHeaders: Record<string, string> = {};
-      if (localTok) reqHeaders['Authorization'] = `Bearer ${localTok}`;
-
-      const [cfgRes, proxyRes] = await Promise.all([
-        fetch('/api/market/config', { headers: reqHeaders }),
-        fetch('/api/market/proxy-status').catch(() => null),
-      ]);
-      const data = await cfgRes.json();
-      const pData = proxyRes ? await proxyRes.json().catch(() => null) : null;
-      const resolvedFixedProxy =
-        pData && pData.success ? Boolean(pData.isProxyActive) : Boolean(data.isFixedProxyActive);
-      setIsFixedProxyActive(resolvedFixedProxy);
-      setProxyError((pData?.success ? pData.lastError : data.proxyError) || '');
-      if (pData?.containerIp && pData.containerIp !== 'Detecting...') {
-        setContainerIp(pData.containerIp);
-      }
-      if (data.isConnected) {
-        setLiveHoldingsCount(typeof data.holdingsCount === 'number' ? data.holdingsCount : null);
-        if (data.accessToken) {
-          setAccessToken(data.accessToken);
-          try {
-            localStorage.setItem('upstox_daily_token', data.accessToken);
-          } catch {
-            /* ignored */
-          }
-        }
-        if (data.serverSecondaryIp && data.serverSecondaryIp !== '34.180.11.27') {
-          setContainerIp(data.serverSecondaryIp);
-        }
-        await onSaveConfig({
-          isConnected: true,
-          accessToken: data.accessToken,
-          userName: data.userName || '',
-          userClientCode: data.userClientCode || '',
-          availableMargin: data.availableMargin || 0,
-          settledCash: data.settledCash,
-          deliverySellCredit: data.deliverySellCredit,
-          usedMargin: data.usedMargin || 0,
-          utilizedMargin: data.utilizedMargin ?? Math.max(0, data.usedMargin || 0),
-          payin: data.payin || 0,
-          payout: data.payout || 0,
-          totalBalance: data.totalBalance ?? ((data.availableMargin || 0) + Math.max(0, data.usedMargin || 0)),
-          holdingsCount: typeof data.holdingsCount === 'number' ? data.holdingsCount : undefined,
-          tokenGeneratedAt: data.tokenGeneratedAt || undefined,
-          actualDetectedIp: data.actualDetectedIp || data.serverSecondaryIp || undefined,
-          isFixedProxyActive: resolvedFixedProxy,
-          todayTokenValid: true,
-        });
-        if (onRefreshPortfolio) onRefreshPortfolio();
-        setStatusMsg({
-          type: 'success',
-          text:
-            language === 'ml'
-              ? `✅ Upstox ടോക്കൺ ലൈവ് ആയി പ്രവർത്തിക്കുന്നു! ഫണ്ട് ബാലൻസ്: ₹${Number(data.availableMargin || 0).toLocaleString('en-IN')} • ഹോൾഡിങ്‌സ്: ${data.holdingsCount ?? 0} ഓഹരികൾ.`
-              : `✅ Upstox Token is LIVE! Margin: ₹${Number(data.availableMargin || 0).toLocaleString('en-IN')} • Holdings: ${data.holdingsCount ?? 0} stocks.`,
-        });
-      } else {
-        if (data.tokenExpired) {
-          try {
-            localStorage.removeItem('upstox_daily_token');
-          } catch {
-            /* ignored */
-          }
-          await onSaveConfig({ isConnected: false, accessToken: '' });
-        }
-        setStatusMsg({
-          type: 'error',
-          text:
-            language === 'ml'
-              ? '❌ Upstox ടോക്കൺ നിലവിൽ ആക്റ്റീവ് അല്ല. താഴെ "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" അമർത്തി OTP വരുത്തി നൽകുക.'
-              : '❌ Upstox Token is NOT active. Click Save & Connect below to receive OTP.',
-        });
-      }
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err.message || 'Failed to check connection status',
-      });
-    } finally {
-      setCheckingStatus(false);
-    }
-  };
-
-  // Tab 1: Direct Daily Token Save & Verify
-  const handleDailyTokenSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    let cleanToken = accessToken?.trim() || '';
-    if (cleanToken.startsWith('Bearer ')) cleanToken = cleanToken.replace('Bearer ', '').trim();
-
-    if (!cleanToken) {
-      setStatusMsg({
-        type: 'error',
-        text:
-          language === 'ml'
-            ? 'ദയവായി ഇന്ന് ജനറേറ്റ് ചെയ്ത Upstox Access Token നൽകുക.'
-            : "Please enter today's Upstox Access Token.",
-      });
-      return;
-    }
-
-    setValidating(true);
-    setStatusMsg(null);
-
-    try {
-      const res = await fetch('/api/market/daily-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accessToken: cleanToken }),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        try {
-          const todayStr = new Date().toLocaleDateString('en-IN');
-          localStorage.setItem('upstox_daily_token', cleanToken);
-          localStorage.setItem('upstox_token_date', todayStr);
-        } catch {
-          /* ignored */
-        }
-
-        await onSaveConfig({
-          accessToken: cleanToken,
-          isConnected: true,
-          userName: data.profile?.userName || '',
-          userClientCode: data.profile?.userClientCode || '',
-          tokenGeneratedAt:
-            data.profile?.tokenGeneratedAt || new Date().toLocaleTimeString('en-IN'),
-          tokenExpiresAt: data.profile?.tokenExpiresAt || 'Tomorrow 03:30 AM',
-          todayTokenValid: true,
-        });
-        if (onRefreshPortfolio) onRefreshPortfolio();
-
-        setStatusMsg({
-          type: 'success',
-          text:
-            language === 'ml'
-              ? `✅ ടോക്കൺ പരിശോധിച്ചു! ${data.profile?.userName || 'Sajad'} (${data.profile?.userClientCode || ''}) അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!`
-              : `✅ Token Verified! Connected live to ${data.profile?.userName || 'Upstox Account'}.`,
-        });
-      } else {
-        throw new Error(data.error || 'Failed to verify token');
-      }
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err.message || 'Invalid or expired token. Please check and retry.',
-      });
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  // Resilient POST helper for local API calls
-  const postWithAutoRetryAndRelay = async (endpoint: string, payload: any) => {
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data && (data.success || data.accessToken)) {
-        return { ok: true, data };
-      }
-      const errStr = data?.error || (res.ok ? 'Operation failed' : `Server error (${res.status})`);
-      return { ok: false, data: data || { success: false, error: errStr } };
-    } catch (err: any) {
-      return {
-        ok: false,
-        data: {
-          success: false,
-          error:
-            err.message ||
-            (language === 'ml'
-              ? 'നെറ്റ്‌വർക്ക് കണക്ഷൻ തടസ്സപ്പെട്ടു. വീണ്ടും ശ്രമിക്കുക.'
-              : 'Network connection error. Please retry.'),
-        },
-      };
-    }
-  };
-
-  // Dedicated 1-click SMS OTP sender (works even if OTP box has text)
-  const handleForceSendSmsOtp = async () => {
-    setLoading(true);
-    setStatusMsg(null);
-    const cleanKey = (apiKey || DEFAULT_API_KEY).trim();
-    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
-    const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
-
-    try {
-      const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
-        mobile: cleanSavedMobile,
-        apiKey: cleanKey,
-        apiSecret: apiSecret || DEFAULT_API_SECRET,
-        redirectUri: cleanUri,
-        pin: '',
-      });
-      if (ok && otpData.success) {
-        setOtpInput('');
-        setOtpRequested(true);
-        if (otpData.sessionBackup) {
-          setOtpSessionBackup(otpData.sessionBackup);
-          try {
-            localStorage.setItem(
-              'upstox_otp_session_backup',
-              JSON.stringify(otpData.sessionBackup),
-            );
-          } catch {
-            /* ignored */
-          }
-        }
-        setStatusMsg({
-          type: 'success',
-          text:
-            language === 'ml'
-              ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) പുതിയ 6-അക്ക Upstox SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP താഴെ നൽകി പച്ച ബട്ടൺ അമർത്തുക!`
-              : '📲 Fresh 6-digit SMS OTP sent to your phone! Enter the OTP below and tap the green button!',
-        });
-      } else {
-        throw new Error(otpData?.error || 'Failed to send SMS OTP');
-      }
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err.message || 'Connection failed',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Tab 2: Single Automatic Handler for:
-  // 1) Auto-sending SMS OTP using saved mobile number
-  // 2) Verifying 6-digit SMS OTP -> Auto-submitting PIN -> Auto-generating Token!
-  const handleOtpOrAutoConnect = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setLoading(true);
-    setStatusMsg(null);
-
-    const cleanKey = (apiKey || DEFAULT_API_KEY).trim();
-    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
-    const trimmedInput = otpInput.trim();
-    const digitsOnly = trimmedInput.replace(/\D+/g, '');
-
-    try {
-      // CASE A: If user typed their 10-digit mobile number in the box (one-time setup), save it forever AND immediately send SMS OTP!
-      if (/^[6-9]\d{9}$/.test(digitsOnly)) {
-        setSavedMobile(digitsOnly);
-        try {
-          localStorage.setItem('upstox_saved_mobile', digitsOnly);
-        } catch {
-          /* ignored */
-        }
-
-        const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
-          mobile: digitsOnly,
-          apiKey: cleanKey,
-          apiSecret,
-          redirectUri: cleanUri,
-          pin: '',
-        });
-        if (ok && otpData.success) {
-          setOtpInput('');
-          setOtpRequested(true);
-          if (otpData.sessionBackup) {
-            setOtpSessionBackup(otpData.sessionBackup);
-            try {
-              localStorage.setItem(
-                'upstox_otp_session_backup',
-                JSON.stringify(otpData.sessionBackup),
-              );
-            } catch {
-              /* ignored */
-            }
-          }
-          setStatusMsg({
-            type: 'success',
-            text:
-              otpData.message ||
-              (language === 'ml'
-                ? `📲 മൊബൈൽ നമ്പർ സ്ഥിരമായി സേവ് ചെയ്തു! നിങ്ങളുടെ ഫോണിലേക്ക് 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട് — ആ OTP മാത്രം താഴെ നൽകി "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" അമർത്തുക!`
-                : '📲 Mobile saved! 6-digit SMS OTP sent to your phone — enter the OTP below and tap Save & Connect!'),
-          });
-        } else {
-          throw new Error(otpData?.error || 'Failed to send SMS OTP');
-        }
-        setLoading(false);
-        return;
-      }
-
-      // CASE B: User entered the 6-digit OTP -> Verify OTP + Auto-enter PIN  + Auto-generate Access Token!
-      if (/^\d{6}$/.test(digitsOnly)) {
-        let backupToUse = otpSessionBackup;
-        if (!backupToUse) {
-          try {
-            const raw = localStorage.getItem('upstox_otp_session_backup');
-            if (raw) backupToUse = JSON.parse(raw);
-          } catch {
-            /* ignored */
-          }
-        }
-        const { ok, data } = await postWithAutoRetryAndRelay('/api/market/totp-login', {
-          totp: digitsOnly,
-          pin: '',
-          mobile: savedMobile || DEFAULT_MOBILE,
-          apiKey: cleanKey,
-          apiSecret: apiSecret || DEFAULT_API_SECRET,
-          sessionBackup: backupToUse,
-        });
-        if (ok && data.success && data.accessToken) {
-          setAccessToken(data.accessToken);
-          setOtpInput('');
-          setOtpRequested(false);
-          setOtpSessionBackup(null);
-          try {
-            localStorage.removeItem('upstox_otp_session_backup');
-            localStorage.setItem('upstox_daily_token', data.accessToken);
-            localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch {
-            /* ignored */
-          }
-          await onSaveConfig({
-            accessToken: data.accessToken,
-            isConnected: true,
-            userName: data.userName || '',
-            userClientCode: data.userClientCode || '',
-            todayTokenValid: true,
-          });
-          if (onRefreshPortfolio) onRefreshPortfolio();
-          setStatusMsg({
-            type: 'success',
-            text:
-              data.message ||
-              (language === 'ml'
-                ? '🎉 OTP പരിശോധിച്ചു, PIN ഓട്ടോമാറ്റിക്കായി നൽകി, പുതിയ ടോക്കൺ ജനറേറ്റ് ചെയ്ത് അക്കൗണ്ട് ലൈവ് ആയി കണക്റ്റായി!'
-                : '🎉 OTP Verified, PIN auto-submitted, and Upstox account connected live!'),
-          });
-          setLoading(false);
-          return;
-        } else {
-          throw new Error(data?.error || 'OTP verification failed');
-        }
-      }
-
-      // CASE C: User pasted a redirected URL or Auth Code or JWT token
-      if (trimmedInput.length > 6) {
-        const { ok, data } = await postWithAutoRetryAndRelay('/api/market/token', {
-          code: trimmedInput,
-          apiKey: cleanKey,
-          apiSecret: apiSecret || DEFAULT_API_SECRET,
-          redirectUri: cleanUri,
-        });
-        if (ok && data.accessToken) {
-          setAccessToken(data.accessToken);
-          setOtpInput('');
-          try {
-            localStorage.setItem('upstox_daily_token', data.accessToken);
-            localStorage.setItem('upstox_token_date', new Date().toLocaleDateString('en-IN'));
-          } catch {
-            /* ignored */
-          }
-          await onSaveConfig({
-            accessToken: data.accessToken,
-            isConnected: true,
-            userName: data.user_name || '',
-            userClientCode: data.user_id || '',
-            todayTokenValid: true,
-          });
-          if (onRefreshPortfolio) onRefreshPortfolio();
-          setStatusMsg({
-            type: 'success',
-            text:
-              language === 'ml'
-                ? '🎉 പുതിയ Access Token ജനറേറ്റ് ചെയ്ത് ലൈവ് ആയി കണക്റ്റായി!'
-                : '🎉 Access Token generated and connected live!',
-          });
-          setLoading(false);
-          return;
-        } else {
-          throw new Error(data?.error || 'Invalid code');
-        }
-      }
-
-      // CASE D: OTP box is empty -> User clicked "ഫോണിലേക്ക് SMS OTP അയക്കുക (Auto)" to request SMS OTP automatically!
-      const cleanSavedMobile = (savedMobile || DEFAULT_MOBILE).replace(/\D+/g, '').slice(-10);
-      if (cleanSavedMobile.length === 10) {
-        const { ok, data: otpData } = await postWithAutoRetryAndRelay('/api/market/send-sms-otp', {
-          mobile: cleanSavedMobile,
-          apiKey: cleanKey,
-          apiSecret: apiSecret || DEFAULT_API_SECRET,
-          redirectUri: cleanUri,
-          pin: '',
-        });
-        if (ok && otpData.success) {
-          setOtpRequested(true);
-          if (otpData.sessionBackup) {
-            setOtpSessionBackup(otpData.sessionBackup);
-            try {
-              localStorage.setItem(
-                'upstox_otp_session_backup',
-                JSON.stringify(otpData.sessionBackup),
-              );
-            } catch {
-              /* ignored */
-            }
-          }
-          setStatusMsg({
-            type: 'success',
-            text:
-              language === 'ml'
-                ? `📲 നിങ്ങളുടെ ഫോണിലേക്ക് (${cleanSavedMobile.slice(0, 2)}******${cleanSavedMobile.slice(-2)}) Upstox 6-അക്ക SMS OTP അയച്ചിട്ടുണ്ട്! ആ OTP മാത്രം താഴെ നൽകി വീണ്ടും ബട്ടൺ അമർത്തുക — PIN നൽകി ടോക്കൺ എടുക്കുന്ന ബാക്കി എല്ലാം ആപ്പ് തനിയെ ചെയ്യും!`
-                : '📲 6-digit SMS OTP sent to your phone! Enter the OTP below and tap Save & Connect!',
-          });
-          setLoading(false);
-          return;
-        } else {
-          throw new Error(otpData?.error || 'Failed to send SMS OTP');
-        }
-      } else {
-        setStatusMsg({
-          type: 'info',
-          text:
-            language === 'ml'
-              ? '📱 ആദ്യ തവണ മാത്രം നിങ്ങളുടെ 10-അക്ക Upstox മൊബൈൽ നമ്പർ താഴെയുള്ള ബോക്സിൽ നൽകി "സേവ് ചെയ്തു കണക്റ്റ് ചെയ്യുക" അമർത്തുക. ആപ്പ് നമ്പർ സ്ഥിരമായി സേവ് ചെയ്ത് ഉടൻ ഫോണിലേക്ക് SMS OTP അയക്കും!'
-              : '📱 For the first time only, enter your 10-digit Upstox mobile number in the box below and tap Save & Connect. It will be saved permanently and an SMS OTP will be sent immediately!',
-        });
-      }
-    } catch (err: any) {
-      setStatusMsg({
-        type: 'error',
-        text: err.message || 'Connection failed',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { checkingStatus, validating, handleCheckLiveConnection, handleDailyTokenSubmit } =
+    useUpstoxConnectionActions({
+      language,
+      accessToken,
+      setAccessToken,
+      config,
+      setStatusMsg,
+      setIsFixedProxyActive,
+      setProxyError,
+      setContainerIp,
+      setLiveHoldingsCount,
+      onSaveConfig,
+      onRefreshPortfolio,
+    });
+  const { handleForceSendSmsOtp, handleOtpOrAutoConnect } = useUpstoxOtpConnect({
+    language,
+    apiKey,
+    apiSecret,
+    redirectUri,
+    savedMobile,
+    otpInput,
+    otpSessionBackup,
+    setAccessToken,
+    setOtpInput,
+    setOtpRequested,
+    setOtpSessionBackup,
+    setSavedMobile,
+    setLoading,
+    setStatusMsg,
+    onSaveConfig,
+    onRefreshPortfolio,
+  });
 
   // Clear Daily Token
-  const handleClearToken = async () => {
-    try {
-      await fetch('/api/market/clear-token', { method: 'POST' });
-      setAccessToken('');
-      safeStorage.removeItem('upstox_daily_token');
-      safeStorage.removeItem('upstox_token_date');
-      await onSaveConfig({ accessToken: '', isConnected: false });
-      setStatusMsg({
-        type: 'info',
-        text:
-          language === 'ml'
-            ? 'ഇന്നത്തെ ടോക്കൺ നീക്കം ചെയ്തു. പേപ്പർ ട്രേഡിംഗ് മോഡിലേക്ക് മാറി.'
-            : 'Daily token cleared. Switched to Paper Trading Mode.',
-      });
-    } catch {
-      /* ignored */
-    }
-  };
-
-  // Upstox V3 1-Click App / WhatsApp Approve Token Request
-  const handleRequestTokenV3 = async () => {
-    setV3Loading(true);
-    setStatusMsg(null);
-    try {
-      const res = await fetch('/api/market/request-token-v3', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apiKey: (apiKey || DEFAULT_API_KEY).trim(),
-          apiSecret: apiSecret || DEFAULT_API_SECRET,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setStatusMsg({
-          type: 'success',
-          text:
-            data.message ||
-            (language === 'ml'
-              ? '📲 Upstox ആപ്പിലേക്കും WhatsApp-ലേക്കും Approve റിക്വസ്റ്റ് അയച്ചു!'
-              : '📲 Sent 1-Click Approve request to Upstox Mobile App & WhatsApp!'),
-        });
-      } else {
-        setStatusMsg({
-          type: 'error',
-          text: data.error || 'Upstox V3 Token Request failed',
-        });
-      }
-    } catch (e: any) {
-      setStatusMsg({
-        type: 'error',
-        text: e?.message || 'Failed to send V3 Token Request',
-      });
-    } finally {
-      setV3Loading(false);
-    }
-  };
-
-  // Save Callback Redirect URI to match Upstox Developer Console
-  const handleSaveRedirectUri = async () => {
-    const cleanUri = (redirectUri || getFallbackRedirectUri()).trim();
-    try {
-      await onSaveConfig({ redirectUri: cleanUri });
-      setStatusMsg({
-        type: 'success',
-        text:
-          language === 'ml'
-            ? `✅ Redirect URI സേവ് ചെയ്തു: ${cleanUri}`
-            : `✅ Redirect URI saved: ${cleanUri}`,
-      });
-    } catch {
-      setStatusMsg({ type: 'error', text: 'Failed to save Redirect URI' });
-    }
-  };
 
   return {
     t,

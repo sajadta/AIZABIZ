@@ -1,11 +1,13 @@
 import type { StockQuote } from '../types';
 
-export const deduplicateQuotes = (quotesList: any[]): StockQuote[] => {
+export const deduplicateQuotes = (quotesList: StockQuote[]): StockQuote[] => {
   const map = new Map<string, StockQuote>();
   const listToProcess = Array.isArray(quotesList) ? quotesList : [];
   for (const q of listToProcess) {
     if (!q) continue;
-    const rawKey = String(q.instrumentKey || q.symbol || '').toUpperCase().trim();
+    const rawKey = String(q.instrumentKey || q.symbol || '')
+      .toUpperCase()
+      .trim();
     let normKey = q.instrumentKey || q.symbol;
     const isFuturesOrCommodityOrGlobal =
       rawKey.includes('FUT') ||
@@ -23,7 +25,11 @@ export const deduplicateQuotes = (quotesList: any[]): StockQuote[] => {
     if (!isFuturesOrCommodityOrGlobal) {
       if (rawKey.includes('FIN SERVICE') || rawKey.includes('FINNIFTY')) {
         normKey = 'NSE_INDEX|Nifty Fin Service';
-      } else if (rawKey.includes('MID SELECT') || rawKey.includes('MIDCP') || rawKey.includes('MIDCAP')) {
+      } else if (
+        rawKey.includes('MID SELECT') ||
+        rawKey.includes('MIDCP') ||
+        rawKey.includes('MIDCAP')
+      ) {
         normKey = 'NSE_INDEX|NIFTY MID SELECT';
       } else if (rawKey.includes('BANKEX')) {
         normKey = 'BSE_INDEX|BANKEX';
@@ -33,7 +39,10 @@ export const deduplicateQuotes = (quotesList: any[]): StockQuote[] => {
         normKey = 'NSE_INDEX|Nifty Bank';
       } else if (
         rawKey.includes('NIFTY 50') ||
-        (rawKey.includes('NIFTY') && !rawKey.includes('BANK') && !rawKey.includes('FIN') && !rawKey.includes('MID'))
+        (rawKey.includes('NIFTY') &&
+          !rawKey.includes('BANK') &&
+          !rawKey.includes('FIN') &&
+          !rawKey.includes('MID'))
       ) {
         normKey = 'NSE_INDEX|Nifty 50';
       }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, Play, Square, Sliders } from 'lucide-react';
+import { Cpu, Play, Square } from 'lucide-react';
 import type { BotConfig, Language } from '../../types';
 import type { Translations } from './types';
 
@@ -16,8 +16,6 @@ export const AlgoBotHeader: React.FC<AlgoBotHeaderProps> = ({
   onUpdateBotConfig,
   language,
 }) => {
-  const currentMode = botConfig.tradeMode || 'OPTIONS_ONLY';
-
   return (
     <div className="space-y-2 pb-2.5 sm:pb-3 border-b border-slate-800/80 shrink-0">
       {/* Bot Master Header */}
@@ -34,7 +32,9 @@ export const AlgoBotHeader: React.FC<AlgoBotHeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-xs sm:text-sm font-black text-white tracking-tight">{t.algoBot}</h3>
+              <h3 className="text-xs sm:text-sm font-black text-white tracking-tight">
+                {t.algoBot}
+              </h3>
               <span
                 className={`px-1.5 py-0.2 rounded-full text-[8px] sm:text-[9px] font-bold uppercase border shadow-sm ${
                   botConfig.enabled
@@ -91,7 +91,9 @@ export const AlgoBotHeader: React.FC<AlgoBotHeaderProps> = ({
 
           <button
             id="btn-bot-toggle"
-            onClick={() => onUpdateBotConfig({ enabled: !botConfig.enabled, dailyLossLocked: false })}
+            onClick={() =>
+              onUpdateBotConfig({ enabled: !botConfig.enabled, dailyLossLocked: false })
+            }
             className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold flex items-center gap-1 sm:gap-1.5 shadow transition active:scale-95 border ${
               botConfig.enabled
                 ? 'bg-slate-800/90 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border-slate-700'
@@ -115,4 +117,3 @@ export const AlgoBotHeader: React.FC<AlgoBotHeaderProps> = ({
     </div>
   );
 };
-

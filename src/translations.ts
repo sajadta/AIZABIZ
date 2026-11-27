@@ -100,7 +100,7 @@ export const translations = {
     exchangeCodeBtn: 'Exchange Code to Token',
     directPasteTab: 'Direct Token Paste',
     oauthGenerateTab: '1-Click OAuth Generator',
-    clearToken: 'Clear Today\'s Token',
+    clearToken: "Clear Today's Token",
     tokenVerifiedSuccess: 'Token verified successfully! Live account connected.',
     authCodePlaceholder: 'Paste the auth "code" copied from URL bar...',
     openLoginDialogBtn: '1. Open Upstox Login Window',
@@ -131,7 +131,8 @@ export const translations = {
     proxyActive: 'Dedicated Proxy Active',
     proxyInactive: 'Direct Connection',
     whitelistNotice: 'Whitelist these IPs in Upstox to prevent errors',
-    disclaimer: 'Algorithmic trading involves financial risk. Ensure proper risk management and paper trade to verify strategy efficiency before deploying large capital.',
+    disclaimer:
+      'Algorithmic trading involves financial risk. Ensure proper risk management and paper trade to verify strategy efficiency before deploying large capital.',
   },
   ml: {
     appTitle: 'അപ്സ്റ്റോക്സ് ലൈവ് അൽഗോരിതം ടെർമിനൽ',
@@ -250,7 +251,8 @@ export const translations = {
     trailingSLStep: 'ട്രെയിലിംഗ് സ്റ്റോപ്പ് ലോസ്സ് സ്റ്റെപ്പ് %',
     trailingSLEnabled: 'ട്രെയിലിംഗ് സ്റ്റോപ്പ് ലോസ്സ് സജീവം',
     dailyMaxLoss: 'ഡെയിലി പരമാവധി നഷ്ടപരിധി (Max Loss ₹)',
-    dailyMaxLossReached: 'പരമാവധി നഷ്ടപരിധി എത്തി! സുരക്ഷയ്ക്കായി ബോട്ട് താൽക്കാലികമായി നിർത്തിവെച്ചു.',
+    dailyMaxLossReached:
+      'പരമാവധി നഷ്ടപരിധി എത്തി! സുരക്ഷയ്ക്കായി ബോട്ട് താൽക്കാലികമായി നിർത്തിവെച്ചു.',
     dailyTargetProfit: 'പ്രതിദിന ലാഭ ലക്ഷ്യം (Target ₹)',
     multiTimeframe: 'മൾട്ടി-ടൈംഫ്രെയിം സ്ഥിരീകരണം (5m + 15m MTF)',
     mtfConfirmed: '5m & 15m ട്രെൻഡുകൾ ഒരേ ദിശയിലാണെന്ന് ഉറപ്പുവരുത്തി',
@@ -265,6 +267,7 @@ export const translations = {
     proxyActive: 'ഫിക്സഡ് പ്രോക്സി സജീവം',
     proxyInactive: 'നേരിട്ടുള്ള കണക്ഷൻ',
     whitelistNotice: 'ഈ IP-കൾ Upstox-ൽ നിർബന്ധമായും നൽകുക',
-    disclaimer: 'ഓഹരി ട്രേഡിംഗിൽ സാമ്പത്തിക നഷ്ടസാധ്യതയുണ്ട്. ശരിയായ റിസ്ക് മാനേജ്‌മെന്റ് പാലിക്കുകയും വലിയ മൂലധനം ഉപയോഗിക്കുന്നതിന് മുൻപ് തന്ത്രങ്ങൾ പരിശോധിക്കുകയും ചെയ്യുക.',
+    disclaimer:
+      'ഓഹരി ട്രേഡിംഗിൽ സാമ്പത്തിക നഷ്ടസാധ്യതയുണ്ട്. ശരിയായ റിസ്ക് മാനേജ്‌മെന്റ് പാലിക്കുകയും വലിയ മൂലധനം ഉപയോഗിക്കുന്നതിന് മുൻപ് തന്ത്രങ്ങൾ പരിശോധിക്കുകയും ചെയ്യുക.',
   },
 };
